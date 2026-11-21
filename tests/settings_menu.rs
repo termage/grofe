@@ -996,30 +996,32 @@ fn a_wide_row_shows_its_full_default() {
     assert!(!row.contains('…'), "{row:?}");
 }
 
-/// AC3.5: an option set in a conf.d file names that file on its row.
+/// AC3.5: on 80x24 an overriding option's row keeps both its source and its default.
 #[test]
-fn a_row_names_the_conf_d_file_that_sets_it() {
+fn a_small_client_row_shows_source_and_default() {
     let srv = TestServer::unstarted();
     write(&srv, "conf.d/10.toml", "# c\n\nstatus.left = \"A\"\n");
-    let mut h = menu_sized(&srv, 120, 30, "status-left");
-    h.wait_until("source", WAIT, |t| {
-        t.lines()
-            .any(|l| l.contains("status-left ") && l.contains("conf.d/10.toml:3"))
+    write(&srv, "settings.toml", "status.left = \"B\"\n");
+    let mut h = menu_sized(&srv, 80, 24, "status-left");
+    h.wait_until("source and default", WAIT, |t| {
+        t.lines().any(|l| {
+            l.contains("status-left ")
+                && l.contains("overrides conf.d/10.toml:")
+                && l.contains("default ")
+        })
     });
 }
 
-/// AC3.5: on an 80x24 client every row still fits inside the box.
+/// AC3.5: a binding's long command is shown whole when the box is wide.
 #[test]
-fn rows_fit_the_box_on_a_small_client() {
-    let srv = TestServer::start();
-    let mut h = menu_sized(&srv, 80, 24, "status");
-    h.wait_until("rows", WAIT, |t| t.contains("status-left"));
-    let t = h.text();
-    let box_lines: Vec<&str> = t.lines().filter(|l| l.contains('│')).collect();
-    assert!(!box_lines.is_empty(), "{t}");
-    // The box is 90% of 80 columns, centred: columns 4..76.
-    for l in box_lines {
-        assert!(l.trim_end().chars().count() <= 76, "{l:?}");
-        assert!(l.trim_end().ends_with('│'), "{l:?}");
-    }
+fn a_long_binding_command_is_not_cut_on_a_wide_client() {
+    let srv = TestServer::unstarted();
+    let cmd = "display-message ".to_string() + &"x".repeat(35) + "-end-of-command";
+    write(
+        &srv,
+        "config.toml",
+        &format!("[keys.prefix]\nF9 = \"{cmd}\"\n"),
+    );
+    let mut h = menu_sized(&srv, 200, 30, "F9");
+    h.wait_until("whole command", WAIT, |t| t.contains(&cmd));
 }

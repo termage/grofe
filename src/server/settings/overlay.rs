@@ -450,6 +450,18 @@ impl Overlay for SettingsOverlay {
     }
 }
 
+/// An option row's note is cut here; column 2 of `CAPS` is wider so a key
+/// row's command is not cut with it.
+const NOTE_CAP: usize = 36;
+
+/// Column caps. Column 2 is a note on option rows and a command on key rows.
+pub(crate) const CAPS: [Col; 4] = [
+    Col { cap: 26, floor: 13 },
+    Col { cap: 14, floor: 6 },
+    Col { cap: 80, floor: 26 },
+    Col { cap: 30, floor: 19 },
+];
+
 /// The settings.toml diff C-s asks about.
 fn draw_diff(screen: &mut Screen, area: Rect, diff: &[String]) {
     let rows = Rows {
@@ -485,14 +497,8 @@ fn draw_menu(state: &State, menu: &Menu, screen: &mut Screen, size: (u16, u16)) 
     if layout_tab {
         area.cols = full.cols * 3 / 5;
     }
-    let caps = [
-        Col { cap: 32, floor: 16 },
-        Col { cap: 40, floor: 12 },
-        Col { cap: 36, floor: 36 },
-        Col { cap: 40, floor: 12 },
-    ];
     let rows = Rows { cols };
-    listdraw::draw_list_fit(screen, area, &title, &rows, &shown, &ui, true, Some(&caps));
+    listdraw::draw_list_fit(screen, area, &title, &rows, &shown, &ui, true, Some(&CAPS));
     if let Some(Act::Layout { toml, .. }) = chosen.map(|e| &e.act).filter(|_| layout_tab) {
         draw_layout(screen, full, area, toml);
     }
@@ -514,7 +520,7 @@ fn row_cols(menu: &Menu, vals: &[String]) -> Vec<Vec<String>> {
         vec![
             format!("{}{}", mark(menu.set.contains_key(r.name)), r.name),
             v.clone(),
-            r.note.clone(),
+            listdraw::fit_text(&r.note, NOTE_CAP),
             format!("default {}", r.default),
         ]
     });
