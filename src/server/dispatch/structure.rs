@@ -412,7 +412,7 @@ pub fn break_pane(state: &mut State, ctx: &ClientCtx, c: BreakPane) -> Result<St
         model.select_window_in(session, window);
     }
     Ok(if c.print {
-        print_pane(model, pane, c.format.as_deref())
+        print_pane(state, pane, c.format.as_deref())
     } else {
         String::new()
     })

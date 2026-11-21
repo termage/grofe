@@ -82,7 +82,7 @@ async fn next_exit(p: &mut Pane) -> Option<i32> {
         loop {
             match p.events.recv().await {
                 Some(PaneEvent {
-                    kind: PaneEventKind::Exited(code),
+                    kind: PaneEventKind::Exited(code, _),
                     ..
                 }) => return code,
                 Some(_) => continue,

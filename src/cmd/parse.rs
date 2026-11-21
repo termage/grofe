@@ -2768,7 +2768,7 @@ pub fn split_argv(argv: &[String]) -> Vec<Vec<String>> {
     cmds
 }
 
-pub use super::table::canonical_name;
+pub use super::table::{canonical_name, verb_name};
 
 /// The generic path of every table verb: scan the flags, check the
 /// positional bounds (tmux's wording), hand them to the row's builder.

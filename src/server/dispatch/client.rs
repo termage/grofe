@@ -5,8 +5,8 @@
 use tokio::sync::oneshot;
 
 use crate::cmd::{
-    ChooseClient, ChooseTree, Command, CustomizeMode, FindWindow, ParseError, RefreshClient,
-    ShowMessages, SuspendClient, WaitFor,
+    ChooseClient, ChooseTree, CustomizeMode, FindWindow, ParseError, RefreshClient, ShowMessages,
+    SuspendClient, WaitFor,
 };
 use crate::protocol::{ClientCtx, Failure};
 use crate::server::{Job, State, clients, dispatch, hooks, tree};
@@ -193,7 +193,7 @@ pub(crate) struct Held {
 /// depth it was held at, which it runs under again.
 pub(crate) struct HeldFrame {
     pub ctx: ClientCtx,
-    pub cmds: Vec<Command>,
+    pub cmds: Vec<crate::compat::Named>,
     pub keep_going: bool,
     pub depth: u32,
     /// `source-file -v` was on where it was held.

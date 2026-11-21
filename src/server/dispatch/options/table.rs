@@ -326,7 +326,7 @@ pub(super) const BUILTINS: &[Builtin] = builtins! {
     { "status-position", Kind::Choice(&["top", "bottom"]), Session, "bottom", "Whether the status line is at the top or bottom of the window."; toml = "status.position" }
     { "status-style", Kind::String, Session, "bg=green,fg=black", "Style of the status line."; toml = "status.style" }
     { "status-left", Kind::String, Session, "[#{session_name}] ", "Format for the left part of the status line."; toml = "status.left" }
-    { "status-right", Kind::String, Session, "\"#{pane_title}\" %H:%M %d-%b-%y#[range=user|agents]#{agents_badge}#[norange]", "Format for the right part of the status line; grofe's default ends with the agents badge."; toml = "status.right", tmux_default = "\"#{pane_title}\" %H:%M %d-%b-%y" }
+    { "status-right", Kind::String, Session, "\"#{pane_title}\" %H:%M %d-%b-%y#[range=user|agents]#{agents_badge}#[norange]", "Format for the right part of the status line; grofe's default ends with the agents badge."; toml = "status.right", tmux_default = "#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}\"#{=21:pane_title}\" %H:%M %d-%b-%y" }
     { "status-left-length", Kind::Number { max: i16::MAX as i64 }, Session, "10", "The widest the left part of the status line may be, in cells."; toml = "status.left-length" }
     { "status-right-length", Kind::Number { max: i16::MAX as i64 }, Session, "40", "The widest the right part of the status line may be, in cells."; toml = "status.right-length" }
     { "status-interval", Kind::Number { max: i32::MAX as i64 }, Session, "15", "Seconds between status line refreshes and runs of its #() commands; 0 turns the timer off."; toml = "status.interval" }

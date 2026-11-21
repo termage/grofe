@@ -38,9 +38,10 @@ pub(crate) const NEW_PANE_TEMPLATE: &str = "#{session_name}:#{window_index}.#{pa
 
 /// `-P`'s output: `format` (else [`NEW_PANE_TEMPLATE`]) expanded for `pane`,
 /// on a line of its own.
-pub(crate) fn print_pane(model: &Model, pane: PaneId, format: Option<&str>) -> String {
+pub(crate) fn print_pane(state: &State, pane: PaneId, format: Option<&str>) -> String {
     let format = format.unwrap_or(NEW_PANE_TEMPLATE);
-    let mut out = cmd::expand(format, &options::FormatCtx::new(model, pane));
+    let vars = options::FormatCtx::new(&state.model, pane);
+    let mut out = cmd::expand(format, &options::ServerVars::fresh(state, pane, &vars));
     out.push('\n');
     out
 }
@@ -125,7 +126,7 @@ fn split_window(state: &mut State, ctx: &ClientCtx, c: SplitWindow) -> Result<St
     }
     apply_setup(state, ctx, new, &c.setup)?;
     Ok(if c.print {
-        print_pane(&state.model, new, c.format.as_deref())
+        print_pane(state, new, c.format.as_deref())
     } else {
         String::new()
     })
@@ -546,6 +547,7 @@ pub(crate) fn respawn(
         p.handle = handle;
         p.dead = None;
         p.dead_time = None;
+        p.dead_signal = None;
         p.cwd = cwd;
         p.argv = argv.clone();
         before = (p.resume.take(), p.expect.clone());

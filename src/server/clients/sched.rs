@@ -100,6 +100,7 @@ pub fn wake(state: &mut State) {
         .map(|p| p.id)
         .collect();
     crate::server::alerts::output(state, &dirty);
+    crate::server::unseen::output(state, &dirty);
     scan_agents(state, &dirty);
     if !dirty.is_empty() {
         arm_names(state, Instant::now());

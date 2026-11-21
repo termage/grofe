@@ -112,7 +112,7 @@ pub fn source_file(state: &mut State, ctx: &ClientCtx, c: SourceFile) -> Result<
                         };
                         held.frames.push(super::super::client::HeldFrame {
                             ctx: ctx.clone(),
-                            cmds: vec![Command::SourceFile(rest)],
+                            cmds: vec![("source-file", Command::SourceFile(rest))],
                             keep_going: true,
                             depth: state.source_depth,
                             verbose: state.source_verbose,
@@ -224,7 +224,7 @@ pub(super) struct Parsed {
     /// What `-v` traced.
     pub(super) shown: String,
     /// The commands of each line, to run in turn (none with `-n`).
-    pub(super) groups: Vec<Vec<Command>>,
+    pub(super) groups: Vec<Vec<crate::compat::Named>>,
     /// The context they run in.
     pub(super) run: ClientCtx,
     /// The source-file depth and `-v` they run under.
@@ -448,7 +448,7 @@ pub(super) fn parse_tmux_file(
                 Err((true, e)) => return refused(state, at(line, &e)),
                 Err((false, e)) => {
                     // Fails when its turn comes; the line stops there.
-                    group.push(Command::Refused(at(line, &e)));
+                    group.push(("", Command::Refused(at(line, &e))));
                     break;
                 }
             }

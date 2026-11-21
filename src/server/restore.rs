@@ -353,6 +353,7 @@ fn restore_session(
         activity: Instant::now(),
         attached: 0,
         created: std::time::SystemTime::now(),
+        last_attached: None,
     });
     for (window, snap) in windows {
         let (wid, active_pane) = (window.id, window.active);

@@ -136,6 +136,7 @@ pub fn new_session(state: &mut State, ctx: &ClientCtx, c: NewSession) -> Result<
         activity: Instant::now(),
         attached: 0,
         created: std::time::SystemTime::now(),
+        last_attached: None,
     });
     let named = c.window_name.is_some();
     model.insert_window(Window {
@@ -233,6 +234,7 @@ fn new_grouped(
         activity: Instant::now(),
         attached: 0,
         created: std::time::SystemTime::now(),
+        last_attached: None,
     };
     model.insert_session(session);
     if model.group_of(target).is_none() {

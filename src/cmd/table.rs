@@ -76,6 +76,11 @@ pub fn canonical_name(name: &str) -> &str {
     find(name).map_or(name, |r| r.name)
 }
 
+/// The full name of the verb `name` (or its alias) names (`#{command}`).
+pub fn verb_name(name: &str) -> Option<&'static str> {
+    find(name).map(|r| r.name)
+}
+
 pub(super) static ROWS: &[Row] = &[
     row("has-session", "", "t:", 0, |f| {
         Ok(Command::HasSession(HasSession {

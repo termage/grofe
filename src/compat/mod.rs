@@ -4,7 +4,10 @@
 //! parser or to the tmux front end ([`tmux`], FE.1), the variables a pane
 //! gets from the identity, and the `compat-miss.log` writer.
 
+pub mod named;
 pub mod tmux;
+
+pub use named::Named;
 
 use std::ffi::OsStr;
 use std::fs::OpenOptions;

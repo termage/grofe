@@ -66,6 +66,8 @@ pub struct Session {
     pub attached: usize,
     /// When the session was created (`session_created`).
     pub created: std::time::SystemTime,
+    /// When a client last attached or switched to it (`session_last_attached`).
+    pub last_attached: Option<std::time::SystemTime>,
 }
 
 pub struct Window {
@@ -408,6 +410,8 @@ pub struct Pane {
     pub dead: Option<Option<i32>>,
     /// When the pane died (`#{pane_dead_time}`); set with `dead`.
     pub dead_time: Option<std::time::SystemTime>,
+    /// The signal that killed the dead pane's process (`pane_dead_signal`).
+    pub dead_signal: Option<i32>,
     /// The size last given to the pty.
     pub cols: u16,
     pub rows: u16,
@@ -1511,6 +1515,7 @@ mod tests {
                 restored: false,
                 dead: None,
                 dead_time: None,
+                dead_signal: None,
                 cols: 80,
                 rows: 24,
                 input_off: false,
@@ -1535,6 +1540,7 @@ mod tests {
             activity: Instant::now(),
             attached: 0,
             created: std::time::SystemTime::now(),
+            last_attached: None,
         });
         id
     }

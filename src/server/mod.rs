@@ -63,6 +63,7 @@ pub mod status;
 pub(crate) mod toast;
 pub(crate) mod tray;
 pub mod tree;
+pub mod unseen;
 pub mod x11;
 
 use std::collections::BTreeMap;
@@ -285,6 +286,10 @@ pub struct State {
     /// What a request printed before the command that failed it: the
     /// reply carries it next to the error, as tmux prints both (FE.2).
     pub(crate) failed_out: String,
+    /// The verb of the command running now (`#{command}`).
+    pub(crate) command: Option<&'static str>,
+    /// The panes that had output while in a mode ([`unseen`]).
+    pub(crate) unseen: std::collections::BTreeSet<crate::types::PaneId>,
     /// Set by a command (`kill-server`, the last session closing): the
     /// actor removes the socket, sends the reply, and stops.
     pub exit: bool,
@@ -437,7 +442,7 @@ fn handle_pane_event(state: &mut State, event: PaneEvent) {
         kind,
     } = event;
     let Some(p) = state.model.panes.get(&pane) else {
-        if matches!(kind, PaneEventKind::Exited(_)) {
+        if matches!(kind, PaneEventKind::Exited(..)) {
             state.model.drop_stashed(pane, generation);
         }
         return;
@@ -446,7 +451,7 @@ fn handle_pane_event(state: &mut State, event: PaneEvent) {
         return;
     }
     match kind {
-        PaneEventKind::Exited(status) => {
+        PaneEventKind::Exited(status, signal) => {
             let (uid, window) = (p.uid.clone(), p.window);
             // The pane may be gone from the model by the time this is sent.
             let place = state.model.place_of(p);
@@ -458,6 +463,9 @@ fn handle_pane_event(state: &mut State, event: PaneEvent) {
             // A restored pane whose resumed process exited is kept (T4.4).
             if !restore::on_pane_exited(state, pane) {
                 state.model.pane_exited(pane, status);
+                if let Some(p) = state.model.panes.get_mut(&pane) {
+                    p.dead_signal = signal;
+                }
                 // A kept pane shows its `remain-on-exit-format` text.
                 if state
                     .model
@@ -699,6 +707,8 @@ async fn serve(
         deferred_reply: None,
         held: None,
         failed_out: String::new(),
+        command: None,
+        unseen: Default::default(),
         source_depth: 0,
         source_verbose: false,
         typing: (0, false),
@@ -1491,6 +1501,8 @@ fn test_state_at(socket: PathBuf) -> (State, mpsc::Receiver<Job>) {
         deferred_reply: None,
         held: None,
         failed_out: String::new(),
+        command: None,
+        unseen: Default::default(),
         source_depth: 0,
         source_verbose: false,
         typing: (0, false),

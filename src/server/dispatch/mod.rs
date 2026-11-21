@@ -67,7 +67,8 @@ use crate::{compat, server};
 pub enum Parsed {
     /// [`ATTACH_CHECK`] with `attach-session`'s arguments.
     AttachCheck(Vec<String>),
-    Commands(Vec<Command>),
+    /// Each with the verb it came from (`#{command}`).
+    Commands(Vec<compat::Named>),
 }
 
 /// Parses a request's argv (`argv[0]` is the verb): grofe aliases
@@ -78,7 +79,7 @@ pub fn parse(state: &State, ctx: &ClientCtx, argv: &[String]) -> Result<Parsed, 
         return Ok(Parsed::AttachCheck(argv[1..].to_vec()));
     }
     let expanded = menu::expand_aliases(state, argv);
-    compat::parse_request(ctx, expanded.as_deref().unwrap_or(argv)).map(Parsed::Commands)
+    compat::named::request(ctx, expanded.as_deref().unwrap_or(argv)).map(Parsed::Commands)
 }
 
 /// Runs a request's argv against the server state, returning its stdout
@@ -118,13 +119,13 @@ pub(crate) fn parse_split(
     state: &State,
     ctx: &ClientCtx,
     argv: &[String],
-) -> Result<Vec<Command>, String> {
+) -> Result<Vec<compat::Named>, String> {
     let Some(expanded) = menu::expand_alias_command(state, argv) else {
-        return compat::parse_split(ctx, argv);
+        return compat::named::split(ctx, argv);
     };
     let mut cmds = Vec::new();
     for argv in &expanded {
-        cmds.extend(compat::parse_split(ctx, argv)?);
+        cmds.extend(compat::named::split(ctx, argv)?);
     }
     Ok(cmds)
 }
@@ -136,13 +137,13 @@ pub(crate) fn parse_split_checked(
     state: &State,
     ctx: &ClientCtx,
     argv: &[String],
-) -> Result<Vec<Command>, (bool, String)> {
+) -> Result<Vec<compat::Named>, (bool, String)> {
     let Some(expanded) = menu::expand_alias_command(state, argv) else {
-        return compat::parse_split_checked(ctx, argv);
+        return compat::named::split_checked(ctx, argv);
     };
     let mut cmds = Vec::new();
     for argv in &expanded {
-        cmds.extend(compat::parse_split_checked(ctx, argv)?);
+        cmds.extend(compat::named::split_checked(ctx, argv)?);
     }
     Ok(cmds)
 }
@@ -151,14 +152,14 @@ pub(crate) fn parse_split_checked(
 /// expanding an alias, since `bind-key` expanded it when the key was
 /// bound, as tmux 3.7b does (a chain `a=b`, `b=...` expands once).
 pub fn run_bound(state: &mut State, ctx: &ClientCtx, argv: &[String]) -> Result<String, String> {
-    let cmds = compat::parse_split(ctx, argv)?;
+    let cmds = compat::named::split(ctx, argv)?;
     run_commands(state, ctx, cmds)
 }
 
 pub(crate) fn run_commands(
     state: &mut State,
     ctx: &ClientCtx,
-    cmds: Vec<Command>,
+    cmds: Vec<compat::Named>,
 ) -> Result<String, String> {
     run_commands_logged(state, ctx, cmds, &mut CommandLog::new())
 }
@@ -168,7 +169,7 @@ pub(crate) fn run_commands(
 fn run_commands_logged(
     state: &mut State,
     ctx: &ClientCtx,
-    cmds: Vec<Command>,
+    cmds: Vec<compat::Named>,
     log: &mut CommandLog,
 ) -> Result<String, String> {
     // Names follow their panes (automatic-rename) before a command reads
@@ -180,13 +181,17 @@ fn run_commands_logged(
     let mut result = Ok(());
     let mut cmds = cmds.into_iter();
     server::hooks::enter(state);
-    while let Some(cmd) = cmds.next() {
+    while let Some((verb, cmd)) = cmds.next() {
         let answered = state.deferred_reply.is_none();
         let shell = matches!(cmd, Command::RunShell(_));
         if server::hooks::depth(state) == 1 && !server::hooks::in_hook(state) {
             clients::log_fired(state, log);
         }
-        match server::hooks::run_command(state, ctx, cmd, route) {
+        server::unseen::sweep(state);
+        let outer = state.command.replace(verb);
+        let ran = server::hooks::run_command(state, ctx, cmd, route);
+        state.command = outer;
+        match ran {
             Ok(text) => out.push_str(&text),
             Err(e) => {
                 // What ran before the failing command still prints, before
@@ -218,7 +223,7 @@ fn run_commands_logged(
             && state.deferred_reply.is_none()
             && server::hooks::request_waiting(state);
         if state.held.is_some() || hook_waits {
-            let rest: Vec<Command> = cmds.collect();
+            let rest: Vec<compat::Named> = cmds.collect();
             let held = state.held.get_or_insert_default();
             if !rest.is_empty() {
                 held.frames.push(client::HeldFrame {
@@ -257,7 +262,7 @@ pub fn read_only(parsed: &Result<Parsed, String>) -> bool {
         Ok(Parsed::Commands(cmds)) => cmds,
         Err(_) => return false,
     };
-    cmds.iter().all(|c| {
+    cmds.iter().all(|(_, c)| {
         matches!(
             c,
             Command::ListSessions(_)
@@ -624,6 +629,7 @@ pub(crate) fn spawn_pane_delayed(
             cwd,
             dead: None,
             dead_time: None,
+            dead_signal: None,
             cols,
             rows,
             input_off: false,

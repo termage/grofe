@@ -199,9 +199,6 @@ fn no_last_window_or_pane_says_so_in_tmuxs_words() {
 /// client) that grofe has no value for, and why. `docs/compat-coverage.md`
 /// lists them too. A name missing from grofe and not here fails the test.
 const NOT_PROVIDED: &[&str] = &[
-    // The command being run: grofe's `display-message -a` has no command.
-    "command",
-    "config_files",
     // Emulator state alacritty keeps private or does not track.
     "history_all_bytes",
     "pane_bg",
@@ -210,16 +207,11 @@ const NOT_PROVIDED: &[&str] = &[
     "pane_pb_progress",
     "pane_pb_state",
     "pane_tabs",
-    "pane_unseen_changes",
     "scroll_region_lower",
     "scroll_region_upper",
-    "synchronized_output_flag",
-    // Data grofe does not keep.
+    // tmux lists 0 before any attach, which it expands to nothing; grofe
+    // has only the nothing.
     "session_last_attached",
-    "sixel_support",
-    "window_active_clients",
-    "window_cell_height",
-    "window_cell_width",
 ];
 
 fn names(text: &str) -> Vec<String> {

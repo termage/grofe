@@ -211,7 +211,7 @@ pub fn new_pane(state: &mut State, ctx: &ClientCtx, c: NewPane) -> Result<String
     if !c.print {
         return Ok(String::new());
     }
-    Ok(print_pane(&state.model, new, c.format.as_deref()))
+    Ok(print_pane(state, new, c.format.as_deref()))
 }
 
 /// The content rect `(x, y, cols, rows)` of a new floating pane in `w`, from
