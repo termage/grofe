@@ -972,3 +972,54 @@ fn prefix_c_opens_the_menu_when_the_prefix_is_ctrl_s() {
     h.send(format!("{CTRL_S}C"));
     h.wait_until("menu open", WAIT, |t| t.contains("Appearance"));
 }
+
+/// A client of `w` by `h` with the menu open and `q` typed.
+fn menu_sized(srv: &TestServer, w: u16, h: u16, q: &str) -> Harness {
+    let mut h = attached(srv, w, h);
+    h.send(format!("{PREFIX}C"));
+    h.wait_until("menu open", WAIT, |t| t.contains("Appearance"));
+    type_query(&mut h, q);
+    h
+}
+
+/// AC3.5: on a wide client a row shows its whole default, not a cut one.
+#[test]
+fn a_wide_row_shows_its_full_default() {
+    let srv = TestServer::start();
+    let mut h = menu_sized(&srv, 120, 30, "status-left");
+    h.wait_until("default column", WAIT, |t| {
+        t.lines()
+            .any(|l| l.contains("status-left ") && l.contains("default [#{session_name}]"))
+    });
+    let t = h.text();
+    let row = t.lines().find(|l| l.contains("status-left ")).unwrap();
+    assert!(!row.contains('…'), "{row:?}");
+}
+
+/// AC3.5: an option set in a conf.d file names that file on its row.
+#[test]
+fn a_row_names_the_conf_d_file_that_sets_it() {
+    let srv = TestServer::unstarted();
+    write(&srv, "conf.d/10.toml", "# c\n\nstatus.left = \"A\"\n");
+    let mut h = menu_sized(&srv, 120, 30, "status-left");
+    h.wait_until("source", WAIT, |t| {
+        t.lines()
+            .any(|l| l.contains("status-left ") && l.contains("conf.d/10.toml:3"))
+    });
+}
+
+/// AC3.5: on an 80x24 client every row still fits inside the box.
+#[test]
+fn rows_fit_the_box_on_a_small_client() {
+    let srv = TestServer::start();
+    let mut h = menu_sized(&srv, 80, 24, "status");
+    h.wait_until("rows", WAIT, |t| t.contains("status-left"));
+    let t = h.text();
+    let box_lines: Vec<&str> = t.lines().filter(|l| l.contains('│')).collect();
+    assert!(!box_lines.is_empty(), "{t}");
+    // The box is 90% of 80 columns, centred: columns 4..76.
+    for l in box_lines {
+        assert!(l.trim_end().chars().count() <= 76, "{l:?}");
+        assert!(l.trim_end().ends_with('│'), "{l:?}");
+    }
+}

@@ -9,7 +9,7 @@ use std::time::Instant;
 use crate::config::{self, Env};
 use crate::server::customize;
 use crate::server::input::{Input, InputHook, Key, KeyCode, Routed};
-use crate::server::listdraw::{self, Rows};
+use crate::server::listdraw::{self, Col, Rows};
 use crate::server::listview::{self, ListAction, ListState};
 use crate::server::prompt;
 use crate::server::render::{Overlay, OverlayCtx, Screen};
@@ -485,7 +485,14 @@ fn draw_menu(state: &State, menu: &Menu, screen: &mut Screen, size: (u16, u16)) 
     if layout_tab {
         area.cols = full.cols * 3 / 5;
     }
-    listdraw::draw_list(screen, area, &title, &Rows { cols }, &shown, &ui, true);
+    let caps = [
+        Col { cap: 32, floor: 16 },
+        Col { cap: 40, floor: 12 },
+        Col { cap: 36, floor: 36 },
+        Col { cap: 40, floor: 12 },
+    ];
+    let rows = Rows { cols };
+    listdraw::draw_list_fit(screen, area, &title, &rows, &shown, &ui, true, Some(&caps));
     if let Some(Act::Layout { toml, .. }) = chosen.map(|e| &e.act).filter(|_| layout_tab) {
         draw_layout(screen, full, area, toml);
     }
@@ -506,9 +513,9 @@ fn row_cols(menu: &Menu, vals: &[String]) -> Vec<Vec<String>> {
     let options = menu.rows.iter().zip(vals).map(|(r, v)| {
         vec![
             format!("{}{}", mark(menu.set.contains_key(r.name)), r.name),
-            truncate(v, 14),
+            v.clone(),
             r.note.clone(),
-            format!("default {}", truncate(r.default, 12)),
+            format!("default {}", r.default),
         ]
     });
     extra.chain(options).collect()
@@ -536,14 +543,4 @@ fn tabs(current: usize, searching: bool) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    let s = s.replace('\n', " ");
-    if s.chars().count() <= max {
-        return s;
-    }
-    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
-    out
 }
