@@ -63,16 +63,24 @@ use crate::server::status::{
 use crate::server::{State, dispatch, graphics, hooks};
 use crate::types::{ClientId, PaneId, Rect, SessionId, WindowId, cap_size};
 
+mod attach;
+mod commands;
 mod compose;
+mod entry;
 mod geometry;
 mod input;
 mod lifecycle;
+mod messages;
 mod sched;
 
+pub use self::attach::*;
+pub use self::commands::*;
 pub use self::compose::*;
+pub use self::entry::*;
 pub use self::geometry::*;
 pub use self::input::*;
 pub use self::lifecycle::*;
+pub use self::messages::*;
 pub use self::sched::*;
 
 #[cfg(test)]
