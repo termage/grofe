@@ -110,6 +110,82 @@ pub fn draw_list(
     st: &ListState,
     show_query: bool,
 ) {
+    draw_list_fit(screen, area, title, rows, visible, st, show_query, None);
+}
+
+/// How a column is fitted by [`draw_list_fit`]: the widest it may be, and
+/// the width below which it is narrowed only once every other column has
+/// been narrowed to its own floor.
+#[derive(Debug, Clone, Copy)]
+pub struct Col {
+    pub cap: usize,
+    pub floor: usize,
+}
+
+/// Column widths for `inner` cells (`cols` must cover every column of
+/// `natural`): each column as wide as its widest
+/// measured cell up to its cap, then the widest columns above their floor
+/// narrowed until the row fits. An all-empty column takes no gap.
+fn fit_widths(natural: &[usize], cols: &[Col], inner: usize) -> Vec<usize> {
+    // `cols` covers every column of `natural`.
+    let col = |c: usize| cols[c];
+    let mut widths: Vec<usize> = natural
+        .iter()
+        .enumerate()
+        .map(|(c, &w)| w.min(col(c).cap))
+        .collect();
+    let total = |w: &[usize]| {
+        let used = w.iter().filter(|&&w| w > 0);
+        used.clone().sum::<usize>() + 2 * used.count().saturating_sub(1)
+    };
+    while total(&widths) > inner {
+        let above = |floor: fn(Col) -> usize| {
+            (0..widths.len())
+                .filter(|&c| widths[c] > floor(col(c)).max(4))
+                .max_by_key(|&c| widths[c])
+        };
+        match above(|c| c.floor).or_else(|| above(|_| 4)) {
+            Some(c) => widths[c] -= 1,
+            None => break,
+        }
+    }
+    widths
+}
+
+/// `text` on one line, cut to `max` cells with a trailing `…` when longer.
+pub fn fit_text(text: &str, max: usize) -> String {
+    let text = text.replace('\n', " ");
+    if width(&text) <= max {
+        return text;
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for c in text.chars() {
+        let w = UnicodeWidthChar::width(c).unwrap_or(0);
+        if used + w + 1 > max {
+            break;
+        }
+        out.push(c);
+        used += w;
+    }
+    out.push('…');
+    out
+}
+
+/// [`draw_list`], laying the columns out to the box when `cols` is given:
+/// each column is capped, the widest are narrowed until a row fits, and a
+/// cell cut short ends in `…`.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_list_fit(
+    screen: &mut Screen,
+    area: Rect,
+    title: &str,
+    rows: &Rows,
+    visible: &[usize],
+    st: &ListState,
+    show_query: bool,
+    cols: Option<&[Col]>,
+) {
     let plain = Style::default();
     let (x0, y0) = (usize::from(area.x), usize::from(area.y));
     let (w, h) = (usize::from(area.cols), usize::from(area.rows));
@@ -176,6 +252,10 @@ pub fn draw_list(
                 .unwrap_or(0)
         })
         .collect();
+    let widths = match cols {
+        Some(cols) => fit_widths(&widths, cols, ix1 - ix0),
+        None => widths,
+    };
 
     for (n, &i) in shown.iter().enumerate() {
         let row_y = y + n;
@@ -192,7 +272,16 @@ pub fn draw_list(
             if x >= ix1 {
                 break;
             }
-            put_text(screen, x, row_y, ix1, text, &style);
+            if cols.is_some() {
+                if widths[c] == 0 {
+                    continue;
+                }
+                let last = cells.len() - 1 == c;
+                let room = if last { ix1 - x } else { widths[c] };
+                put_text(screen, x, row_y, ix1, &fit_text(text, room), &style);
+            } else {
+                put_text(screen, x, row_y, ix1, text, &style);
+            }
             x += widths[c] + 2;
         }
     }
@@ -271,6 +360,67 @@ mod tests {
         let cell = &s.cells[10 + 1];
         assert!(cell.flags.contains(CellFlags::WIDE_CHAR));
         assert!(s.cells[10 + 2].flags.contains(CellFlags::WIDE_CHAR_SPACER));
+    }
+
+    #[test]
+    fn fit_keeps_columns_whole_when_the_box_is_wide() {
+        let r = rows(&[&["status-left", "[#{session_name}]", "default [x]"]]);
+        let mut s = Screen::new(60, 4);
+        let caps = [Col { cap: 32, floor: 4 }; 3];
+        let st = ListState::default();
+        draw_list_fit(&mut s, area(60, 4), "t", &r, &[0], &st, false, Some(&caps));
+        assert_eq!(
+            line(&s, 1).trim_end(),
+            "│status-left  [#{session_name}]  default [x]               │"
+        );
+    }
+
+    #[test]
+    fn fit_narrows_the_widest_column_with_an_ellipsis() {
+        let r = rows(&[&["name", "a-very-long-value-indeed", "default z"]]);
+        let mut s = Screen::new(30, 4);
+        let caps = [Col { cap: 32, floor: 4 }; 3];
+        let st = ListState::default();
+        draw_list_fit(&mut s, area(30, 4), "t", &r, &[0], &st, false, Some(&caps));
+        let l = line(&s, 1);
+        assert!(l.contains("name  a-very-lon…  default z"), "{l:?}");
+        assert_eq!(l.chars().count(), 30);
+    }
+
+    #[test]
+    fn fit_narrows_the_columns_above_their_floor_and_keeps_the_note() {
+        use crate::server::settings::overlay::CAPS;
+        let (name, value, note) = ("n".repeat(26), "v".repeat(14), "o".repeat(26));
+        let default = format!("default {}", "d".repeat(22));
+        let r = rows(&[&[&name, &value, &note, &default]]);
+        // Inner 70: the natural 26+14+26+30 and 6 of gaps do not fit.
+        let mut s = Screen::new(72, 4);
+        let st = ListState::default();
+        draw_list_fit(&mut s, area(72, 4), "t", &r, &[0], &st, false, Some(&CAPS));
+        let l = line(&s, 1);
+        assert!(l.contains(&note), "{l:?}");
+        assert_eq!(l.matches('…').count(), 3, "{l:?}");
+    }
+
+    #[test]
+    fn fit_gives_an_all_empty_column_no_gap() {
+        let r = rows(&[&["a", "", "b"]]);
+        let mut s = Screen::new(20, 4);
+        let caps = [Col { cap: 32, floor: 4 }; 3];
+        let st = ListState::default();
+        draw_list_fit(&mut s, area(20, 4), "t", &r, &[0], &st, false, Some(&caps));
+        assert_eq!(line(&s, 1).trim_end(), "│a  b              │");
+    }
+
+    #[test]
+    fn fit_cuts_a_wide_character_before_the_ellipsis() {
+        let r = rows(&[&["日本語日本語", "z"]]);
+        let mut s = Screen::new(12, 4);
+        let caps = [Col { cap: 5, floor: 4 }; 2];
+        let st = ListState::default();
+        draw_list_fit(&mut s, area(12, 4), "t", &r, &[0], &st, false, Some(&caps));
+        // Cap 5: two wide chars (4 cells) plus the ellipsis; a third would not fit.
+        assert_eq!(line(&s, 1).trim_end(), "│日本…  z  │");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use std::time::Instant;
 use crate::config::{self, Env};
 use crate::server::customize;
 use crate::server::input::{Input, InputHook, Key, KeyCode, Routed};
-use crate::server::listdraw::{self, Rows};
+use crate::server::listdraw::{self, Col, Rows};
 use crate::server::listview::{self, ListAction, ListState};
 use crate::server::prompt;
 use crate::server::render::{Overlay, OverlayCtx, Screen};
@@ -450,6 +450,18 @@ impl Overlay for SettingsOverlay {
     }
 }
 
+/// An option row's note is cut here; column 2 of `CAPS` is wider so a key
+/// row's command is not cut with it.
+const NOTE_CAP: usize = 36;
+
+/// Column caps. Column 2 is a note on option rows and a command on key rows.
+pub(crate) const CAPS: [Col; 4] = [
+    Col { cap: 26, floor: 13 },
+    Col { cap: 14, floor: 6 },
+    Col { cap: 80, floor: 26 },
+    Col { cap: 30, floor: 19 },
+];
+
 /// The settings.toml diff C-s asks about.
 fn draw_diff(screen: &mut Screen, area: Rect, diff: &[String]) {
     let rows = Rows {
@@ -485,7 +497,8 @@ fn draw_menu(state: &State, menu: &Menu, screen: &mut Screen, size: (u16, u16)) 
     if layout_tab {
         area.cols = full.cols * 3 / 5;
     }
-    listdraw::draw_list(screen, area, &title, &Rows { cols }, &shown, &ui, true);
+    let rows = Rows { cols };
+    listdraw::draw_list_fit(screen, area, &title, &rows, &shown, &ui, true, Some(&CAPS));
     if let Some(Act::Layout { toml, .. }) = chosen.map(|e| &e.act).filter(|_| layout_tab) {
         draw_layout(screen, full, area, toml);
     }
@@ -506,9 +519,9 @@ fn row_cols(menu: &Menu, vals: &[String]) -> Vec<Vec<String>> {
     let options = menu.rows.iter().zip(vals).map(|(r, v)| {
         vec![
             format!("{}{}", mark(menu.set.contains_key(r.name)), r.name),
-            truncate(v, 14),
-            r.note.clone(),
-            format!("default {}", truncate(r.default, 12)),
+            v.clone(),
+            listdraw::fit_text(&r.note, NOTE_CAP),
+            format!("default {}", r.default),
         ]
     });
     extra.chain(options).collect()
@@ -536,14 +549,4 @@ fn tabs(current: usize, searching: bool) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    let s = s.replace('\n', " ");
-    if s.chars().count() <= max {
-        return s;
-    }
-    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
-    out
 }
