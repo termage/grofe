@@ -11,6 +11,7 @@ pub fn frame(state: &mut State, id: ClientId, frame: Frame) {
     match frame {
         Frame::Input(bytes) => input(state, id, &bytes, Instant::now()),
         Frame::Resize(cols, rows) => {
+            crate::server::settings::overlay::resized(state, id, (cols, rows));
             let Some(c) = state.clients.get_mut(&id) else {
                 return;
             };
@@ -114,6 +115,7 @@ pub(super) fn remove(state: &mut State, id: ClientId, reason: Option<String>) {
     crate::server::sidebar::client_gone(state, id);
     crate::server::grid::client_gone(state, id);
     crate::server::keymenu::client_gone(state, id);
+    crate::server::settings::overlay::client_gone(state, id, &c.ctx);
     crate::server::mouse::client_gone(state, id);
     if let (Some(tx), Some(reason)) = (c.exit.take(), reason) {
         let _ = tx.send(reason);

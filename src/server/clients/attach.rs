@@ -145,6 +145,9 @@ pub fn attach(state: &mut State, req: AttachRequest) -> Result<Accepted, String>
             render::Level::Warning,
         );
     }
+    if req.extras.open_settings {
+        let _ = crate::server::settings::overlay::open(state, id);
+    }
     Ok(Accepted {
         id,
         output,
