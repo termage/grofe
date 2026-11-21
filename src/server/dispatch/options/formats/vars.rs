@@ -43,6 +43,9 @@ impl FormatVars for FormatCtx<'_> {
             "buffer_mode_format" => return Some(BUFFER_MODE_FORMAT.to_string()),
             "client_mode_format" => return Some(CLIENT_MODE_FORMAT.to_string()),
             "pid" => return Some(std::process::id().to_string()),
+            // grofe draws sixel images (the `graphics` option), as a tmux
+            // built with `--enable-sixel`.
+            "sixel_support" => return Some("1".to_string()),
             "start_time" => {
                 let since = m.started?.duration_since(std::time::UNIX_EPOCH).ok()?;
                 return Some(since.as_secs().to_string());
@@ -93,6 +96,8 @@ impl FormatVars for FormatCtx<'_> {
             "window_panes" => w.pane_ids().len().to_string(),
             "pane_floating_flag" => flag(w.floating(p.id).is_some()),
             "session_windows" => s.windows.len().to_string(),
+            // Nothing until a client attaches, as tmux's zero time.
+            "session_last_attached" => epoch_secs(s.last_attached?),
             "session_created" => s
                 .created
                 .duration_since(std::time::UNIX_EPOCH)
@@ -197,6 +202,9 @@ impl FormatVars for FormatCtx<'_> {
             // Empty for a live pane and for one a signal killed, as tmux.
             "pane_dead_status" => p.dead.flatten()?.to_string(),
             "pane_dead_time" => epoch_secs(p.dead_time?),
+            // tmux's `sig2name` on Linux, which has no `sys_signame`: the
+            // number (recorded: `15`; a BSD tmux prints `term`).
+            "pane_dead_signal" => p.dead_signal?.to_string(),
             "pane_start_command" => p
                 .argv
                 .as_deref()

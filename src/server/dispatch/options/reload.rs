@@ -24,6 +24,18 @@ pub fn config_files() -> String {
     files.iter().map(|f| format!("{}\n", f.display())).collect()
 }
 
+/// `#{config_files}`: the files the server was started with, comma-joined:
+/// tmux's `-f` files as given (`/dev/null` too, as tmux lists it), else the
+/// config file.
+pub(crate) fn config_files_list() -> String {
+    let files: Vec<PathBuf> = match crate::compat::start_config() {
+        None => config_env().config_file.into_iter().collect(),
+        Some(files) => files,
+    };
+    let names: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
+    names.join(",")
+}
+
 /// The `tmux -f` files that count: a missing file or `/dev/null` is none.
 fn existing_files(files: Vec<PathBuf>) -> Vec<PathBuf> {
     files

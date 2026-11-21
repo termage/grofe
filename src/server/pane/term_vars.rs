@@ -36,6 +36,10 @@ impl PaneHandle {
             "keypad_flag" => flag(TermMode::APP_KEYPAD),
             "wrap_flag" => flag(TermMode::LINE_WRAP),
             "origin_flag" => flag(TermMode::ORIGIN),
+            // Mode 2026: the parser holds the output until it ends.
+            "synchronized_output_flag" => {
+                Some(u8::from(emu.parser.sync_timeout().sync_timeout().is_some()).to_string())
+            }
             // A set of 1000, 1002 or 1003 replaces the others and a reset
             // of any clears them all ([`written`]), as in tmux, so at most
             // one is on.
@@ -77,5 +81,11 @@ impl PaneHandle {
             "mouse_sgr_flag" => flag(TermMode::SGR_MOUSE),
             _ => None,
         }
+    }
+
+    /// One cell's size in pixels as the pane was last given it
+    /// ([`PaneHandle::set_cell_px`]); `None` until a client said.
+    pub fn cell_px(&self) -> Option<(u16, u16)> {
+        *lock(&self.cell_px)
     }
 }

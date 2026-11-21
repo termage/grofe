@@ -33,7 +33,7 @@ pub(crate) fn window_fits(
 
 /// The part of client `c` that shows the window: its size less the
 /// status rows and the columns the agent sidebar holds.
-pub(super) fn visible_size(state: &State, id: ClientId, c: &ClientEntry) -> (u16, u16) {
+pub(crate) fn visible_size(state: &State, id: ClientId, c: &ClientEntry) -> (u16, u16) {
     let lines = status_geometry(&state.model, c.session, c.size.1).lines;
     let reserved = crate::server::sidebar::reserved(state, id, c.size.0);
     (

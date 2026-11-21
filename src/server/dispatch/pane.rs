@@ -546,6 +546,7 @@ pub(crate) fn respawn(
         p.handle = handle;
         p.dead = None;
         p.dead_time = None;
+        p.dead_signal = None;
         p.cwd = cwd;
         p.argv = argv.clone();
         before = (p.resume.take(), p.expect.clone());

@@ -176,6 +176,8 @@ pub struct ClientEntry {
     /// Wall-clock last input or attach (`client_activity`; unlike
     /// `activity`, a switch does not count, as in tmux).
     pub activity_time: SystemTime,
+    /// When it attached (`client_created`).
+    pub created: SystemTime,
     pub decoder: Decoder,
     pub keys: KeyState,
     /// Whether the outer terminal has focus, from its focus reports (the
@@ -204,7 +206,7 @@ pub struct ClientEntry {
     /// visible part the client moved by hand, and where it is; the view
     /// then stops following the cursor until `-c`, another window, or the
     /// window fitting the client, as tmux's `pan_window`.
-    pub(super) pan: Option<(WindowId, u16, u16)>,
+    pub(crate) pan: Option<(WindowId, u16, u16)>,
     /// `suspend-client` stopped the client (TC.9): nothing is drawn for it
     /// until it resumes and sends its size, which redraws it in full.
     pub(super) suspended: bool,

@@ -44,6 +44,8 @@ pub(super) const TABLE: &[&str] = &[
     "client_utf8",
     "client_width",
     "client_written",
+    // Not in format_table: `cmdq_merge_formats` adds it for a command.
+    "command",
     "config_files",
     "cursor_blinking",
     "cursor_character",

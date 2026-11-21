@@ -143,15 +143,20 @@ pub fn list_clients(state: &State, ctx: &ClientCtx, c: ListClients) -> Result<St
         if session.is_some_and(|s| s != client.session) {
             continue;
         }
-        let pane = active_pane(model, client.session).map(|p| FormatCtx::new(model, p));
-        let vars = ClientVars::new(model, client, pane);
+        let active = active_pane(model, client.session);
+        let client_vars = ClientVars::new(model, client, active.map(|p| FormatCtx::new(model, p)));
+        let server_vars = active.map(|p| options::ServerVars::fresh(state, p, &client_vars));
+        let vars: &dyn cmd::FormatVars = match &server_vars {
+            Some(s) => s,
+            None => &client_vars,
+        };
         if let Some(filter) = &c.filter {
-            let got = cmd::expand(filter, &vars);
+            let got = cmd::expand(filter, vars);
             if got.is_empty() || got == "0" {
                 continue;
             }
         }
-        out.push_str(&format!("{}\n", cmd::expand(&format, &vars)));
+        out.push_str(&format!("{}\n", cmd::expand(&format, vars)));
     }
     Ok(out)
 }

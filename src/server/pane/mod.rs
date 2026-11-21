@@ -65,8 +65,9 @@ pub struct PaneEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaneEventKind {
-    /// Child exited and the master drained (EOF/EIO or grace period).
-    Exited(Option<i32>),
+    /// Child exited and the master drained (EOF/EIO or grace period): its
+    /// exit code, and the signal that killed it.
+    Exited(Option<i32>, Option<i32>),
     /// Raw bytes read from the master, sent only while the output tap is
     /// on ([`set_output_tap`]).
     Output(Vec<u8>),
@@ -1974,7 +1975,7 @@ mod tests {
             .await
             .expect("Exited in time")
             .expect("an event");
-        assert_eq!(ev.kind, PaneEventKind::Exited(Some(1)));
+        assert_eq!(ev.kind, PaneEventKind::Exited(Some(1), None));
     }
 
     /// A 20-row pane running `script`, once its output shows `END`.
@@ -2081,7 +2082,7 @@ mod tests {
         let handle = PaneHandle::spawn(spec, tx, Arc::new(Notify::new())).expect("spawn");
         let exited = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while let Some(ev) = rx.recv().await {
-                if matches!(ev.kind, PaneEventKind::Exited(_)) {
+                if matches!(ev.kind, PaneEventKind::Exited(..)) {
                     return;
                 }
             }
@@ -2122,7 +2123,7 @@ mod tests {
         }
         let exited = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while let Some(ev) = rx.recv().await {
-                if matches!(ev.kind, PaneEventKind::Exited(_)) {
+                if matches!(ev.kind, PaneEventKind::Exited(..)) {
                     return;
                 }
             }
@@ -2666,7 +2667,7 @@ mod tests {
             .expect("kill");
             let exited = tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 while let Some(ev) = rx.recv().await {
-                    if matches!(ev.kind, PaneEventKind::Exited(_)) {
+                    if matches!(ev.kind, PaneEventKind::Exited(..)) {
                         return true;
                     }
                 }

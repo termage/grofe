@@ -5,5 +5,12 @@ use crate::tp::check;
 
 #[test]
 fn format_variables_match_tmux() {
-    check("fv", "variables", &[]);
+    check(
+        "fv",
+        "variables",
+        &[(
+            "$ display-message -p -t main 'sixel=[#{sixel_support}]'",
+            "grofe draws sixel images; the recorded tmux was built without",
+        )],
+    );
 }

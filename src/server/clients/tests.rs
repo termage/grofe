@@ -282,6 +282,7 @@ fn state_with_client() -> (State, ClientId) {
             caps: Caps::default(),
             activity: Instant::now(),
             activity_time: SystemTime::now(),
+            created: SystemTime::now(),
             decoder: Decoder::new(),
             keys: KeyState::new(),
             focused: true,

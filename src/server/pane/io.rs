@@ -186,7 +186,7 @@ pub(crate) async fn reader(mut r: Reader) {
     let mut buf = Vec::new();
     // A pane whose program never ran has no output to drain.
     let mut drained = r.child.is_none();
-    let mut exit: Option<Option<i32>> = None;
+    let mut exit: Option<(Option<i32>, Option<i32>)> = None;
     let mut quiet_since = Instant::now();
     // The last trim of the row cache, and when to trim after the output stops.
     let mut last_trim: Option<Instant> = None;
@@ -293,16 +293,21 @@ pub(crate) async fn reader(mut r: Reader) {
     // A child that began a synchronized update and exited before its timeout
     // leaves text in the parser's sync buffer; show it before reporting exit.
     r.flush_sync();
-    let event = r.event(PaneEventKind::Exited(exit.flatten()));
+    let (status, signal) = exit.unwrap_or_default();
+    let event = r.event(PaneEventKind::Exited(status, signal));
     let _ = r.to_actor.send(event).await;
 }
 
-/// The child's exit code; 1 for a program that failed to exec, as tmux
-/// reports it.
-async fn wait_exit(child: &mut Option<tokio::process::Child>) -> Option<i32> {
+/// The child's exit code and the signal that killed it; code 1 for a
+/// program that failed to exec, as tmux reports it.
+async fn wait_exit(child: &mut Option<tokio::process::Child>) -> (Option<i32>, Option<i32>) {
+    use std::os::unix::process::ExitStatusExt;
     match child {
-        Some(child) => child.wait().await.ok().and_then(|s| s.code()),
-        None => Some(1),
+        Some(child) => match child.wait().await {
+            Ok(s) => (s.code(), s.signal()),
+            Err(_) => (None, None),
+        },
+        None => (Some(1), None),
     }
 }
 

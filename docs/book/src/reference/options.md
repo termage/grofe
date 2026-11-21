@@ -1769,7 +1769,11 @@ Default:
 "#{pane_title}" %H:%M %d-%b-%y#[range=user|agents]#{agents_badge}#[norange]
 ```
 
-Default under tmux identity: `"#{pane_title}" %H:%M %d-%b-%y`
+Default under tmux identity:
+
+```text
+#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}"#{=21:pane_title}" %H:%M %d-%b-%y
+```
 
 ## status-right-length
 

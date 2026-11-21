@@ -361,7 +361,10 @@ fn tmux_identity_formats_unchanged() {
     }
     assert_eq!(
         tmux.lookup("status-right", &[]),
-        Some("\"#{pane_title}\" %H:%M %d-%b-%y")
+        Some(
+            "#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}\
+             \"#{=21:pane_title}\" %H:%M %d-%b-%y"
+        )
     );
     let grofe = Options::new(false);
     let right = grofe.lookup("status-right", &[]).unwrap();

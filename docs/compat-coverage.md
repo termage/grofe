@@ -1072,52 +1072,61 @@ them. Not read: tmux's pane-position tokens (`{top}`, `{left-of}`, ...).
 The list is tmux 3.7b's `format.c`: the 195 names of `format_table`, plus what
 the `format_defaults_*` callbacks add, which is only the current mode's
 variables (copy mode's `window_copy_formats`; `format_defaults_session` and
-the rest set the tree's pointers and add no names). `src/cmd/format/names.rs`
-holds the same table, and `display-message -a` lists every name of it that has
-a value. The gaps came from comparing tmux's `display-message -a` with grofe's
-detached, attached, with a buffer and in copy mode, and from each remaining
-name's callback (buffer, mouse, dead pane, window offset).
+the rest set the tree's pointers and add no names), plus `command`, which
+`cmdq_merge_formats` adds for the running command. `src/cmd/format/names.rs`
+holds the same names, and `display-message -a` lists every one of them that
+has a value. The gaps came from comparing tmux's `display-message -a` with
+grofe's detached, attached, with a buffer and in copy mode, and from each
+remaining name's callback (buffer, mouse, dead pane, window offset).
 
-34 names had no value in grofe. 14 now have one, replayed against tmux 3.7b
-by `tests/compat/fv.rs` (`golden/fv/variables`); the client cell size only
-with no client, as tmux reads it from the pty's pixel size, which the
-harness does not set. `client_control_mode`, the one control-mode name in the
-table, came with control mode.
+34 names had no value in grofe: 31 from `format_table`, `command`, and the
+two copy-mode names `copy_cursor_line` and `copy_cursor_hyperlink`. 22 now
+have one, replayed against tmux 3.7b by `tests/compat/fv.rs`
+(`golden/fv/variables`). The client cell size is replayed only with no
+client, because tmux reads it from the pty's pixel size, which the harness
+does not set. `sixel_support` is replayed as a divergence: the recorded tmux
+was built without sixel. `client_control_mode`, the one control-mode name in
+the table, came with control mode.
 
 | Variable | Read from |
 |---|---|
 | `session_active` | whether the formats' client shows the session; empty with no client |
 | `window_active_clients`, `window_active_clients_list` | the clients whose session's current window it is, in client order |
-| `window_bigger`, `window_offset_x`, `window_offset_y` | the client's view of its window (`window_fits`, `viewport`); the offsets only when it is bigger |
-| `window_cell_width`, `window_cell_height` | the cell size of the client the session is sized for, else tmux's 16x32 |
+| `window_bigger` | whether the client's current window is bigger than the client less its status line |
+| `window_offset_x`, `window_offset_y` | tmux's `tty_window_offset1`, only when the window is bigger: a panned view kept inside the window, else the view placed by the cursor (from the near edge, clamped at the far one, or centred on its column with it on the bottom row). grofe draws its own view (`clients::follow`), which moves only as far as it must, so the offsets can differ from what is drawn |
+| `window_cell_width`, `window_cell_height` | the cell size the window's panes were last given, else tmux's 16x32 |
 | `client_cell_width`, `client_cell_height` | the cell size the client's terminal answered to `CSI 16 t`, else 0 |
+| `client_created` | when the client attached |
+| `session_last_attached` | when a client last attached or switched to the session; nothing before that |
 | `mouse_status_line` | the status row under the mouse, on the status line only |
 | `copy_cursor_line`, `copy_cursor_hyperlink` | the copy-mode cursor's line and link target |
 | `buffer_full` | the buffer's text up to its first NUL |
+| `command` | the verb of the command running now |
+| `config_files` | the `tmux -f` files as given, else grofe's config file |
+| `pane_dead_signal` | the signal that killed the dead pane's process, as a number, as a Linux tmux prints it |
+| `pane_unseen_changes` | output while the pane was in a mode, until it leaves its last mode |
+| `synchronized_output_flag` | whether the pane's parser holds its output for mode 2026 (alacritty ends it after 150 ms, tmux after 1 s) |
+| `sixel_support` | 1: grofe draws sixel images, as a tmux built with sixel |
 
-The other 20 are divergences: grofe has no value for them, so they expand to
+The other 12 are divergences: grofe has no value for them, so they expand to
 nothing and `display-message -a` leaves them out (`tests/tmux_parity.rs`,
 `NOT_PROVIDED`, fails on any other gap in the detached list):
 
 | Variable | Why not provided |
 |---|---|
-| `command` | grofe's `display-message` does not carry the running command |
-| `config_files` | the loaded files are not kept as a list |
 | `history_all_bytes` | tmux's grid accounting (per-cell allocation) is not modelled |
 | `pane_bg`, `pane_fg` | a pane's default colours are resolved from its styles only when it is drawn |
 | `pane_key_mode` | grofe has no modifyOtherKeys state per pane |
 | `pane_pb_progress`, `pane_pb_state` | OSC 9;4 progress is not tracked |
 | `pane_tabs` | the emulator keeps its tab stops private |
-| `pane_unseen_changes` | no unseen-output flag per pane |
-| `pane_dead_signal` | a pane's death keeps its exit status, not the signal that killed it |
 | `scroll_region_lower`, `scroll_region_upper` | the emulator keeps the scroll region private |
-| `synchronized_output_flag` | the emulator does not expose mode 2026 |
-| `session_last_attached` | attach times are not recorded |
-| `client_created` | a client's attach time is not recorded |
 | `client_written` | grofe sends a client frames over its own protocol, not terminal bytes it could count as tmux does |
 | `client_termfeatures` | grofe detects a client's features by asking its terminal, not from `terminal-features`, so there is no tmux feature list |
 | `client_theme` | the terminal's dark or light theme (mode 2031) is not asked for |
-| `sixel_support` | grofe's graphics support is the `graphics` option, not a build flag |
+
+`session_last_attached` is also in `NOT_PROVIDED`: before any attach tmux's
+`display-message -a` lists it as 0 but expands it to nothing, and grofe only
+does the second.
 
 Provided with a simplification: `cursor_shape` reads `default` for a steady block (grofe cannot tell it
 from one never set), `cursor_colour` is always `none`, `alternate_saved_x` and

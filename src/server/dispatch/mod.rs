@@ -184,7 +184,11 @@ fn run_commands_logged(
         if server::hooks::depth(state) == 1 && !server::hooks::in_hook(state) {
             clients::log_fired(state, log);
         }
-        match server::hooks::run_command(state, ctx, cmd, route) {
+        server::unseen::sweep(state);
+        let outer = state.command.replace(verb(&cmd));
+        let ran = server::hooks::run_command(state, ctx, cmd, route);
+        state.command = outer;
+        match ran {
             Ok(text) => out.push_str(&text),
             Err(e) => {
                 // What ran before the failing command still prints, before
@@ -287,6 +291,22 @@ pub fn defer_reply(state: &mut State) -> oneshot::Sender<Result<String, crate::p
     let (tx, rx) = oneshot::channel();
     state.deferred_reply = Some(rx);
     tx
+}
+
+/// A command's tmux verb (`#{command}`): its variant's name, in kebab case.
+// ponytail: from the Debug form, as `Command` keeps no verb; a variant named
+// unlike its verb would print that name.
+fn verb(cmd: &Command) -> String {
+    let debug = format!("{cmd:?}");
+    let name = debug.split(['(', ' ', '{']).next().unwrap_or_default();
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            out.push('-');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
 }
 
 fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, String> {
@@ -618,6 +638,7 @@ pub(crate) fn spawn_pane_delayed(
             cwd,
             dead: None,
             dead_time: None,
+            dead_signal: None,
             cols,
             rows,
             input_off: false,

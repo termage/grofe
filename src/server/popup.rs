@@ -408,7 +408,7 @@ async fn forward(
 
 /// One event from the pty of popup `generation`, shown on client `id`.
 fn on_event(state: &mut State, id: ClientId, generation: u64, kind: PaneEventKind) {
-    if let PaneEventKind::Exited(status) = kind {
+    if let PaneEventKind::Exited(status, _) = kind {
         exited(state, id, generation, status);
         return;
     }

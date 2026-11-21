@@ -82,6 +82,7 @@ pub fn attach(state: &mut State, req: AttachRequest) -> Result<Accepted, String>
             term: req.term,
             activity: now,
             activity_time: SystemTime::now(),
+            created: SystemTime::now(),
             decoder: Decoder::new(),
             keys: KeyState::new(),
             focused: true,
@@ -114,6 +115,9 @@ pub fn attach(state: &mut State, req: AttachRequest) -> Result<Accepted, String>
         state.registry.owners.insert(session, SizeOwner::new(id));
     }
     touch_session(&mut state.model, session);
+    if let Some(s) = state.model.sessions.get_mut(&session) {
+        s.last_attached = Some(SystemTime::now());
+    }
     sync_attached(state);
     changed(state);
     if !req.extras.no_env
@@ -283,6 +287,9 @@ pub(crate) fn show_session_with(
         state.registry.owners.insert(session, SizeOwner::new(id));
     }
     touch_session(&mut state.model, session);
+    if let Some(s) = state.model.sessions.get_mut(&session) {
+        s.last_attached = Some(SystemTime::now());
+    }
     sync_attached(state);
     if update_env && let Some(client_env) = state.clients.get(&id).map(|c| c.ctx.env.clone()) {
         hooks::update_environment(state, session, &client_env);
