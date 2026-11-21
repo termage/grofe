@@ -24,6 +24,19 @@ command=[display-message] config=[1] last attached=[]
 $ display-message -p -t main 'sixel=[#{sixel_support}]'
 sixel=[0]
 ? 0
+$ if -F '#{==:#{command},if-shell}' 'display -p if=[yes]' 'display -p if=[no]'
+if=[yes]
+? 0
+$ set-window-option -F -t main:1 @cmd 'set=[#{command}]'
+? 0
+$ show-window-options -v -t main:1 @cmd
+set=[set-window-option]
+? 0
+$ new-window -d -P -F 'printed=[#{command}]' -t main:8 cat
+printed=[new-window]
+? 0
+$ kill-window -t main:8
+? 0
 $ new-window -d -t main:5 'sleep 100000'
 ? 0
 $ set -w -t main:5 remain-on-exit on

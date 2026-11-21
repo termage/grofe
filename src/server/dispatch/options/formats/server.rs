@@ -120,7 +120,7 @@ impl FormatVars for ServerVars<'_> {
                     .or_else(|| self.inner.vars().get(name))
             }
             "session_attached_list" => self.attached_list(),
-            "command" => self.state.command.clone(),
+            "command" => self.state.command.map(String::from),
             "pane_unseen_changes" => Some(crate::server::unseen::format_var(self.state, self.pane)),
             "config_files" => Some(super::config_files_list()),
             "agent_kind"

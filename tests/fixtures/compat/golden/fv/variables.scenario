@@ -13,6 +13,11 @@ $ set-buffer 'hello world'
 $ display-message -p -t main 'buffer=[#{buffer_full}]'
 $ display-message -p -t main 'command=[#{command}] config=[#{m:*/compat/*-defaults.*,#{config_files}}] last attached=[#{session_last_attached}]'
 $ display-message -p -t main 'sixel=[#{sixel_support}]'
+$ if -F '#{==:#{command},if-shell}' 'display -p if=[yes]' 'display -p if=[no]'
+$ set-window-option -F -t main:1 @cmd 'set=[#{command}]'
+$ show-window-options -v -t main:1 @cmd
+$ new-window -d -P -F 'printed=[#{command}]' -t main:8 cat
+$ kill-window -t main:8
 $ new-window -d -t main:5 'sleep 100000'
 $ set -w -t main:5 remain-on-exit on
 $ run-shell -t main:5 'kill -TERM #{pane_pid}'

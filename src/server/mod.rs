@@ -285,7 +285,7 @@ pub struct State {
     /// reply carries it next to the error, as tmux prints both (FE.2).
     pub(crate) failed_out: String,
     /// The verb of the command running now (`#{command}`).
-    pub(crate) command: Option<String>,
+    pub(crate) command: Option<&'static str>,
     /// The panes that had output while in a mode ([`unseen`]).
     pub(crate) unseen: std::collections::BTreeSet<crate::types::PaneId>,
     /// Set by a command (`kill-server`, the last session closing): the
