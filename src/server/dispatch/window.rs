@@ -44,7 +44,7 @@ pub fn new_window(state: &mut State, ctx: &ClientCtx, mut c: NewWindow) -> Resul
     if tmux {
         c.name = c
             .name
-            .map(|n| clean_name("window", &expand_name(state, current, &n)))
+            .map(|n| clean_name("window", &expand_name(state, ctx, current, &n)))
             .transpose()?;
     }
     let model = &state.model;
@@ -57,7 +57,7 @@ pub fn new_window(state: &mut State, ctx: &ClientCtx, mut c: NewWindow) -> Resul
     {
         let session = model.resolve_session(&target, ctx)?;
         let wanted = if tmux {
-            expand_name(state, current, name)
+            expand_name(state, ctx, current, name)
         } else {
             name.clone()
         };
@@ -260,15 +260,15 @@ fn active_pane_of(model: &Model, session: SessionId) -> Option<PaneId> {
 }
 
 /// A tmux-dialect `-n` name expanded as a format (`format_single`) against
-/// `pane`, or against nothing when there is none.
-pub(super) fn expand_name(state: &State, pane: Option<PaneId>, name: &str) -> String {
-    match pane {
-        Some(pane) => {
-            let vars = FormatCtx::new(&state.model, pane);
-            cmd::expand(name, &options::ServerVars::new(state, pane, &vars))
-        }
-        None => cmd::expand(name, &cmd::NoVars),
-    }
+/// `pane` with the client's variables and a running hook's, or against
+/// nothing but the hook's when there is no pane.
+pub(super) fn expand_name(
+    state: &State,
+    ctx: &ClientCtx,
+    pane: Option<PaneId>,
+    name: &str,
+) -> String {
+    crate::server::prompt::expand_at(state, ctx, pane, name)
 }
 
 /// A window or session name (`noun`) as tmux 3.7b stores it (`check_name`,

@@ -287,6 +287,27 @@ fn confirm_before_names_and_keeps_the_command_its_alias_stood_for() {
     wait_window_name(&srv, "confirmed");
 }
 
+/// The native dialect keeps `confirm-before`'s command as written: the
+/// prompt expands formats in it only for a tmux client, so `set -g @x
+/// "#{session_name}"` stores the format itself.
+#[test]
+fn a_native_confirm_before_keeps_its_formats_literal() {
+    let srv = start();
+    bind(
+        &srv,
+        &["X", "confirm-before", "set -g @x \"#{session_name}\""],
+    );
+    let mut a = attach(&srv);
+    a.send("\x02X");
+    wait_last_row(&mut a, "Confirm 'set-option'? (y/n)");
+    a.send("y");
+    try_wait_until(
+        || srv.cmd(&["show", "-gv", "@x"]).unwrap_or_default() == "#{session_name}\n",
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("@x: {e}, got {:?}", srv.cmd(&["show", "-gv", "@x"])));
+}
+
 /// Case 5: a rename prompt starts with the old name.
 #[test]
 fn a_rename_prompt_shows_the_old_name_prefilled() {

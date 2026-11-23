@@ -906,3 +906,26 @@ fn a_user_option_read_through_e_is_converted_as_a_format() {
     );
     assert_eq!(user["plain"].as_str(), Some("#S"));
 }
+
+/// A `command-alias` verb in a `set-hook` command is checked with the
+/// aliases read so far, as a binding's is: the hook and the binding both
+/// import.
+#[test]
+fn a_hook_and_a_binding_import_a_command_alias_verb() {
+    let f = Fixture::new("alias-hooks");
+    let out = f.run(&[]);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", out.stderr);
+    let doc: toml::Table = out.stdout.parse().expect("valid toml");
+    assert!(
+        doc["hooks"]["window-created"].as_str() == Some("zz"),
+        "hook missing from:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("zz"),
+        "binding missing from:\n{}",
+        out.stdout
+    );
+    assert!(!out.stderr.contains("Unknown command"), "{}", out.stderr);
+}

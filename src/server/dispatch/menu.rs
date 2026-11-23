@@ -230,7 +230,12 @@ pub fn confirm_before(
     // Formats are expanded and an alias is expanded now, as tmux expands
     // and parses the command when the prompt opens (`args_make_commands_now`):
     // the prompt names and later runs what it stands for.
-    let expanded = prompt::expand_command(state, ctx, &command);
+    // The native dialect keeps the text as written.
+    let expanded = if ctx.dialect == Dialect::Tmux {
+        prompt::expand_command(state, ctx, &command)
+    } else {
+        command.clone()
+    };
     let mut cmds: Vec<Vec<String>> = Vec::new();
     let mut verb = "";
     for argv in cmd::split_command_string(&expanded).map_err(|e| e.to_string())? {

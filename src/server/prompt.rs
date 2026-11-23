@@ -2365,6 +2365,18 @@ fn run_server_command(state: &mut State, ctx: &ClientCtx, c: RunShell) -> Result
 /// the current pane and client, and inside a hook its `#{hook*}`
 /// variables. Menus expand their items the same way (TC.7).
 pub(crate) fn expand_command(state: &State, ctx: &ClientCtx, text: &str) -> String {
+    let pane = state.model.resolve_pane(&cmd::Target::Current, ctx).ok();
+    expand_at(state, ctx, pane, text)
+}
+
+/// [`expand_command`] against `pane` (none: only the hook and no pane
+/// variables), with the client's variables when `ctx` has a client.
+pub(crate) fn expand_at(
+    state: &State,
+    ctx: &ClientCtx,
+    pane: Option<crate::types::PaneId>,
+    text: &str,
+) -> String {
     use crate::server::dispatch::options::ServerVars;
     let model = &state.model;
     let hook = hooks::current_formats(state);
@@ -2378,7 +2390,7 @@ pub(crate) fn expand_command(state: &State, ctx: &ClientCtx, text: &str) -> Stri
         ),
         None => cmd::expand(text, inner),
     };
-    let Ok(pane) = model.resolve_pane(&cmd::Target::Current, ctx) else {
+    let Some(pane) = pane else {
         return with_hook(&NoVars);
     };
     match clients::current_client(state, ctx).and_then(|id| state.clients.get(&id)) {

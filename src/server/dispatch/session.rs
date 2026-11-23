@@ -22,30 +22,38 @@ use crate::types::{SessionId, cap_size};
 /// (`new_and_attach` in `main.rs`). With `-A` and an existing `-s` name it
 /// attaches to that session instead ([`attach_existing`]).
 pub fn new_session(state: &mut State, ctx: &ClientCtx, c: NewSession) -> Result<String, String> {
-    if c.attach
-        && let Some(id) = c
-            .name
-            .as_deref()
-            .and_then(|n| state.model.session_by_name(n))
-    {
-        attach_existing(state, ctx, id);
-        return Ok(String::new());
-    }
     let tmux = ctx.dialect == crate::protocol::Dialect::Tmux;
     let mut c = c;
-    // In the tmux dialect `-n` is a format, expanded against the client's
-    // session if it has one (tmux 3.7b gives `format_single` no session),
-    // then checked and cleaned.
+    // In the tmux dialect `-s` and `-n` are formats, expanded against the
+    // client's session if it has one (tmux 3.7b gives `format_single` no
+    // session), then checked and cleaned. `-s` comes first: `-A` looks up
+    // the cleaned name.
+    let current = ctx
+        .client
+        .and_then(|id| state.clients.get(&id))
+        .and_then(|client| state.model.sessions.get(&client.session))
+        .and_then(|s| state.model.windows.get(&s.active))
+        .map(|w| w.active);
     if tmux {
-        let current = ctx
-            .client
-            .and_then(|id| state.clients.get(&id))
-            .and_then(|client| state.model.sessions.get(&client.session))
-            .and_then(|s| state.model.windows.get(&s.active))
-            .map(|w| w.active);
+        c.name = c.name.map(|n| expand_name(state, ctx, current, &n));
+    }
+    if c.attach
+        && let Some(name) = &c.name
+    {
+        let name = if tmux {
+            clean_name("session", name)?
+        } else {
+            name.clone()
+        };
+        if let Some(id) = state.model.session_by_name(&name) {
+            attach_existing(state, ctx, id);
+            return Ok(String::new());
+        }
+    }
+    if tmux {
         c.window_name = c
             .window_name
-            .map(|n| clean_name("window", &expand_name(state, current, &n)))
+            .map(|n| clean_name("window", &expand_name(state, ctx, current, &n)))
             .transpose()?;
     }
     let model = &mut state.model;

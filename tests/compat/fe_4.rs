@@ -929,6 +929,85 @@ fn window_name_format(grofe_server: bool) {
     let _ = cli.run(&words(&["kill-server"]));
 }
 
+/// `new-session -s` is a format too, expanded before the name is checked
+/// and cleaned (tmux 3.7b, an expanded `p#{e|+:1,2}` is `p3`),
+/// and `-A` looks up that cleaned name: `new -A -d -s 'k\l'` finds the
+/// `k\\l` it stored instead of failing as a duplicate session.
+#[test]
+fn a_new_session_name_is_a_format_and_a_looks_up_the_cleaned_name() {
+    session_name_format(false);
+}
+
+#[test]
+fn a_new_session_name_is_a_format_and_a_looks_up_the_cleaned_name_on_a_grofe_server() {
+    session_name_format(true);
+}
+
+fn session_name_format(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(&cli, &["new-session", "-d", "-s", "p#{e|+:1,2}"]);
+    out(&cli, &["new-session", "-d", "-s", "k\\l"]);
+    out(&cli, &["new-session", "-A", "-d", "-s", "k\\l"]);
+    assert_eq!(
+        out(&cli, &["list-sessions", "-F", "#{session_name}"]),
+        "k\\\\l\nmain\np3\n"
+    );
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `new-window -n` expands with the client's variables and a running
+/// hook's, as tmux does: `#{hook}` names the window the hook made, and
+/// `#{client_name}` the attached client.
+#[test]
+fn a_new_window_name_sees_the_client_and_the_hook() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    use_grofe_identity(&mut cli, dir.path());
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    let client = Attached::spawn(&cli, "main");
+    let name = out(&cli, &["list-clients", "-F", "#{client_name}"]);
+    let name = name.trim_end();
+    assert!(!name.is_empty());
+    out(&cli, &["new-window", "-d", "-n", "#{client_name}"]);
+    out(
+        &cli,
+        &[
+            "set-hook",
+            "-g",
+            "after-new-session",
+            "new-window -d -n \"x#{hook}\"",
+        ],
+    );
+    out(&cli, &["new-session", "-d", "-s", "two"]);
+    let windows = || {
+        out(
+            &cli,
+            &["list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
+        )
+    };
+    wait_until("the hook's window", || {
+        windows().contains("two:xafter-new-session\n")
+    });
+    assert!(
+        windows().contains(&format!("main:{name}\n")),
+        "{}",
+        windows()
+    );
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
 /// `new-window -n`, `new-session -n` and `break-pane -n` store a window name
 /// as tmux 3.7b does, like `rename-window`: a backslash doubled, a control
 /// character `invalid window name`.
