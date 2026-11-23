@@ -604,12 +604,25 @@ fn a_native_config_prompt_template_keeps_its_dialect() {
 }
 
 /// A tmux binding's `command-prompt -I -p` template and `confirm-before -p`
-/// command are tmux dialect, stored as sent: `neww`, `renamew` and `%%`
-/// run as tmux runs them, and only `y` confirms.
+/// command are tmux dialect, stored as sent: `renamew` (tmux's alias alone)
+/// and `%%` run as tmux runs them, on a grofe server too, and only `y`
+/// confirms.
 #[test]
 fn a_tmux_binding_s_prompt_and_confirm_run_in_tmux_s_dialect() {
+    prompt_and_confirm(false);
+}
+
+#[test]
+fn a_tmux_binding_s_prompt_and_confirm_run_in_tmux_s_dialect_on_a_grofe_server() {
+    prompt_and_confirm(true);
+}
+
+fn prompt_and_confirm(grofe_server: bool) {
     let dir = tempfile::tempdir().unwrap();
-    let cli = grofe_cli(dir.path());
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
     out(
         &cli,
         &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
@@ -619,7 +632,7 @@ fn a_tmux_binding_s_prompt_and_confirm_run_in_tmux_s_dialect() {
         &[
             "bind",
             "y",
-            "command-prompt -I pre -p name 'neww -n \"%%\"'",
+            "command-prompt -I pre -p name 'renamew -t :1 \"%%\"'",
         ],
     );
     out(
@@ -639,9 +652,7 @@ fn a_tmux_binding_s_prompt_and_confirm_run_in_tmux_s_dialect() {
     };
     client.press(b"\x02y");
     client.press(b"-x\r");
-    wait_until("the prompt's window", || {
-        names().lines().any(|n| n == "pre-x")
-    });
+    wait_until("the prompt's rename", || names() == "pre-x\n");
     client.press(b"\x02u");
     client.press(b"n");
     // Negative wait: "n" must not confirm.
@@ -652,6 +663,78 @@ fn a_tmux_binding_s_prompt_and_confirm_run_in_tmux_s_dialect() {
     wait_until("the confirmed rename", || {
         names().starts_with("confirmed\n")
     });
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// A tmux binding's `display-menu` item that opens `command-prompt` keeps
+/// the tmux dialect through the menu and the prompt: `renamew` (tmux's
+/// alias) in the template runs, as in canopy's tmux-which-key menu.
+#[test]
+fn a_tmux_menu_item_s_prompt_template_runs_in_tmux_s_dialect() {
+    menu_item_prompt(false, false);
+}
+
+#[test]
+fn a_tmux_menu_item_s_prompt_template_runs_in_tmux_s_dialect_on_a_grofe_server() {
+    menu_item_prompt(true, false);
+}
+
+#[test]
+fn a_menu_opened_from_a_tmux_run_shell_keeps_tmux_s_dialect() {
+    menu_item_prompt(false, true);
+}
+
+#[test]
+fn a_menu_opened_from_a_tmux_run_shell_keeps_tmux_s_dialect_on_a_grofe_server() {
+    menu_item_prompt(true, true);
+}
+
+/// Points `cli` at a config that makes the server a grofe one, as
+/// `compat-identity = "grofe"` does, so tmux commands reach a grofe server.
+fn use_grofe_identity(cli: &mut Cli, dir: &Path) {
+    let config = dir.join("grofe-identity.toml");
+    let defaults =
+        fs::read_to_string(fixtures_dir().join("golden/fe_1/grofe-defaults.toml")).unwrap();
+    fs::write(&config, format!("compat-identity = \"grofe\"\n{defaults}")).unwrap();
+    let at = cli.prefix.iter().position(|a| a == "-f").unwrap();
+    cli.prefix[at + 1] = config.display().to_string();
+}
+
+/// Binds `m` from the tmux CLI to a `display-menu` (directly, or through a
+/// script a `run-shell` binding runs, as a plugin does) whose item opens a
+/// `command-prompt` with a tmux-only template. `grofe_server` starts the
+/// server with `compat-identity grofe`.
+fn menu_item_prompt(grofe_server: bool, via_run_shell: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    let menu = "display-menu -T test Rename r \"command-prompt -p \\\"Rename window:\\\" -I \\\"#W\\\" \\\"renamew -- \\\\\\\"%%\\\\\\\"\\\"\"";
+    let binding = if via_run_shell {
+        let script = dir.path().join("menu.sh");
+        fs::write(&script, format!("#!/bin/sh\ntmux {menu}\n")).unwrap();
+        format!("run-shell 'sh {}'", script.display())
+    } else {
+        menu.to_string()
+    };
+    out(&cli, &["bind", "m", &binding]);
+    let mut client = Attached::spawn(&cli, "main");
+    let names = || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+    };
+    client.press(b"\x02m");
+    client.press(b"r");
+    client.press(b"\x15renamed\r");
+    wait_until("the renamed window", || names() == "renamed\n");
     drop(client);
     let _ = cli.run(&words(&["kill-server"]));
 }

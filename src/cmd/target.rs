@@ -29,7 +29,7 @@
 use std::cell::Cell;
 
 use crate::cmd::ParseError;
-use crate::protocol::ClientCtx;
+use crate::protocol::{ClientCtx, Dialect};
 use crate::types::{PaneId, SessionId, WindowId};
 
 /// The session part of a target. `Current` means the target string didn't
@@ -93,6 +93,71 @@ pub enum PanePart {
     /// tmux's `!`/`{last}`: the window's last active pane. Built only by the
     /// tmux front end.
     LastUsed,
+    /// One of tmux's pane tokens, `{left-of}` or `{top}`. Both dialects.
+    Token(PaneToken),
+}
+
+/// tmux 3.7b's special pane tokens (cmd-find.c `cmd_find_get_pane_with_window`
+/// and window.c `window_find_string`). The `-of` ones are the neighbour of
+/// the window's active pane; the rest the pane at an edge or corner of the
+/// window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneToken {
+    UpOf,
+    DownOf,
+    LeftOf,
+    RightOf,
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl PaneToken {
+    const ALL: [(&'static str, PaneToken); 12] = [
+        ("{up-of}", PaneToken::UpOf),
+        ("{down-of}", PaneToken::DownOf),
+        ("{left-of}", PaneToken::LeftOf),
+        ("{right-of}", PaneToken::RightOf),
+        ("{top}", PaneToken::Top),
+        ("{bottom}", PaneToken::Bottom),
+        ("{left}", PaneToken::Left),
+        ("{right}", PaneToken::Right),
+        ("{top-left}", PaneToken::TopLeft),
+        ("{top-right}", PaneToken::TopRight),
+        ("{bottom-left}", PaneToken::BottomLeft),
+        ("{bottom-right}", PaneToken::BottomRight),
+    ];
+
+    pub fn parse(s: &str) -> Option<PaneToken> {
+        Self::ALL
+            .iter()
+            .find(|(name, _)| *name == s)
+            .map(|(_, t)| *t)
+    }
+
+    /// tmux's plain-word spelling of an edge or corner token (`top`,
+    /// `Bottom-Right`): window.c `window_find_string` matches them
+    /// case-insensitively. The `-of` tokens have none.
+    pub fn parse_word(s: &str) -> Option<PaneToken> {
+        Self::ALL
+            .iter()
+            .skip(4)
+            .find(|(name, _)| name.trim_matches(['{', '}']).eq_ignore_ascii_case(s))
+            .map(|(_, t)| *t)
+    }
+
+    /// The token as typed, for tmux's `can't find pane: {up-of}`.
+    pub fn name(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find(|(_, t)| *t == self)
+            .map_or("", |(n, _)| n)
+    }
 }
 
 /// A fully parsed `session:window.pane` target, bundled into one type so
@@ -195,8 +260,16 @@ pub fn tmux_window_token(s: &str) -> Option<WindowRef> {
     }
 }
 
-/// The same for a verb that wants a pane: `!`, `{next}`, `-1`.
-pub fn tmux_pane_token(s: &str) -> Option<PanePart> {
+/// The same for a verb that wants a pane: `!`, `{next}`, `-1`, `{top}`, and
+/// for a tmux client the plain words `top` and `Bottom-Left` (a grofe
+/// client's bare word may be a session's name).
+pub fn tmux_pane_token(s: &str, dialect: Dialect) -> Option<PanePart> {
+    let word = (dialect == Dialect::Tmux)
+        .then(|| PaneToken::parse_word(s))
+        .flatten();
+    if let Some(token) = PaneToken::parse(s).or(word) {
+        return Some(PanePart::Token(token));
+    }
     if is_last_token(s) {
         return Some(PanePart::LastUsed);
     }
@@ -238,7 +311,7 @@ fn offset_token(s: &str) -> Option<i32> {
 /// Parses one target string (spec §4.5). See the module docs for the
 /// supported grammar.
 pub fn parse_target(s: &str) -> Result<Target, ParseError> {
-    if s == "=" && tmux_targets() {
+    if (s == "=" && tmux_targets()) || s == "{mouse}" {
         return Ok(Target::Session(SessionRef::Mouse));
     }
     if (s == "~" || s == "{marked}") && tmux_targets() {
@@ -455,6 +528,14 @@ fn parse_window_ref(s: &str) -> Result<WindowRef, ParseError> {
 }
 
 fn parse_pane_part(s: &str) -> Result<PanePart, ParseError> {
+    let word = if tmux_targets() {
+        PaneToken::parse_word(s)
+    } else {
+        None
+    };
+    if let Some(t) = PaneToken::parse(s).or(word) {
+        return Ok(PanePart::Token(t));
+    }
     if tmux_targets() && is_last_token(s) {
         return Ok(PanePart::LastUsed);
     }
@@ -484,6 +565,59 @@ pub trait Resolve {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// tmux's pane tokens parse in both dialects: bare they are left for
+    /// the resolver, after `window.` they are the pane part, and `{mouse}`
+    /// is tmux's mouse target.
+    #[test]
+    fn pane_tokens_parse_in_both_dialects() {
+        let native = |s: &str| parse_target(s);
+        let tmux = |s: &str| with_tmux_targets(|| parse_target(s));
+        for parse in [&native as &dyn Fn(&str) -> _, &tmux] {
+            for (name, token) in PaneToken::ALL {
+                assert_eq!(
+                    parse(name).unwrap(),
+                    Target::Session(SessionRef::Bare(name.to_string()))
+                );
+                assert_eq!(
+                    parse(&format!("work:1.{name}")).unwrap(),
+                    Target::Pane(PaneRef {
+                        session: SessionRef::Name("work".to_string()),
+                        window: WindowRef::Index(1),
+                        pane: PanePart::Token(token),
+                    })
+                );
+                assert_eq!(token.name(), name);
+            }
+            assert_eq!(
+                parse("{mouse}").unwrap(),
+                Target::Session(SessionRef::Mouse)
+            );
+        }
+    }
+
+    /// tmux also reads the plain words `top`, `Right`, `bottom-left`, in any
+    /// case, as a pane part; grofe's own dialect keeps them an error there.
+    #[test]
+    fn pane_token_words_parse_in_the_tmux_dialect() {
+        let pane = |s: &str| match with_tmux_targets(|| parse_target(s)).unwrap() {
+            Target::Pane(r) => r.pane,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(pane("s:1.Right"), PanePart::Token(PaneToken::Right));
+        assert_eq!(
+            pane("1.BOTTOM-left"),
+            PanePart::Token(PaneToken::BottomLeft)
+        );
+        assert_eq!(pane(".top"), PanePart::Token(PaneToken::Top));
+        assert_eq!(
+            tmux_pane_token("Top-Right", Dialect::Tmux),
+            Some(PanePart::Token(PaneToken::TopRight))
+        );
+        assert_eq!(tmux_pane_token("up-of", Dialect::Tmux), None);
+        assert_eq!(tmux_pane_token("top", Dialect::Grofe), None);
+        assert!(parse_target("s:1.right").is_err());
+    }
 
     #[test]
     fn empty_is_current() {

@@ -23,7 +23,7 @@ pub use keys::key_bytes;
 pub use parse::{
     ConfigHost, parse, parse_sequence, split_command_string, split_config_file_with, verb_name,
 };
-pub use target::{PanePart, PaneRef, Resolve, SessionRef, Target, WindowRef};
+pub use target::{PanePart, PaneRef, PaneToken, Resolve, SessionRef, Target, WindowRef};
 
 use crate::types::{CaptureOpts, Dir, Edge, PaneId, SplitSize};
 

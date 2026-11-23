@@ -1211,12 +1211,7 @@ impl Model {
                 let window = &self.windows[&w];
                 Ok(step(&window.pane_ids(), window.active, n))
             }
-            PanePart::LastUsed => {
-                let w = self.window_ref(&r.session, &r.window, ctx)?;
-                self.windows[&w]
-                    .last_pane()
-                    .ok_or_else(|| "can't find pane: !".to_string())
-            }
+            PanePart::LastUsed | PanePart::Token(_) => self.last_or_token_pane(r, ctx),
             PanePart::Index(index) => {
                 let w = self.window_ref(&r.session, &r.window, ctx)?;
                 index
@@ -1295,7 +1290,7 @@ impl Model {
     /// leading `=` is part of the word here: tmux strips it only from a
     /// session or window part.
     fn bare_pane(&self, word: &str, ctx: &ClientCtx) -> Result<PaneId, String> {
-        if let Some(pane) = crate::cmd::target::tmux_pane_token(word) {
+        if let Some(pane) = crate::cmd::target::tmux_pane_token(word, ctx.dialect) {
             return self.pane_ref(
                 &PaneRef {
                     session: SessionRef::Current,
@@ -1460,6 +1455,8 @@ impl Resolve for Model {
         }
     }
 }
+
+mod tokens;
 
 #[cfg(test)]
 mod tests {
