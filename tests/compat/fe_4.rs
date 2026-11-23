@@ -656,6 +656,72 @@ fn a_tmux_binding_s_prompt_and_confirm_run_in_tmux_s_dialect() {
     let _ = cli.run(&words(&["kill-server"]));
 }
 
+/// A tmux binding's `display-menu` item that opens `command-prompt` keeps
+/// the tmux dialect through the menu and the prompt: `renamew` (tmux's
+/// alias) in the template runs, as in canopy's tmux-which-key menu.
+#[test]
+fn a_tmux_menu_item_s_prompt_template_runs_in_tmux_s_dialect() {
+    menu_item_prompt(false, false);
+}
+
+#[test]
+fn a_tmux_menu_item_s_prompt_template_runs_in_tmux_s_dialect_on_a_grofe_server() {
+    menu_item_prompt(true, false);
+}
+
+#[test]
+fn a_menu_opened_from_a_tmux_run_shell_keeps_tmux_s_dialect() {
+    menu_item_prompt(false, true);
+}
+
+#[test]
+fn a_menu_opened_from_a_tmux_run_shell_keeps_tmux_s_dialect_on_a_grofe_server() {
+    menu_item_prompt(true, true);
+}
+
+/// Binds `m` from the tmux CLI to a `display-menu` (directly, or through a
+/// script a `run-shell` binding runs, as a plugin does) whose item opens a
+/// `command-prompt` with a tmux-only template. `grofe_server` starts the
+/// server with `compat-identity grofe`.
+fn menu_item_prompt(grofe_server: bool, via_run_shell: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        let config = dir.path().join("grofe-identity.toml");
+        let defaults =
+            fs::read_to_string(fixtures_dir().join("golden/fe_1/grofe-defaults.toml")).unwrap();
+        fs::write(&config, format!("compat-identity = \"grofe\"\n{defaults}")).unwrap();
+        let at = cli.prefix.iter().position(|a| a == "-f").unwrap();
+        cli.prefix[at + 1] = config.display().to_string();
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    let menu = "display-menu -T test Rename r \"command-prompt -p \\\"Rename window:\\\" -I \\\"#W\\\" \\\"renamew -- \\\\\\\"%%\\\\\\\"\\\"\"";
+    let binding = if via_run_shell {
+        let script = dir.path().join("menu.sh");
+        fs::write(&script, format!("#!/bin/sh\ntmux {menu}\n")).unwrap();
+        format!("run-shell 'sh {}'", script.display())
+    } else {
+        menu.to_string()
+    };
+    out(&cli, &["bind", "m", &binding]);
+    let mut client = Attached::spawn(&cli, "main");
+    let names = || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+    };
+    client.press(b"\x02m");
+    client.press(b"r");
+    client.press(b"\x15renamed\r");
+    wait_until("the renamed window", || names() == "renamed\n");
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
 /// tmux-which-key's root menu, as its `init.tmux` sets it up: the menu
 /// command built with `set -F` into a `command-alias` entry, bound to a
 /// prefix key by the alias's name. Pressed, the menu opens and its item's

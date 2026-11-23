@@ -252,16 +252,16 @@ pub fn pane_env(state: &State, session: SessionId, pane: PaneId) -> Vec<(String,
     env
 }
 
-/// The dialect a closed prompt's command runs in (spec D12). On a grofe
-/// server it is always grofe. On a tmux-identity server, text typed at a
-/// bare `:` prompt (no template) is tmux's; a template keeps the dialect of
-/// the request or binding that opened the prompt, as stored command strings
-/// keep theirs (spec §4.5).
+/// The dialect a closed prompt's command runs in (spec D12). A template
+/// keeps the dialect of the request or binding that opened the prompt, on
+/// either identity, as stored command strings keep theirs (spec §4.5): a
+/// tmux client's `renamew` template stays tmux's on a grofe server. Text
+/// typed at a bare `:` prompt (no template) takes the server's identity.
 pub fn prompt_dialect(state: &State, opener: Dialect, has_template: bool) -> Dialect {
     match state.model.identity {
+        _ if has_template => opener,
         Identity::Grofe => Dialect::Grofe,
-        Identity::Tmux if !has_template => Dialect::Tmux,
-        Identity::Tmux => opener,
+        Identity::Tmux => Dialect::Tmux,
     }
 }
 
@@ -635,15 +635,17 @@ mod tests {
         );
     }
 
-    /// D12: prompt text is tmux dialect only on a tmux-identity server; a
-    /// tmux opener on a grofe server does not make it so.
+    /// D12: bare prompt text is tmux dialect only on a tmux-identity
+    /// server; a template keeps its opener's dialect on either.
     #[test]
     fn only_bare_prompt_text_takes_the_tmux_identity() {
         let mut state = crate::server::test_state();
         let (g, t) = (Dialect::Grofe, Dialect::Tmux);
-        for (opener, template) in [(g, false), (g, true), (t, false), (t, true)] {
-            assert_eq!(prompt_dialect(&state, opener, template), g);
+        for opener in [g, t] {
+            assert_eq!(prompt_dialect(&state, opener, false), g);
         }
+        assert_eq!(prompt_dialect(&state, g, true), g);
+        assert_eq!(prompt_dialect(&state, t, true), t);
         state.model.identity = Identity::Tmux;
         assert_eq!(prompt_dialect(&state, g, false), t);
         assert_eq!(prompt_dialect(&state, t, false), t);
