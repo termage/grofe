@@ -26,6 +26,7 @@ mod fv;
 mod g3;
 mod grofe_example;
 mod normalize;
+mod pane_tokens;
 mod record;
 mod replay;
 mod scenarios;

@@ -1065,7 +1065,17 @@ last window or pane; `can't find window: !` or `can't find pane: !` when there i
 `{next}`, `{previous}`, `+`, `-`, `+N` and `-N` (wrapping). A bare word is read by the kind
 of target the verb wants, so `select-window -t +1` is a window and `select-pane -t !` a
 pane. `tests/tmux_parity.rs` holds the recorded results. The native grammar still refuses
-them. Not read: tmux's pane-position tokens (`{top}`, `{left-of}`, ...).
+them.
+
+tmux's pane tokens are read in both dialects, as a pane target or after `window.`: `{up-of}`,
+`{down-of}`, `{left-of}` and `{right-of}` (the neighbour of the window's active pane, the same
+search as `select-pane -U/-D/-L/-R`, wrapping past the edge), and `{top}`, `{bottom}`, `{left}`,
+`{right}`, `{top-left}`, `{top-right}`, `{bottom-left}` and `{bottom-right}` (the pane at that
+edge or corner, as `window_find_string` picks it; a framed window gives a gap cell to the
+nearest frame). With no such pane the error is `can't find pane: {up-of}`. `{mouse}` is `=`:
+the pointer's target in a mouse binding, `no mouse target` elsewhere. Floating panes are never
+chosen. Not recorded in a golden (the recorder needs a container); checked against tmux 3.7b by
+hand and by `tests/compat/pane_tokens.rs`.
 
 ### Format variables (issue 4)
 

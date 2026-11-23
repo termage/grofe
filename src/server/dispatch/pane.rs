@@ -11,7 +11,7 @@ use crate::server::borders::PaneStatus;
 use crate::server::dispatch::options;
 use crate::server::dispatch::{resolve_cwd, spawn_pane};
 use crate::server::input::{self, parse_prefix};
-use crate::server::layout::{self, Insert, LayoutError};
+use crate::server::layout::{Insert, LayoutError};
 use crate::server::model::Model;
 use crate::server::pane::CaptureExtra;
 use crate::server::pane::{PaneHandle, PaneSpawn, usable_cwd};
@@ -187,12 +187,7 @@ fn select_pane(state: &mut State, ctx: &ClientCtx, c: SelectPane) -> Result<Stri
     let Some(w) = model.windows.get(&window) else {
         return Ok(String::new());
     };
-    // Neighbours are found in the unzoomed layout, as tmux's
-    // `window_pane_find_*` do: the most recently active one across the edge.
-    // ponytail: floating panes are never candidates.
-    let next = layout::find_adjacent(&w.tiled_rects(), w.area(), w.pane_status, pane, edge, |p| {
-        w.active_points.get(p)
-    });
+    let next = w.adjacent_pane(pane, edge);
     if let (Some(next), Some(on)) = (next, c.input) {
         set_input(model, next, on);
         return Ok(String::new());

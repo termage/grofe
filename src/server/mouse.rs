@@ -327,7 +327,7 @@ fn border_pane(panes: &[(PaneId, Rect)], (x, y): (u32, u32)) -> Option<PaneId> {
 /// or for a gap cell the nearest frame's, a tie going to the pane on the
 /// left or above, as tmux's border ownership does (spec 2026-11-05-frames.md
 /// "The mouse"). `None` off the window.
-fn frame_owner(w: &Window, (x, y): (u32, u32)) -> Option<PaneId> {
+pub(crate) fn frame_owner(w: &Window, (x, y): (u32, u32)) -> Option<PaneId> {
     if x >= u32::from(w.cols) || y >= u32::from(w.rows) {
         return None;
     }
@@ -1351,7 +1351,7 @@ pub fn resolve_targets(state: &State, argv: &[String]) -> Vec<String> {
     let mut after_flag = false;
     for word in argv {
         let replaced = match word.as_str() {
-            "=" if after_flag => m.target.clone(),
+            "=" | "{mouse}" if after_flag => m.target.clone(),
             "@" | "{active}" | "{current}" if after_flag => active(),
             "-t=" | "-s=" => format!("{}{}", &word[..2], m.target),
             "-t@" | "-s@" => format!("{}{}", &word[..2], active()),
