@@ -922,8 +922,9 @@ fn a_hook_and_a_binding_import_a_command_alias_verb() {
         out.stdout,
         out.stderr
     );
-    assert!(
-        out.stdout.contains("zz"),
+    assert_eq!(
+        doc["keys"]["prefix"]["x"].as_str(),
+        Some("zz"),
         "binding missing from:\n{}",
         out.stdout
     );
