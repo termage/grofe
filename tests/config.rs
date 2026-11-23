@@ -638,8 +638,10 @@ fn show_config_rejects_lua_and_unknown_extensions() {
     let lua = s.write("init.lua", "-- lua\n");
     let out = s.show_config(&["--file", &lua.to_string_lossy()], &s.home());
     assert!(!out.status.success());
+    // The path is a random temp dir that can contain "M6", so drop it before checking.
+    let stderr = out.stderr.replace(lua.to_string_lossy().as_ref(), "<file>");
     assert!(
-        out.stderr.contains("takes a .toml file") && !out.stderr.contains("M6"),
+        stderr.contains("takes a .toml file") && !stderr.contains("M6"),
         "{}",
         out.stderr
     );
