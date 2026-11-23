@@ -34,11 +34,11 @@ The keys are tmux's, with a few of grofe's own. The prefix is `Ctrl-b`; after it
 | `Q` | stop the server (asks first) |
 
 These differ from tmux's defaults: `Space` is the key menu (tmux's next-layout
-is `M-Space`), `C` is the settings menu (tmux's customize-mode), `f` floats a
-pane (tmux's find-window), and `u`, `U`, `b`, `O`, `y` (agents and
-notifications), `a`, `S`, `A` (scratchpads), `G` (copy by label) and `Q` (stop
-the server) are grofe's own. [Keys](keys.md) lists every binding with its
-note, and says which ones tmux binds differently.
+moved to `M-Space`), `C` is the settings menu (tmux's customize-mode), `f`
+floats a pane (tmux's find-window), and `F` (also floats a pane), `u`, `U`,
+`b`, `O`, `y` (agents and notifications), `a`, `S`, `A` (scratchpads), `G`
+(copy by label) and `Q` (stop the server) are grofe's own. [Keys](keys.md)
+lists every binding with its note, and says which ones tmux binds differently.
 
 The session keeps running after you detach; `grofe attach -t demo` brings it
 back. `grofe list-keys -T prefix` lists every binding and where it came from.

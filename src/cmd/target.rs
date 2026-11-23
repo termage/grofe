@@ -29,7 +29,7 @@
 use std::cell::Cell;
 
 use crate::cmd::ParseError;
-use crate::protocol::ClientCtx;
+use crate::protocol::{ClientCtx, Dialect};
 use crate::types::{PaneId, SessionId, WindowId};
 
 /// The session part of a target. `Current` means the target string didn't
@@ -137,6 +137,17 @@ impl PaneToken {
         Self::ALL
             .iter()
             .find(|(name, _)| *name == s)
+            .map(|(_, t)| *t)
+    }
+
+    /// tmux's plain-word spelling of an edge or corner token (`top`,
+    /// `Bottom-Right`): window.c `window_find_string` matches them
+    /// case-insensitively. The `-of` tokens have none.
+    pub fn parse_word(s: &str) -> Option<PaneToken> {
+        Self::ALL
+            .iter()
+            .skip(4)
+            .find(|(name, _)| name.trim_matches(['{', '}']).eq_ignore_ascii_case(s))
             .map(|(_, t)| *t)
     }
 
@@ -249,8 +260,16 @@ pub fn tmux_window_token(s: &str) -> Option<WindowRef> {
     }
 }
 
-/// The same for a verb that wants a pane: `!`, `{next}`, `-1`.
-pub fn tmux_pane_token(s: &str) -> Option<PanePart> {
+/// The same for a verb that wants a pane: `!`, `{next}`, `-1`, `{top}`, and
+/// for a tmux client the plain words `top` and `Bottom-Left` (a grofe
+/// client's bare word may be a session's name).
+pub fn tmux_pane_token(s: &str, dialect: Dialect) -> Option<PanePart> {
+    let word = (dialect == Dialect::Tmux)
+        .then(|| PaneToken::parse_word(s))
+        .flatten();
+    if let Some(token) = PaneToken::parse(s).or(word) {
+        return Some(PanePart::Token(token));
+    }
     if is_last_token(s) {
         return Some(PanePart::LastUsed);
     }
@@ -509,7 +528,12 @@ fn parse_window_ref(s: &str) -> Result<WindowRef, ParseError> {
 }
 
 fn parse_pane_part(s: &str) -> Result<PanePart, ParseError> {
-    if let Some(t) = PaneToken::parse(s) {
+    let word = if tmux_targets() {
+        PaneToken::parse_word(s)
+    } else {
+        None
+    };
+    if let Some(t) = PaneToken::parse(s).or(word) {
         return Ok(PanePart::Token(t));
     }
     if tmux_targets() && is_last_token(s) {
@@ -570,6 +594,29 @@ mod tests {
                 Target::Session(SessionRef::Mouse)
             );
         }
+    }
+
+    /// tmux also reads the plain words `top`, `Right`, `bottom-left`, in any
+    /// case, as a pane part; grofe's own dialect keeps them an error there.
+    #[test]
+    fn pane_token_words_parse_in_the_tmux_dialect() {
+        let pane = |s: &str| match with_tmux_targets(|| parse_target(s)).unwrap() {
+            Target::Pane(r) => r.pane,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(pane("s:1.Right"), PanePart::Token(PaneToken::Right));
+        assert_eq!(
+            pane("1.BOTTOM-left"),
+            PanePart::Token(PaneToken::BottomLeft)
+        );
+        assert_eq!(pane(".top"), PanePart::Token(PaneToken::Top));
+        assert_eq!(
+            tmux_pane_token("Top-Right", Dialect::Tmux),
+            Some(PanePart::Token(PaneToken::TopRight))
+        );
+        assert_eq!(tmux_pane_token("up-of", Dialect::Tmux), None);
+        assert_eq!(tmux_pane_token("top", Dialect::Grofe), None);
+        assert!(parse_target("s:1.right").is_err());
     }
 
     #[test]

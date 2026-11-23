@@ -314,7 +314,7 @@ fn on_border(borders: &[BorderSegment], (x, y): (u32, u32)) -> bool {
 
 /// The pane a border cell belongs to, as tmux's `window_get_active_at`
 /// finds it: the pane whose right or bottom edge the border runs along.
-fn border_pane(panes: &[(PaneId, Rect)], (x, y): (u32, u32)) -> Option<PaneId> {
+pub(crate) fn border_pane(panes: &[(PaneId, Rect)], (x, y): (u32, u32)) -> Option<PaneId> {
     panes.iter().find_map(|&(pane, r)| {
         let (left, top) = (u32::from(r.x), u32::from(r.y));
         let (right, bottom) = (left + u32::from(r.cols), top + u32::from(r.rows));

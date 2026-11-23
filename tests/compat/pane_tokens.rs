@@ -36,6 +36,22 @@ fn swap_pane_swaps_with_the_pane_a_token_names() {
 
     let (_, out, _) = run(&["display", "-p", "-t", "{right}", "#{pane_id}"]);
     assert_eq!(out, "%1\n");
+    // The plain words, in any case, bare or after `window.`.
+    for (target, pane) in [
+        ("right", "%1"),
+        ("Right", "%1"),
+        ("BOTTOM-RIGHT", "%1"),
+        ("left", "%0"),
+        ("top-left", "%0"),
+        ("main:.Right", "%1"),
+        ("main:.Left", "%0"),
+    ] {
+        let (_, out, err) = run(&["display", "-p", "-t", target, "#{pane_id}"]);
+        assert_eq!(out, format!("{pane}\n"), "-t {target}: {err}");
+    }
+    let (ok, _, err) = run(&["select-pane", "-t", "up-of"]);
+    assert!(!ok);
+    assert_eq!(err, "can't find pane: up-of\n");
     let (ok, _, err) = run(&["select-pane", "-t", "{up-of}"]);
     assert!(!ok);
     assert_eq!(err, "can't find pane: {up-of}\n");

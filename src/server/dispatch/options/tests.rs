@@ -953,3 +953,21 @@ fn list_notes_wrap_between_words() {
     assert_eq!(wrap_note(head, note, 200), format!("{head}{note}\n"));
     assert_eq!(wrap_note(head, note, 20), format!("{head}{note}\n"));
 }
+
+/// A wide character takes two cells: the wrap and the indent count cells.
+#[test]
+fn list_notes_wrap_by_display_width() {
+    use super::bindings::wrap_note;
+    use unicode_width::UnicodeWidthStr;
+    let head = "漢字 ";
+    let note = "漢字 漢字 漢字 漢字 漢字 漢字";
+    let got = wrap_note(head, note, 20);
+    let lines: Vec<&str> = got.lines().collect();
+    assert!(lines.len() > 1, "{got}");
+    assert!(lines.iter().all(|l| l.width() <= 20), "{got}");
+    assert!(lines[1].starts_with(&" ".repeat(head.width())), "{got}");
+    assert!(
+        !lines[1].starts_with(&" ".repeat(head.width() + 1)),
+        "{got}"
+    );
+}

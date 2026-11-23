@@ -331,7 +331,7 @@ const CAPS: [Col; 3] = [
     },
 ];
 
-const HINT: &str = "C-f filter · Enter run · Esc close";
+const HINT: &str = "↑↓ PgUp/PgDn · C-f filter · Enter run · Esc close";
 
 /// Draws a client's key menu.
 pub struct KeyMenuOverlay;
@@ -755,6 +755,10 @@ mod tests {
         assert!(
             lines.iter().any(|l| l.contains(HINT)),
             "the hint is in the box"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("↑↓ PgUp/PgDn · C-f")),
+            "the hint names the navigation keys"
         );
     }
 

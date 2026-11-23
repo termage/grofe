@@ -18,14 +18,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::cmd::{PanePart, PaneRef, PaneToken, Resolve, SessionRef, Target, WindowRef};
+use crate::cmd::{PanePart, PaneRef, Resolve, SessionRef, Target, WindowRef};
 use crate::event::Place;
 use crate::protocol::ClientCtx;
 use crate::server::borders::PaneStatus;
 use crate::server::dispatch::options::{self, Options, Owner, REMAIN_ON_EXIT};
-use crate::server::layout::{self, LayoutTree};
+use crate::server::layout::LayoutTree;
 use crate::server::pane::PaneHandle;
-use crate::types::{ClientId, Edge, PaneId, Rect, SessionId, WindowId};
+use crate::types::{ClientId, PaneId, Rect, SessionId, WindowId};
 
 /// The built-in defaults of `base-index`, `pane-base-index` and
 /// `history-limit` (spec §5.3). The live values are the options, read
@@ -318,63 +318,6 @@ impl Window {
             .into_iter()
             .map(|(id, r)| (id, if framed { r } else { self.edge_adjusted(r) }))
             .collect()
-    }
-
-    /// The pane `select-pane -L/-R/-U/-D` moves to from `pane`, found in the
-    /// unzoomed layout as tmux's `window_pane_find_*` do: the most recently
-    /// active one across the edge, wrapping past the window's edge.
-    /// ponytail: floating panes are never candidates.
-    pub fn adjacent_pane(&self, pane: PaneId, edge: Edge) -> Option<PaneId> {
-        layout::find_adjacent(
-            &self.tiled_rects(),
-            self.area(),
-            self.pane_status,
-            pane,
-            edge,
-            |p| self.active_points.get(p),
-        )
-    }
-
-    /// The pane tmux's `{top}`, `{bottom-left}` and the like name: the
-    /// first pane covering that cell of the window, a pane's right and
-    /// bottom border cells included (window.c `window_get_active_at`, with
-    /// `window_find_string`'s cells). `{up-of}` and the other `-of` tokens
-    /// are the active pane's neighbour.
-    pub fn token_pane(&self, token: PaneToken) -> Option<PaneId> {
-        let edge = match token {
-            PaneToken::UpOf => Some(Edge::Up),
-            PaneToken::DownOf => Some(Edge::Down),
-            PaneToken::LeftOf => Some(Edge::Left),
-            PaneToken::RightOf => Some(Edge::Right),
-            _ => None,
-        };
-        if let Some(edge) = edge {
-            return self.adjacent_pane(self.active, edge);
-        }
-        let (cols, rows) = (u32::from(self.cols), u32::from(self.rows));
-        let (last_x, last_y) = (cols.saturating_sub(1), rows.saturating_sub(1));
-        let (x, y) = match token {
-            PaneToken::Top => (cols / 2, 0),
-            PaneToken::Bottom => (cols / 2, last_y),
-            PaneToken::Left => (0, rows / 2),
-            PaneToken::Right => (last_x, rows / 2),
-            PaneToken::TopLeft => (0, 0),
-            PaneToken::TopRight => (last_x, 0),
-            PaneToken::BottomLeft => (0, last_y),
-            _ => (last_x, last_y),
-        };
-        // A framed window has gaps between its frames: the nearest frame's
-        // pane owns a gap cell, as it does for the mouse.
-        if self.framed() {
-            return crate::server::mouse::frame_owner(self, (x, y));
-        }
-        let above = u32::from(self.pane_status == PaneStatus::Top);
-        self.pane_rects().into_iter().find_map(|(id, r)| {
-            let (left, top) = (u32::from(r.x), u32::from(r.y));
-            let inside = (left..=left + u32::from(r.cols)).contains(&x)
-                && (top.saturating_sub(above)..=top + u32::from(r.rows)).contains(&y);
-            (inside && id != HOLE).then_some(id)
-        })
     }
 
     /// The rect the zoomed pane fills: the window, or framed, the window
@@ -1268,18 +1211,7 @@ impl Model {
                 let window = &self.windows[&w];
                 Ok(step(&window.pane_ids(), window.active, n))
             }
-            PanePart::LastUsed => {
-                let w = self.window_ref(&r.session, &r.window, ctx)?;
-                self.windows[&w]
-                    .last_pane()
-                    .ok_or_else(|| "can't find pane: !".to_string())
-            }
-            PanePart::Token(token) => {
-                let w = self.window_ref(&r.session, &r.window, ctx)?;
-                self.windows[&w]
-                    .token_pane(token)
-                    .ok_or_else(|| format!("can't find pane: {}", token.name()))
-            }
+            PanePart::LastUsed | PanePart::Token(_) => self.last_or_token_pane(r, ctx),
             PanePart::Index(index) => {
                 let w = self.window_ref(&r.session, &r.window, ctx)?;
                 index
@@ -1358,15 +1290,7 @@ impl Model {
     /// leading `=` is part of the word here: tmux strips it only from a
     /// session or window part.
     fn bare_pane(&self, word: &str, ctx: &ClientCtx) -> Result<PaneId, String> {
-        if let Some(token) = PaneToken::parse(word) {
-            let pane = PaneRef {
-                session: SessionRef::Current,
-                window: WindowRef::Current,
-                pane: PanePart::Token(token),
-            };
-            return self.pane_ref(&pane, ctx);
-        }
-        if let Some(pane) = crate::cmd::target::tmux_pane_token(word) {
+        if let Some(pane) = crate::cmd::target::tmux_pane_token(word, ctx.dialect) {
             return self.pane_ref(
                 &PaneRef {
                     session: SessionRef::Current,
@@ -1531,6 +1455,8 @@ impl Resolve for Model {
         }
     }
 }
+
+mod tokens;
 
 #[cfg(test)]
 mod tests {
@@ -1758,142 +1684,6 @@ mod tests {
         assert_eq!(w.active, a);
         w.lose_pane(&[a, b], a);
         assert_eq!(w.active, b);
-    }
-
-    /// tmux's pane tokens on a 2x2 grid: A top left, B top right, C bottom
-    /// left, D bottom right (80x24; recorded on tmux 3.7b: `{top}` is the
-    /// pane at the top middle cell, the `-of` ones are the neighbours of
-    /// the active pane, wrapping).
-    #[test]
-    fn pane_tokens_pick_by_edge_and_neighbour() {
-        use crate::types::{Dir, SplitSize};
-
-        let (a, b, c, d) = (PaneId(1), PaneId(2), PaneId(3), PaneId(4));
-        let area = Rect {
-            x: 0,
-            y: 0,
-            cols: 80,
-            rows: 24,
-        };
-        let mut layout = LayoutTree::new(a);
-        layout
-            .split(area, a, Dir::Horizontal, b, SplitSize::Half)
-            .unwrap();
-        layout
-            .split(area, a, Dir::Vertical, c, SplitSize::Half)
-            .unwrap();
-        layout
-            .split(area, b, Dir::Vertical, d, SplitSize::Half)
-            .unwrap();
-        let mut w = Window {
-            id: WindowId(0),
-            session: SessionId(0),
-            index: 0,
-            name: String::new(),
-            layout,
-            active: a,
-            zoomed: false,
-            cols: 80,
-            rows: 24,
-            bell_flag: false,
-            activity_flag: false,
-            silence_flag: false,
-            activity: std::time::SystemTime::now(),
-            last_panes: Vec::new(),
-            active_points: Default::default(),
-            floating: Vec::new(),
-            pane_status: Default::default(),
-            frames: false,
-            pane_gap: 0,
-            drop_preview: None,
-            links: Vec::new(),
-        };
-        use PaneToken::*;
-        let picks = |w: &Window, tokens: [PaneToken; 4]| tokens.map(|t| w.token_pane(t));
-        let edges = [
-            Top,
-            Bottom,
-            Left,
-            Right,
-            TopLeft,
-            TopRight,
-            BottomLeft,
-            BottomRight,
-        ];
-        assert_eq!(
-            edges.map(|t| w.token_pane(t)),
-            [a, c, a, b, a, b, c, d].map(Some)
-        );
-        let of = [UpOf, DownOf, LeftOf, RightOf];
-        assert_eq!(picks(&w, of), [c, c, b, b].map(Some));
-        w.active = d;
-        assert_eq!(picks(&w, of), [b, b, c, c].map(Some));
-        w.active = b;
-        assert_eq!(picks(&w, of), [d, d, a, a].map(Some));
-    }
-
-    /// The tokens resolve as a bare pane target and after `window.`, in
-    /// either dialect, and `{mouse}` is tmux's mouse target.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn pane_tokens_resolve_as_targets() {
-        use crate::cmd::target::parse_target;
-        use crate::types::{Dir, SplitSize};
-
-        let mut model = Model::new(true);
-        let w1 = model.alloc_window_id();
-        let a = spawn_pane(&mut model, w1);
-        let b = spawn_pane(&mut model, w1);
-        let session = add_session(&mut model, "s", w1);
-        let area = Rect {
-            x: 0,
-            y: 0,
-            cols: 80,
-            rows: 24,
-        };
-        let mut layout = LayoutTree::new(a);
-        layout
-            .split(area, a, Dir::Horizontal, b, SplitSize::Half)
-            .unwrap();
-        model.insert_window(Window {
-            id: w1,
-            session,
-            index: 0,
-            name: "w".to_string(),
-            layout,
-            active: a,
-            zoomed: false,
-            cols: 80,
-            rows: 24,
-            bell_flag: false,
-            activity_flag: false,
-            silence_flag: false,
-            activity: std::time::SystemTime::now(),
-            last_panes: Vec::new(),
-            active_points: Default::default(),
-            floating: Vec::new(),
-            pane_status: Default::default(),
-            frames: false,
-            pane_gap: 0,
-            drop_preview: None,
-            links: Vec::new(),
-        });
-        let ctx = ctx();
-        let pane = |text: &str| model.resolve_pane(&parse_target(text).unwrap(), &ctx);
-        assert_eq!(pane("{right-of}"), Ok(b));
-        assert_eq!(pane("{left-of}"), Ok(b));
-        assert_eq!(pane("{bottom-right}"), Ok(b));
-        assert_eq!(pane(":0.{top-left}"), Ok(a));
-        assert_eq!(pane("s:0.{right}"), Ok(b));
-        assert_eq!(pane("{up-of}"), Err("can't find pane: {up-of}".to_string()));
-        assert_eq!(pane("{mouse}"), Err("no mouse target".to_string()));
-        let tmux =
-            |text: &str| crate::cmd::target::with_tmux_targets(|| parse_target(text).unwrap());
-        assert_eq!(model.resolve_pane(&tmux("{left}"), &ctx), Ok(a));
-        assert_eq!(
-            model.resolve_pane(&tmux("{mouse}"), &ctx),
-            Err("no mouse target".to_string())
-        );
-        assert_eq!(model.resolve_pane(&tmux(".{right}"), &ctx), Ok(b));
     }
 
     /// R13, as tmux 3.7b does it (recorded on a private socket): selecting

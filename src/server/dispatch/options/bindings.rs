@@ -205,7 +205,8 @@ pub(super) fn list_notes(
 /// words of the note and indented under it. A note with no room (under 12
 /// cells) is left whole.
 pub(super) fn wrap_note(head: &str, note: &str, cols: usize) -> String {
-    let indent = head.chars().count();
+    use unicode_width::UnicodeWidthStr;
+    let indent = head.width();
     if indent + 12 > cols {
         return format!("{head}{note}\n");
     }
@@ -213,7 +214,7 @@ pub(super) fn wrap_note(head: &str, note: &str, cols: usize) -> String {
     let mut line = head.to_string();
     let mut empty = true;
     for word in note.split(' ') {
-        let len = line.chars().count() + 1 + word.chars().count();
+        let len = line.width() + 1 + word.width();
         if !empty && len > cols {
             out.push_str(&line);
             out.push('\n');
