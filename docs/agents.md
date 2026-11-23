@@ -69,11 +69,15 @@ Rebind any of them like any other key, in TOML or with `bind-key`.
 `prefix Space` lists the bindings of the prefix table by group (agents,
 notifications, pane, window and so on), each with its key and description.
 Pressing a key that is bound in the table runs that binding at once and
-closes the menu. The menu keeps `C-n` and `C-p` (move), `C-f` (start
-filtering, then `Enter` runs the selected row), `Escape` and `C-c` (close)
-for itself; a binding on one of those keys is still listed and can be reached
-by filtering. A binding that runs `switch-client -T <table>` opens that
-table's menu.
+closes the menu. The menu keeps these keys for itself: `Up`, `Down`, `C-p` and
+`C-n` move the selection, `PageUp` and `PageDown` move a screenful, `Home` and
+`End` jump to the first and last row, `C-f` starts filtering (then `Enter`
+runs the selected row), and `Escape` and `C-c` close it. A binding on one of
+those keys, such as `prefix Up` for `select-pane -U`, is still listed and
+can be reached by filtering. The prefix key itself is ignored while the menu is
+open, so it cannot start a prefix sequence under the menu. A binding that runs
+`switch-client -T <table>` opens that table's menu. A hint at the bottom of the
+box lists the main keys, and a description too long for the box ends in `…`.
 
 `key-menu -T <table>` opens the menu for any key table. The group comes from
 `bind-key -G <group>` or a `group` in a TOML binding, and the description from

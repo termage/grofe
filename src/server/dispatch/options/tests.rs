@@ -930,3 +930,26 @@ fn reference_lists_every_option_with_its_toml_key() {
         "an option has no TOML key"
     );
 }
+
+/// `list-keys -N` in a client's view mode breaks a long note between
+/// words, under the note, rather than where the pane ends.
+#[test]
+fn list_notes_wrap_between_words() {
+    use super::bindings::wrap_note;
+    let head = "C-b DC [client] ";
+    let note = "Reset so the visible part of the window follows the cursor";
+    let got = wrap_note(head, note, 40);
+    let lines: Vec<&str> = got.lines().collect();
+    assert!(lines.len() > 1, "{got}");
+    assert!(lines.iter().all(|l| l.chars().count() <= 40), "{got}");
+    assert!(lines[1].starts_with(&" ".repeat(head.len())), "{got}");
+    let words: Vec<&str> = lines
+        .iter()
+        .flat_map(|l| l.split_whitespace())
+        .skip(3)
+        .collect();
+    assert_eq!(words.join(" "), note);
+    // Room enough, or none at all: the note stays on its line.
+    assert_eq!(wrap_note(head, note, 200), format!("{head}{note}\n"));
+    assert_eq!(wrap_note(head, note, 20), format!("{head}{note}\n"));
+}

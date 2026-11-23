@@ -21,6 +21,24 @@ fn options_reference_matches_the_table() {
     );
 }
 
+/// The keys page in the book is generated from the default bindings, so it
+/// cannot drift. Regenerate it with `just docs`.
+#[test]
+fn keys_reference_matches_the_defaults() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/book/src/keys.md");
+    let generated = grofe::server::input::keys_reference_markdown();
+    if std::env::var_os("GROFE_BLESS").is_some() {
+        std::fs::write(&path, &generated).unwrap();
+        return;
+    }
+    let committed = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        committed == generated,
+        "{} is out of date; run `just docs` (GROFE_BLESS=1 cargo test --test docs_reference)",
+        path.display()
+    );
+}
+
 /// No TOML key appears twice in the options tables, so the reference lists
 /// each option once.
 #[test]

@@ -8,6 +8,7 @@ use crate::protocol::ClientCtx;
 use crate::server::agents::{Rank, Report, ReportState, rank};
 use crate::server::dispatch::options::{FormatCtx, ServerVars};
 use crate::server::dispatch::{agent, agent_new};
+use crate::server::render::Level;
 use crate::server::{State, clients};
 use crate::types::PaneId;
 
@@ -71,6 +72,18 @@ fn next(state: &mut State, ctx: &ClientCtx) -> Result<String, String> {
     });
     match target {
         Some(pane) => agent::jump(state, ctx, pane).map(|()| String::new()),
+        None => none_needs_you(state, ctx),
+    }
+}
+
+/// A client that pressed the key sees the answer on its status line; a CLI
+/// call gets it as output.
+fn none_needs_you(state: &mut State, ctx: &ClientCtx) -> Result<String, String> {
+    match ctx.client.filter(|id| state.clients.contains_key(id)) {
+        Some(id) => {
+            clients::show_message_as(state, id, "no agent needs you", Level::Info);
+            Ok(String::new())
+        }
         None => Ok("no agent needs you\n".to_string()),
     }
 }
@@ -161,6 +174,46 @@ mod tests {
             run(&mut state, &ctx, AgentCmd::Next),
             Ok("no agent needs you\n".to_string())
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn next_none_from_a_client_is_a_status_message() {
+        use crate::server::clients::AttachRequest;
+        let (mut state, ctx, a, _) = two_panes();
+        run(&mut state, &ctx, rep("idle", Some(a), "pi")).expect("report");
+        let accepted = clients::attach(
+            &mut state,
+            AttachRequest {
+                ctx: ClientCtx {
+                    client: None,
+                    ..ctx.clone()
+                },
+                size: (100, 40),
+                term: "xterm".into(),
+                caps: Default::default(),
+                pid: None,
+                target: Some("a".into()),
+                detach_others: false,
+                nest: false,
+                tty: None,
+                created: false,
+                extras: Default::default(),
+            },
+        )
+        .expect("attach");
+        let from_key = ClientCtx {
+            client: Some(accepted.id),
+            ..ctx
+        };
+        assert_eq!(
+            run(&mut state, &from_key, AgentCmd::Next),
+            Ok(String::new()),
+            "nothing for the view mode"
+        );
+        let shown = clients::messages(&state)
+            .next_back()
+            .map(|(_, m)| m.clone());
+        assert!(shown.is_some_and(|m| m.ends_with("message: no agent needs you")));
     }
 
     #[tokio::test]

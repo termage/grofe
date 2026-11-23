@@ -186,10 +186,49 @@ pub(super) fn list_notes(
         .map(|(k, _)| k.chars().count())
         .max()
         .unwrap_or(0);
+    // A client's list shows in a view mode as wide as its pane, which
+    // wraps a longer line mid-word: break the notes between words instead.
+    let cols = clients::current_client(state, ctx)
+        .filter(|_| ctx.client.is_some())
+        .and_then(|id| state.clients.get(&id))
+        .and_then(|c| state.model.sessions.get(&c.session))
+        .and_then(|s| state.model.windows.get(&s.active))
+        .and_then(|w| state.model.panes.get(&w.active))
+        .map_or(usize::MAX, |p| usize::from(p.cols));
     Ok(notes
         .iter()
-        .map(|(key, note)| format!("{key:<width$} {note}\n"))
+        .map(|(key, note)| wrap_note(&format!("{key:<width$} "), note, cols))
         .collect())
+}
+
+/// `head` and `note` as lines of at most `cols` cells, broken between the
+/// words of the note and indented under it. A note with no room (under 12
+/// cells) is left whole.
+pub(super) fn wrap_note(head: &str, note: &str, cols: usize) -> String {
+    let indent = head.chars().count();
+    if indent + 12 > cols {
+        return format!("{head}{note}\n");
+    }
+    let mut out = String::new();
+    let mut line = head.to_string();
+    let mut empty = true;
+    for word in note.split(' ') {
+        let len = line.chars().count() + 1 + word.chars().count();
+        if !empty && len > cols {
+            out.push_str(&line);
+            out.push('\n');
+            line = " ".repeat(indent);
+            empty = true;
+        }
+        if !empty {
+            line.push(' ');
+        }
+        line.push_str(word);
+        empty = false;
+    }
+    out.push_str(&line);
+    out.push('\n');
+    out
 }
 
 /// tmux 3.7b's `LIST_KEYS_TEMPLATE`, a line of `list-keys`.

@@ -5,10 +5,11 @@ use super::*;
 /// repeat where tmux has `-r` and tmux's notes (`list-keys -N`). New panes
 /// and windows open in the active pane's cwd (spec §5.3), which tmux leaves
 /// to a `-c '#{pane_current_path}'` in the user's config, and prompts and
-/// confirmations spell tmux's `#P`/`#W` as native formats. Left unbound:
-/// `o` (needs `+`/`-` target offsets, FE.1's), `m`/`M` (marking), `C` and
-/// `t` (out of scope, spec §4.5), `<`/`>` (tmux's window and pane menus),
-/// `*` (`new-pane`). Copy mode binds `[`, `PPage` and the `copy-mode-vi` table.
+/// confirmations spell tmux's `#P`/`#W` as native formats. `o` is bound in
+/// tmux's dialect (its `+`/`-` target offsets, FE.1's) and `C` opens
+/// grofe's settings menu, where tmux has customize-mode. Left unbound:
+/// `m`/`M` (marking), `t` (out of scope, spec §4.5), `<`/`>` (tmux's window
+/// and pane menus), `*` (`new-pane`). Copy mode binds `[`, `PPage` and the `copy-mode-vi` table.
 pub fn default_bindings() -> KeyTables {
     let mut t = KeyTables::default();
     let mut bind = |key: &str, argv: &[&str], repeat: bool, note: &str| {
@@ -104,9 +105,9 @@ const PREFIX_ROWS: &[(&str, &[&str], bool, &str)] = &[
     ("n", &["next-window"], false, "Select the next window"),
     ("p", &["previous-window"], false, "Select the previous window"),
     ("l", &["last-window"], false, "Select the previously current window"),
-    ("(", &["switch-client", "-p"], false, "Switch to previous client"),
-    (")", &["switch-client", "-n"], false, "Switch to next client"),
-    ("L", &["switch-client", "-l"], false, "Switch to the last client"),
+    ("(", &["switch-client", "-p"], false, "Switch to the previous session"),
+    (")", &["switch-client", "-n"], false, "Switch to the next session"),
+    ("L", &["switch-client", "-l"], false, "Switch to the last session"),
     ("z", &["resize-pane", "-Z"], false, "Zoom the active pane"),
     ("C-b", &["send-prefix"], false, "Send the prefix key"),
     (":", &["command-prompt"], false, "Prompt for a command"),
@@ -211,6 +212,11 @@ pub(super) fn default_group(table: &str, cmds: &[Vec<String>]) -> &'static str {
         "new-window" | "next-window" | "previous-window" | "last-window" | "select-window"
         | "kill-window" => "window",
         "switch-client" => "session",
+        "new-scratchpad" | "toggle-scratchpad" | "choose-scratchpad" => "scratchpads",
+        "settings" => "settings",
+        "key-menu" | "list-keys" => "help",
+        "confirm-before" if last == "kill-server" => "server",
+        "display-message" => "window",
         "choose-tree" if word(1).ends_with('s') => "session",
         "choose-tree" => "window",
         "confirm-before" if last == "kill-pane" => "pane",
@@ -223,6 +229,8 @@ pub(super) fn default_group(table: &str, cmds: &[Vec<String>]) -> &'static str {
         {
             "window"
         }
+        "command-prompt" if last.starts_with("list-keys") => "help",
+        "command-prompt" => "prompt",
         "copy-mode" | "paste-buffer" | "list-buffers" | "choose-buffer" | "delete-buffer" => "copy",
         "next-layout" | "select-layout" => "layout",
         "agent" | "choose-agent" | "agent-sidebar" | "agent-grid" => "agents",
@@ -230,6 +238,98 @@ pub(super) fn default_group(table: &str, cmds: &[Vec<String>]) -> &'static str {
         "detach-client" | "choose-client" | "suspend-client" | "refresh-client" => "client",
         _ => "other",
     }
+}
+
+/// The sections of the keys reference, in the order it lists them; a group
+/// not named here comes after them, in name order.
+const GROUP_ORDER: &[&str] = &[
+    "window",
+    "pane",
+    "session",
+    "scratchpads",
+    "layout",
+    "agents",
+    "notifications",
+    "client",
+    "copy",
+    "help",
+    "prompt",
+    "settings",
+    "server",
+    "other",
+];
+
+/// The book's keys reference (`docs/book/src/keys.md`), generated from
+/// [`default_bindings`] so it cannot drift: every `prefix` binding of grofe
+/// identity by group, with its note and command, and how tmux's own key
+/// compares. `tests/docs_reference.rs` compares it with the committed file.
+pub fn keys_reference_markdown() -> String {
+    fn cell(text: &str) -> String {
+        text.replace('|', "\\|")
+    }
+    let t = default_bindings();
+    let mut groups: BTreeMap<String, Vec<(Key, &Binding)>> = BTreeMap::new();
+    for key in t.keys(PREFIX_TABLE) {
+        if let Some(b) = t.exact(PREFIX_TABLE, &key) {
+            let group = b.group.clone().unwrap_or_else(|| "other".to_string());
+            groups.entry(group).or_default().push((key, b));
+        }
+    }
+    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
+    let mut order: Vec<String> = groups.keys().cloned().collect();
+    order.sort_by_key(|g| (rank(g).unwrap_or(GROUP_ORDER.len()), g.clone()));
+    let mut out = String::from(
+        "# Keys
+
+<!-- Generated from the default bindings in src/server/input/defaults.rs.
+     Do not edit by hand: run `just docs` to regenerate. -->
+
+Every default binding of the prefix table, as grofe binds it, by the
+section the [key menu](agents.md#the-key-menu) files it under. Press the
+prefix key (`Ctrl-b`) first. The last column says how tmux's own default for
+that key compares: the same command, grofe's own key, or what tmux binds
+there instead. Under tmux identity (grofe run as `tmux`, or
+`compat-identity = \"tmux\"`) the keys are tmux's, with tmux's notes.
+",
+    );
+    for group in order {
+        out.push_str(&format!(
+            "\n## {group}\n\n| Key | Does | Command | tmux |\n|---|---|---|---|\n"
+        ));
+        for (key, b) in &groups[&group] {
+            let command = b
+                .cmds
+                .iter()
+                .map(|argv| {
+                    let words: Vec<String> = argv
+                        .iter()
+                        .map(|a| crate::util::quote::tmux_arg(a))
+                        .collect();
+                    words.join(" ")
+                })
+                .collect::<Vec<_>>()
+                .join(" ; ");
+            let verb = b.cmds.first().and_then(|a| a.first());
+            let stock = TMUX_STOCK
+                .iter()
+                .find(|(name, ..)| parse_key(name).is_ok_and(|k| k == *key));
+            let tmux = match stock {
+                None => "grofe's own".to_string(),
+                Some((_, _, _, text)) if text.split(' ').next() == verb.map(String::as_str) => {
+                    "same".to_string()
+                }
+                Some((_, _, note, _)) => format!("tmux: {note}"),
+            };
+            out.push_str(&format!(
+                "| `{}` | {} | `{}` | {} |\n",
+                cell(&key.to_string()),
+                cell(b.desc.as_deref().unwrap_or("")),
+                cell(&command),
+                cell(&tmux),
+            ));
+        }
+    }
+    out
 }
 
 /// grofe identity's `MouseDown1Control7`, the tab's float control: the

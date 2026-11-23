@@ -1991,10 +1991,49 @@ fn every_default_has_group() {
     let get = |k: &str| t.exact(PREFIX_TABLE, &parse_key(k).unwrap()).unwrap();
     assert_eq!(get("U").group.as_deref(), Some("agents"));
     assert_eq!(get("u").group.as_deref(), Some("agents"));
-    assert_eq!(get("Space").group.as_deref(), Some("other"));
+    assert_eq!(get("Space").group.as_deref(), Some("help"));
     assert_eq!(get("M-Space").group.as_deref(), Some("layout"));
     assert_eq!(get("c").group.as_deref(), Some("window"));
     assert_eq!(get("Space").cmds, vec![argv(&["key-menu", "-T", "prefix"])]);
+}
+
+/// The keys that once landed in `other` have a section that names them.
+#[test]
+fn grofe_prefix_keys_have_fitting_groups() {
+    let t = default_bindings();
+    let get = |k: &str| t.exact(PREFIX_TABLE, &parse_key(k).unwrap()).unwrap();
+    for (key, group) in [
+        ("a", "scratchpads"),
+        ("S", "scratchpads"),
+        ("A", "scratchpads"),
+        ("C", "settings"),
+        ("Q", "server"),
+        ("Space", "help"),
+        ("?", "help"),
+        ("/", "help"),
+        (":", "prompt"),
+        ("i", "window"),
+    ] {
+        assert_eq!(get(key).group.as_deref(), Some(group), "{key}");
+    }
+}
+
+/// `(`, `)` and `L` switch sessions, and grofe's notes say so; tmux
+/// identity keeps tmux's text.
+#[test]
+fn session_switch_notes_name_sessions_in_grofe_identity() {
+    let mut t = default_bindings();
+    let note = |t: &KeyTables, k: &str| {
+        t.exact(PREFIX_TABLE, &parse_key(k).unwrap())
+            .and_then(|b| b.desc.clone())
+            .unwrap_or_default()
+    };
+    assert_eq!(note(&t, "("), "Switch to the previous session");
+    assert_eq!(note(&t, ")"), "Switch to the next session");
+    assert_eq!(note(&t, "L"), "Switch to the last session");
+    t.use_tmux_stock();
+    assert_eq!(note(&t, "("), "Switch to previous client");
+    assert_eq!(note(&t, "L"), "Switch to the last client");
 }
 
 #[test]
@@ -2062,4 +2101,21 @@ fn tmux_stock_unchanged() {
     let b = t.exact(PREFIX_TABLE, &parse_key("Space").unwrap()).unwrap();
     assert_eq!(b.cmds, vec![argv(&["next-layout"])]);
     assert!(t.exact(PREFIX_TABLE, &parse_key("U").unwrap()).is_none());
+}
+
+/// The book's keys page lists every default prefix binding with its note.
+#[test]
+fn keys_reference_lists_every_prefix_binding() {
+    let t = default_bindings();
+    let text = keys_reference_markdown();
+    for key in t.keys(PREFIX_TABLE) {
+        let b = t.exact(PREFIX_TABLE, &key).unwrap();
+        let desc = b.desc.as_deref().unwrap();
+        let group = b.group.as_deref().unwrap();
+        let row = format!("| `{}` | {desc} |", key.to_string().replace('|', "\\|"));
+        assert!(text.contains(&row), "missing {row}");
+        assert!(text.contains(&format!("## {group}\n")), "group {group}");
+    }
+    let rows = text.lines().filter(|l| l.starts_with("| `")).count();
+    assert_eq!(rows, t.keys(PREFIX_TABLE).len());
 }

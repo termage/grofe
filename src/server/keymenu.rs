@@ -1,6 +1,7 @@
 //! The key menu (agents spec §5.5): a key table's bindings in the list
 //! widget, grouped. A key bound in the table runs at once; `C-n`, `C-p`,
-//! `C-f`, `Escape` and `C-c` belong to the menu.
+//! `C-f`, `Escape`, `C-c` and the unmodified `Up`, `Down`, `PageUp`,
+//! `PageDown`, `Home` and `End` belong to the menu.
 
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -8,12 +9,14 @@ use std::time::Instant;
 use crate::server::State;
 use crate::server::clients;
 use crate::server::input::{
-    Input, InputHook, Key, KeyCode, KeySettings, KeyState, KeyTables, Routed,
+    Input, InputHook, Key, KeyCode, KeySettings, KeyState, KeyTables, Mods, Routed,
 };
-use crate::server::listdraw::{self, Rows};
+use crate::server::listdraw::{self, Col, Rows};
 use crate::server::listview::{self, ListAction, ListState};
+use crate::server::pane::CellFlags;
 use crate::server::prompt;
 use crate::server::render::{Overlay, OverlayCtx, Screen};
+use crate::server::status::Style;
 use crate::types::{ClientId, InputModes, Rect};
 
 /// Group of a binding with none, listed last.
@@ -90,6 +93,12 @@ fn is_reserved(key: &Key) -> bool {
     match key.code {
         KeyCode::Escape => true,
         KeyCode::Char('n' | 'p' | 'f' | 'c') => ctrl,
+        KeyCode::Up
+        | KeyCode::Down
+        | KeyCode::PageUp
+        | KeyCode::PageDown
+        | KeyCode::Home
+        | KeyCode::End => key.mods == Mods::default(),
         _ => false,
     }
 }
@@ -218,6 +227,10 @@ impl InputHook for KeyMenuHook {
         let size = state.clients.get(&client).map_or((80, 24), |c| c.size);
         let outcome = {
             let menu = state.keymenus.open.get_mut(&client)?;
+            // A page key moves a screenful: the list's height is known to
+            // `ListState` before the key, not only after it.
+            let n = visible(&rows, &menu.ui.query).len();
+            menu.ui.clamp(n, list_height(size, menu.ui.filtering));
             let outcome = step(
                 &mut menu.ui,
                 &rows,
@@ -226,7 +239,7 @@ impl InputHook for KeyMenuHook {
                 &key,
             );
             let n = visible(&rows, &menu.ui.query).len();
-            menu.ui.clamp(n, list_height(size));
+            menu.ui.clamp(n, list_height(size, menu.ui.filtering));
             outcome
         };
         match outcome {
@@ -287,10 +300,38 @@ fn rows_for(state: &State, client: ClientId, table: &str) -> Vec<Row> {
 
 // --- Drawing ------------------------------------------------------------
 
-/// The box's rows for the list: inside the border, minus the query line.
-fn list_height(size: (u16, u16)) -> usize {
-    usize::from(listdraw::centred(size, 70, 70).rows.saturating_sub(3))
+/// The box: 70% of a wide client, nearly all of a narrow one, so a
+/// description is rarely cut.
+fn area(size: (u16, u16)) -> Rect {
+    let base = listdraw::centred(size, 70, 70);
+    let cols = u32::from(size.0);
+    let wide = (cols * 70 / 100).max(cols.saturating_sub(2).min(100));
+    let cols = u16::try_from(wide).unwrap_or(size.0);
+    Rect {
+        x: (size.0 - cols) / 2,
+        cols,
+        ..base
+    }
 }
+
+/// The box's rows for the list: inside the border, minus the query line
+/// while it is shown.
+fn list_height(size: (u16, u16), filtering: bool) -> usize {
+    usize::from(area(size).rows.saturating_sub(2 + u16::from(filtering)))
+}
+
+/// The key column, the group and the description: the description gives
+/// way first and ends in `…` when it is cut.
+const CAPS: [Col; 3] = [
+    Col { cap: 10, floor: 7 },
+    Col { cap: 14, floor: 5 },
+    Col {
+        cap: 120,
+        floor: 24,
+    },
+];
+
+const HINT: &str = "C-f filter · Enter run · Esc close";
 
 /// Draws a client's key menu.
 pub struct KeyMenuOverlay;
@@ -302,15 +343,18 @@ impl Overlay for KeyMenuOverlay {
         };
         let rows = rows_for(state, client, &menu.table);
         let shown = visible(&rows, &menu.ui.query);
-        let area: Rect = listdraw::centred((screen.cols, screen.rows), 70, 70);
+        let area = area((screen.cols, screen.rows));
         let mut ui = menu.ui.clone();
-        ui.clamp(shown.len(), list_height((screen.cols, screen.rows)));
+        ui.clamp(
+            shown.len(),
+            list_height((screen.cols, screen.rows), ui.filtering),
+        );
         let cols = rows
             .iter()
             .map(|r| vec![r.key.to_string(), r.group.clone(), r.label.clone()])
             .collect();
         let title = format!("key-menu {}", menu.table);
-        listdraw::draw_list(
+        listdraw::draw_list_fit(
             screen,
             area,
             &title,
@@ -318,7 +362,16 @@ impl Overlay for KeyMenuOverlay {
             &shown,
             &ui,
             ui.filtering,
+            Some(&CAPS),
         );
+        if area.cols > 6 && area.rows > 2 {
+            let mut dim = Style::default();
+            dim.attrs |= CellFlags::DIM;
+            let hint = format!(" {} ", listdraw::fit_text(HINT, usize::from(area.cols) - 6));
+            let (x, y) = (usize::from(area.x) + 2, usize::from(area.y + area.rows) - 1);
+            let end = usize::from(area.x + area.cols) - 1;
+            listdraw::put_text(screen, x, y, end, &hint, &dim);
+        }
         screen.cursor = None;
     }
 }
@@ -602,6 +655,107 @@ mod tests {
         assert!(matches!(routed, Some(Routed::Consumed)));
         assert!(state.keymenus.is_open(client), "menu stays");
         assert_eq!(state.clients[&client].keys.table(), "root");
+    }
+
+    #[test]
+    fn navigation_keys_belong_to_the_menu_not_the_bindings() {
+        let mut t = tables();
+        for name in ["Up", "Down", "PageUp", "PageDown", "Home", "End"] {
+            bind(&mut t, "prefix", name, &["select-pane"], Some("pane"), true);
+        }
+        let mut ui = ListState::default();
+        for name in ["Down", "Down", "Up", "PageDown", "PageUp", "End", "Home"] {
+            assert_eq!(press_step(&mut ui, &t, name), Step::Redraw, "{name}");
+        }
+        assert_eq!(ui.selected, 0);
+        // With a modifier the key is the binding's again.
+        bind(&mut t, "prefix", "C-Up", &["resize-pane"], None, true);
+        assert_eq!(press_step(&mut ui, &t, "C-Up"), Step::Run(key("C-Up")));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn down_moves_the_selection_and_a_page_key_a_screenful() {
+        let (mut state, client) = client_state();
+        let mut b = Binding::new(
+            vec![vec!["select-pane".into(), "-D".into()]],
+            true,
+            BindingSource::Default,
+        );
+        b.group = Some("pane".into());
+        for name in ["Down", "NPage", "PPage"] {
+            state
+                .registry
+                .key_tables
+                .insert("prefix", key(name), b.clone());
+        }
+        open(&mut state, client, "prefix").expect("open");
+        let size = state.clients[&client].size;
+        let press_key = |state: &mut State, name: &str| {
+            KeyMenuHook.on_input(state, client, &Input::Key(key(name)), Instant::now())
+        };
+        press_key(&mut state, "Down");
+        assert!(
+            state.keymenus.is_open(client),
+            "Down does not run the binding"
+        );
+        assert_eq!(state.keymenus.open[&client].ui.selected, 1);
+        press_key(&mut state, "NPage");
+        let page = list_height(size, false);
+        assert!(page > 10, "a screenful at 100x40 is more than the old 10");
+        assert_eq!(state.keymenus.open[&client].ui.selected, 1 + page);
+        press_key(&mut state, "PPage");
+        assert_eq!(state.keymenus.open[&client].ui.selected, 1);
+        assert_eq!(state.clients[&client].keys.table(), "root");
+    }
+
+    /// The screen's box rows as text, with the box's border removed.
+    fn drawn(state: &State, client: ClientId, size: (u16, u16)) -> Vec<String> {
+        let mut screen = Screen::new(size.0, size.1);
+        let cx = OverlayCtx {
+            client,
+            viewport: (0, 0),
+            status_row: None,
+            window_top: 0,
+            panes: Vec::new(),
+        };
+        KeyMenuOverlay.draw(state, client, &cx, &mut screen);
+        screen
+            .cells
+            .chunks(usize::from(size.0))
+            .map(|r| r.iter().map(|c| c.c).collect::<String>())
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn small_client_cuts_descriptions_with_an_ellipsis_only() {
+        let (mut state, client) = client_state();
+        state.clients.get_mut(&client).expect("client").size = (80, 24);
+        open(&mut state, client, "prefix").expect("open");
+        let rows = rows_for(&state, client, "prefix");
+        let lines = drawn(&state, client, (80, 24));
+        let width = area((80, 24)).cols;
+        assert!(width >= 78, "most of an 80 column client, got {width}");
+        let mut seen = 0;
+        for line in &lines {
+            let inner = line.trim_matches(|c| matches!(c, '│' | ' '));
+            let Some(row) = rows.iter().find(|r| {
+                let k = r.key.to_string();
+                inner.starts_with(&k) && inner[k.len()..].starts_with(' ')
+            }) else {
+                continue;
+            };
+            seen += 1;
+            assert!(
+                inner.ends_with(&row.label) || inner.ends_with('…'),
+                "cut mid-word: {inner:?} for {:?}",
+                row.label
+            );
+        }
+        assert!(seen > 8, "rows drawn: {seen}");
+        assert!(
+            lines.iter().any(|l| l.contains(HINT)),
+            "the hint is in the box"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
