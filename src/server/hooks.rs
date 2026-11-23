@@ -706,15 +706,23 @@ pub fn table_of(spec: &EventSpec, pane: bool) -> Table {
 /// Parses a command string for a hook: split now, and each command must
 /// parse (in the request's dialect), as tmux checks at set time; formats in
 /// it expand when it runs. An empty or blank string is no commands. A
-/// `command-alias` verb parses as the command it stands for.
+/// `command-alias` verb is expanded now and the hook keeps the commands it
+/// stood for, as tmux stores a parsed hook (a redefined alias changes
+/// nothing).
 fn parse_command(
     state: &State,
     ctx: &ClientCtx,
     command: &str,
 ) -> Result<Vec<Vec<String>>, String> {
-    let cmds = cmd::split_command_string(command).map_err(|e| e.to_string())?;
+    let cmds: Vec<Vec<String>> = cmd::split_command_string(command)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .flat_map(|argv| {
+            dispatch::menu::expand_alias_command(state, &argv).unwrap_or_else(|| vec![argv])
+        })
+        .collect();
     for argv in &cmds {
-        dispatch::parse_split(state, ctx, &unformatted(argv))?;
+        crate::compat::parse_split(ctx, &unformatted(argv))?;
     }
     Ok(cmds)
 }

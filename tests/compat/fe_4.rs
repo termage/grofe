@@ -733,6 +733,123 @@ fn aliases_in_prompts(grofe_server: bool) {
     let _ = cli.run(&words(&["kill-server"]));
 }
 
+/// A hook keeps the command its alias stood for when it was set (tmux 3.7b
+/// expands the alias then): `show-hooks` lists the expansion, and
+/// redefining the alias changes neither the listing nor what the hook runs.
+#[test]
+fn a_hook_keeps_the_command_its_alias_stood_for() {
+    hook_alias(false);
+}
+
+#[test]
+fn a_hook_keeps_the_command_its_alias_stood_for_on_a_grofe_server() {
+    hook_alias(true);
+}
+
+fn hook_alias(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(
+        &cli,
+        &["set", "-s", "command-alias[203]", "myren=rename-window"],
+    );
+    out(
+        &cli,
+        &[
+            "set",
+            "-s",
+            "command-alias[204]",
+            "two=rename-window a ; rename-window b",
+        ],
+    );
+    out(&cli, &["set-hook", "-g", "pane-focus-in", "myren hook"]);
+    out(&cli, &["set-hook", "-g", "pane-focus-out", "two"]);
+    out(
+        &cli,
+        &["set-hook", "-g", "after-new-window", "myren hooked"],
+    );
+    out(
+        &cli,
+        &["set", "-s", "command-alias[203]", "myren=rename-session"],
+    );
+    assert_eq!(
+        out(&cli, &["show-hooks", "-g", "pane-focus-in"]),
+        "pane-focus-in[0] rename-window hook\n"
+    );
+    assert_eq!(
+        out(&cli, &["show-hooks", "-g", "pane-focus-out"]),
+        "pane-focus-out[0] rename-window a ; rename-window b\n"
+    );
+    out(&cli, &["new-window", "-d", "-t", "main"]);
+    wait_until("the hook's expanded command", || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+        .contains("hooked")
+    });
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `new-window -n`, `new-session -n` and `break-pane -n` store a window name
+/// as tmux 3.7b does, like `rename-window`: a backslash doubled, a control
+/// character `invalid window name`.
+#[test]
+fn a_window_name_given_at_creation_is_cleaned_as_tmux_cleans_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let cli = grofe_cli(dir.path());
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    let shown = |w: &[&str]| out(&cli, w);
+    assert_eq!(
+        shown(&["new-window", "-n", "e\\f", "-P", "-F", "#{window_name}"]),
+        "e\\\\f\n"
+    );
+    out(&cli, &["new-session", "-d", "-s", "two", "-n", "e\\f"]);
+    assert_eq!(
+        shown(&["list-windows", "-t", "two", "-F", "#{window_name}"]),
+        "e\\\\f\n"
+    );
+    let pane = out(
+        &cli,
+        &["split-window", "-d", "-t", "main", "-P", "-F", "#{pane_id}"],
+    );
+    let pane = pane.trim_end();
+    assert_eq!(
+        shown(&[
+            "break-pane",
+            "-d",
+            "-s",
+            pane,
+            "-n",
+            "e\\f",
+            "-P",
+            "-F",
+            "#{window_name}"
+        ]),
+        "e\\\\f\n"
+    );
+    for args in [
+        &["new-window", "-n", "g\th"][..],
+        &["new-session", "-d", "-s", "three", "-n", "g\th"],
+        &["break-pane", "-d", "-s", pane, "-n", "g\th"],
+    ] {
+        let (status, _, err) = cli.run(&words(args));
+        assert!(!status.success(), "{args:?}");
+        assert_eq!(err, "invalid window name: g\th\n", "{args:?}");
+    }
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
 /// `%%%` in a `command-prompt` template inserts the typed text escaped for
 /// the command parser, `%%` as typed (tmux 3.7b `cmd_template_replace`):
 /// `rename-window -- "%%%"` and `set -g @v "%%%"` give the typed text back,

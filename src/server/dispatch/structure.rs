@@ -17,7 +17,7 @@ use crate::server::State;
 use crate::server::dispatch::options::Owner;
 use crate::server::dispatch::pane::{print_pane, respawn, select_last, toggle_zoom, unzoom};
 use crate::server::dispatch::resolve_cwd;
-use crate::server::dispatch::window::{AUTOMATIC_RENAME, default_name};
+use crate::server::dispatch::window::{AUTOMATIC_RENAME, clean_name, default_name};
 use crate::server::layout::{Insert, LayoutTree, Preset};
 use crate::server::model::{HOLE, Model, Window};
 use crate::types::{Dir, Edge, PaneId, SessionId, SplitSize, WindowId, cap_size};
@@ -338,7 +338,10 @@ const ALREADY_IN: &str = "window is already in that session";
 /// index or the session's first free one, named `-n` (which turns
 /// `automatic-rename` off for it, as tmux does). It becomes current unless
 /// `-d`. A pane alone in its window moves its window instead, as in tmux.
-pub fn break_pane(state: &mut State, ctx: &ClientCtx, c: BreakPane) -> Result<String, String> {
+pub fn break_pane(state: &mut State, ctx: &ClientCtx, mut c: BreakPane) -> Result<String, String> {
+    if ctx.dialect == crate::protocol::Dialect::Tmux {
+        c.name = c.name.map(|n| clean_name("window", &n)).transpose()?;
+    }
     let model = &mut state.model;
     let pane = model.resolve_pane(&c.src, ctx)?;
     let from = model.panes[&pane].window;

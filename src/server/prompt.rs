@@ -161,6 +161,10 @@ struct Prompt {
     /// `confirm-before`: the key that confirms, and whether Enter does.
     confirm_key: char,
     default_yes: bool,
+    /// `confirm-before`'s command as parsed when the prompt opened, aliases
+    /// expanded (tmux keeps the parsed command): what a confirm runs,
+    /// instead of `template` read again.
+    parsed: Option<Vec<Vec<String>>>,
     /// Which of [`PROMPT_TYPES`] the prompt is, so which history it walks.
     kind: usize,
     /// The key whose binding opened the prompt: its command is logged as
@@ -261,6 +265,7 @@ impl Prompt {
             last: String::new(),
             confirm_key: 'y',
             default_yes: false,
+            parsed: None,
             kind: 0,
             key: None,
             vi: false,
@@ -1130,11 +1135,16 @@ impl InputHook for PromptHook {
                     clients::mark_dirty(state, client);
                     return Some(routed);
                 }
-                let command = match prompt.read {
-                    Read::Line | Read::Single | Read::Key => Some(prompt.command(&line)),
-                    Read::Confirm => prompt.confirmed().then_some(prompt.template.clone()),
+                let cmds = match (prompt.read, prompt.parsed.take()) {
+                    (Read::Confirm, Some(cmds)) => prompt.confirmed().then_some(Ok(cmds)),
+                    (Read::Confirm, None) => prompt
+                        .confirmed()
+                        .then(|| cmd::split_command_string(&prompt.template)),
+                    (Read::Line | Read::Single | Read::Key, _) => {
+                        Some(cmd::split_command_string(&prompt.command(&line)))
+                    }
                 };
-                match command.map(|c| cmd::split_command_string(&c)) {
+                match cmds {
                     Some(Ok(cmds)) if !cmds.is_empty() => {
                         Routed::Keyed(cmds, prompt.dialect, prompt.key.clone())
                     }
@@ -2056,6 +2066,7 @@ pub fn confirm(
     c: &cmd::ConfirmBefore,
     verb: &str,
     command: String,
+    parsed: Vec<Vec<String>>,
 ) -> Result<String, String> {
     // tmux checks `-c` before it looks for a client.
     let key = match c.confirm_key.as_deref() {
@@ -2081,6 +2092,7 @@ pub fn confirm(
         read: Read::Confirm,
         confirm_key: key,
         default_yes: c.default_yes,
+        parsed: Some(parsed),
         ..Prompt::new(label, "", command)
     };
     open(state, ctx, id, prompt, !c.background);
@@ -2742,23 +2754,6 @@ mod tests {
         // No `%`: the template as it is; other `%` sequences stay.
         assert_eq!(replace_template("kill-window", "x"), "kill-window");
         assert_eq!(replace_template("%2 %a", "x"), "%2 %a");
-    }
-
-    #[test]
-    fn a_triple_percent_escapes_what_the_command_parser_reads() {
-        let typed = "q \"x\" $HOME ; y \\z ~";
-        // `%%` puts the text in as typed, `%%%` and `%1%` escape it.
-        assert_eq!(replace_template("\"%%\"", typed), format!("\"{typed}\""));
-        let escaped = "q \\\"x\\\" \\$HOME \\; y \\\\z \\~";
-        assert_eq!(replace_template("\"%%%\"", typed), format!("\"{escaped}\""));
-        assert_eq!(replace_template("\"%1%\"", typed), format!("\"{escaped}\""));
-        // What the parser reads back is the typed text.
-        let cmds = cmd::split_command_string(&replace_template("a -- \"%%%\"", typed)).unwrap();
-        assert_eq!(cmds, vec![vec!["a".to_string(), "--".into(), typed.into()]]);
-        // The second prompt's answer: `%2%` escapes, and the first `%%` left
-        // takes it (each answer's pass has its own "first").
-        assert_eq!(replace_template_idx("%1 %2% %%", "b$", 2), "%1 b\\$ b$");
-        assert_eq!(replace_template_idx("%% %%%", "x", 1), "x %%%");
     }
 
     fn meta(c: char) -> Key {

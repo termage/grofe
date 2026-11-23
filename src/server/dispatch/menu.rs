@@ -227,15 +227,20 @@ pub fn confirm_before(
     let Some(command) = c.command.clone() else {
         return Err(too_few_arguments("confirm-before"));
     };
-    let cmds = cmd::split_command_string(&command).map_err(|e| e.to_string())?;
-    for argv in &cmds {
-        super::parse_split(state, ctx, argv)?;
+    // An alias is expanded now, as tmux parses the command when the prompt
+    // opens: the prompt names and later runs what it stands for.
+    let mut cmds: Vec<Vec<String>> = Vec::new();
+    let mut verb = "";
+    for argv in cmd::split_command_string(&command).map_err(|e| e.to_string())? {
+        for argv in expand_alias_command(state, &argv).unwrap_or_else(|| vec![argv]) {
+            let named = crate::compat::named::split(ctx, &argv)?;
+            if verb.is_empty() {
+                verb = named.first().map_or("", |(name, _)| name);
+            }
+            cmds.push(argv);
+        }
     }
-    let verb = cmds
-        .first()
-        .and_then(|argv| argv.first())
-        .map_or("", |v| cmd::parse::canonical_name(v));
-    prompt::confirm(state, ctx, &c, verb, command)
+    prompt::confirm(state, ctx, &c, verb, command, cmds)
 }
 
 /// The request's argv with grofe aliases expanded, or `None` to run it as

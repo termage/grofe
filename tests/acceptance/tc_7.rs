@@ -269,6 +269,24 @@ fn confirm_before_runs_its_command_only_on_y() {
     a.send("\x1b");
 }
 
+/// `confirm-before`'s default prompt names the command an alias stands for
+/// (`Confirm 'rename-window'?`), and the command that runs on `y` is the one
+/// the alias meant when the prompt opened, as tmux parses it then.
+#[test]
+fn confirm_before_names_and_keeps_the_command_its_alias_stood_for() {
+    let srv = start();
+    srv.cmd(&["set", "-ag", "command-alias", "myren=rename-window"])
+        .expect("alias");
+    bind(&srv, &["X", "confirm-before", "myren confirmed"]);
+    let mut a = attach(&srv);
+    a.send("\x02X");
+    wait_last_row(&mut a, "Confirm 'rename-window'? (y/n)");
+    srv.cmd(&["set", "-g", "command-alias", "myren=rename-session"])
+        .expect("redefine");
+    a.send("y");
+    wait_window_name(&srv, "confirmed");
+}
+
 /// Case 5: a rename prompt starts with the old name.
 #[test]
 fn a_rename_prompt_shows_the_old_name_prefilled() {

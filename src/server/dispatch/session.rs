@@ -9,7 +9,8 @@ use crate::cmd::{
 use crate::protocol::ClientCtx;
 use crate::server::dispatch::options::{self, FormatCtx, Owner, ServerVars};
 use crate::server::dispatch::sorting::Sort;
-use crate::server::dispatch::{resolve_cwd, spawn_pane, window::default_name};
+use crate::server::dispatch::window::{clean_name, default_name};
+use crate::server::dispatch::{resolve_cwd, spawn_pane};
 use crate::server::layout::LayoutTree;
 use crate::server::model::Model;
 use crate::server::model::{DEFAULT_SIZE, Session, Window};
@@ -35,6 +36,12 @@ pub fn new_session(state: &mut State, ctx: &ClientCtx, c: NewSession) -> Result<
     let mut c = c;
     if let Some(name) = c.name.take() {
         c.name = Some(check_name(model, &name, tmux)?);
+    }
+    if tmux {
+        c.window_name = c
+            .window_name
+            .map(|n| clean_name("window", &n))
+            .transpose()?;
     }
     // `-t`: the session to group with, else the name of a new group.
     let group = c.group.as_deref().map(|raw| {
@@ -340,18 +347,10 @@ pub fn list_sessions(state: &State, c: ListSessions) -> Result<String, String> {
 
 /// A new session name, checked and cleaned. tmux 3.7b (recorded) accepts
 /// any name of valid UTF-8 and printable ASCII, `:` and `.` and the empty
-/// name too, storing a backslash doubled (`clean_name`); control characters
-/// are `invalid session name`. Natively a name must be usable in a target.
-fn clean_name(name: &str) -> Result<String, String> {
-    if name.chars().any(|c| c.is_ascii_control()) {
-        return Err(format!("invalid session name: {name}"));
-    }
-    Ok(name.replace('\\', "\\\\"))
-}
-
+/// name too ([`clean_name`]); natively a name must be usable in a target.
 fn check_name(model: &Model, name: &str, tmux: bool) -> Result<String, String> {
     let name = if tmux {
-        clean_name(name)?
+        clean_name("session", name)?
     } else {
         if name.is_empty() || name.contains([':', '.']) {
             return Err(format!("bad session name: {name}"));
@@ -382,7 +381,11 @@ pub fn rename_session(state: &mut State, ctx: &ClientCtx, c: Rename) -> Result<S
         _ => c.name,
     };
     let tmux = ctx.dialect == crate::protocol::Dialect::Tmux;
-    let name = if tmux { clean_name(&name)? } else { name };
+    let name = if tmux {
+        clean_name("session", &name)?
+    } else {
+        name
+    };
     let model = &mut state.model;
     if model.sessions[&id].name == name {
         return Ok(String::new());

@@ -30,7 +30,7 @@ pub fn default_name(cwd: &Path) -> String {
 /// any other target picks the session and the lowest free index. With
 /// `-a`, the index after the target window, later windows moving up as
 /// tmux's `winlink_shuffle_up` moves them. `-P` prints the new pane.
-pub fn new_window(state: &mut State, ctx: &ClientCtx, c: NewWindow) -> Result<String, String> {
+pub fn new_window(state: &mut State, ctx: &ClientCtx, mut c: NewWindow) -> Result<String, String> {
     let model = &state.model;
     let target = model.window_index_type(&c.target, ctx)?;
     // `-S` with `-n` and no index: a window of that name is selected
@@ -56,6 +56,9 @@ pub fn new_window(state: &mut State, ctx: &ClientCtx, c: NewWindow) -> Result<St
             }
             _ => return Err(format!("multiple windows named {name}")),
         }
+    }
+    if ctx.dialect == crate::protocol::Dialect::Tmux {
+        c.name = c.name.map(|n| clean_name("window", &n)).transpose()?;
     }
     let relative = c.after || c.before;
     let (session, index) = match &target {
@@ -220,7 +223,7 @@ pub fn rename_window(state: &mut State, ctx: &ClientCtx, c: Rename) -> Result<St
         _ => c.name,
     };
     let name = if ctx.dialect == crate::protocol::Dialect::Tmux {
-        clean_name(&name)?
+        clean_name("window", &name)?
     } else {
         name
     };
@@ -232,11 +235,12 @@ pub fn rename_window(state: &mut State, ctx: &ClientCtx, c: Rename) -> Result<St
     Ok(String::new())
 }
 
-/// A window name as tmux 3.7b stores it (`check_name`, then `clean_name`):
-/// control characters are `invalid window name`, a backslash is doubled.
-fn clean_name(name: &str) -> Result<String, String> {
+/// A window or session name (`noun`) as tmux 3.7b stores it (`check_name`,
+/// then `clean_name`): control characters are `invalid <noun> name`, a
+/// backslash is doubled.
+pub(super) fn clean_name(noun: &str, name: &str) -> Result<String, String> {
     if name.chars().any(|c| c.is_ascii_control()) {
-        return Err(format!("invalid window name: {name}"));
+        return Err(format!("invalid {noun} name: {name}"));
     }
     Ok(name.replace('\\', "\\\\"))
 }
@@ -654,14 +658,17 @@ mod tests {
     #[test]
     fn a_tmux_window_name_is_stored_as_tmux_stores_it() {
         assert_eq!(
-            clean_name("q \"x\" $HOME ; y \\z").as_deref(),
+            clean_name("window", "q \"x\" $HOME ; y \\z").as_deref(),
             Ok("q \"x\" $HOME ; y \\\\z")
         );
-        assert_eq!(clean_name("caf\u{e9}").as_deref(), Ok("caf\u{e9}"));
         assert_eq!(
-            clean_name("a\tb"),
+            clean_name("window", "caf\u{e9}").as_deref(),
+            Ok("caf\u{e9}")
+        );
+        assert_eq!(
+            clean_name("window", "a\tb"),
             Err("invalid window name: a\tb".to_string())
         );
-        assert!(clean_name("a\x7fb").is_err());
+        assert!(clean_name("window", "a\x7fb").is_err());
     }
 }
