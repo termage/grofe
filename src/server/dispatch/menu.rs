@@ -229,7 +229,7 @@ pub fn confirm_before(
     };
     let cmds = cmd::split_command_string(&command).map_err(|e| e.to_string())?;
     for argv in &cmds {
-        crate::compat::parse_split(ctx, argv)?;
+        super::parse_split(state, ctx, argv)?;
     }
     let verb = cmds
         .first()
@@ -431,6 +431,30 @@ mod tests {
         assert_eq!(
             run(&mut state, &["confirm-before", "no-such-verb"]),
             Err("unknown command: no-such-verb".to_string())
+        );
+    }
+
+    #[test]
+    fn confirm_before_parses_a_command_alias() {
+        let mut state = with_aliases(&["myren=rename-window -t :0"]);
+        let run =
+            |state: &mut State, words: &[&str]| dispatch::run(state, &test_ctx(), &argv(words));
+        // Past the parse, with no client to ask.
+        assert_eq!(
+            run(&mut state, &["confirm-before", "myren x"]),
+            Err("no current client".to_string())
+        );
+        // A hook's command is checked the same way.
+        assert_eq!(
+            run(
+                &mut state,
+                &["set-hook", "-g", "pane-focused", "myren hook"]
+            ),
+            Ok(String::new())
+        );
+        assert_eq!(
+            run(&mut state, &["confirm-before", "myren-not x"]),
+            Err("unknown command: myren-not".to_string())
         );
     }
 }

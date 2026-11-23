@@ -1052,7 +1052,7 @@ fn choose_pane(state: &mut State, id: ClientId, panes: &PanesOpen, pane: PaneId)
         let argv = ["select-pane", "-t", target.as_str()].map(String::from);
         return Routed::Command(vec![argv.to_vec()], Dialect::Grofe);
     };
-    match cmd::split_command_string(&replace_template(template, &pane.to_string())) {
+    match cmd::split_command_string(&prompt::replace_template(template, &pane.to_string())) {
         Ok(cmds) if !cmds.is_empty() => Routed::Command(cmds, panes.dialect),
         Ok(_) => Routed::Consumed,
         Err(e) => {
@@ -1060,40 +1060,6 @@ fn choose_pane(state: &mut State, id: ClientId, panes: &PanesOpen, pane: PaneId)
             Routed::Consumed
         }
     }
-}
-
-/// tmux's `cmd_template_replace` for one answer that has nothing to
-/// quote: `%1` everywhere and `%%` the first time stand for `answer`, and
-/// a `%` after either is part of the mark (`%%%`).
-fn replace_template(template: &str, answer: &str) -> String {
-    let chars: Vec<char> = template.chars().collect();
-    let mut out = String::new();
-    let mut replaced = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        i += 1;
-        if c == '%' {
-            let matched = match chars.get(i) {
-                Some('1') => true,
-                Some('%') if !replaced => {
-                    replaced = true;
-                    true
-                }
-                _ => false,
-            };
-            if matched {
-                i += 1;
-                if chars.get(i) == Some(&'%') {
-                    i += 1;
-                }
-                out.push_str(answer);
-                continue;
-            }
-        }
-        out.push(c);
-    }
-    out
 }
 
 /// Row `i` of client `id`'s menu was chosen: the menu closes, then the
@@ -1563,6 +1529,7 @@ pub fn client_gone(state: &mut State, id: ClientId) {
 mod tests {
     use super::*;
     use crate::server::input::parse_key;
+    use crate::server::prompt::replace_template;
 
     fn screen(cols: u16, rows: u16) -> Screen {
         Screen::new(cols, rows)

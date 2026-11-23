@@ -219,12 +219,26 @@ pub fn rename_window(state: &mut State, ctx: &ClientCtx, c: Rename) -> Result<St
         }
         _ => c.name,
     };
+    let name = if ctx.dialect == crate::protocol::Dialect::Tmux {
+        clean_name(&name)?
+    } else {
+        name
+    };
     let model = &mut state.model;
     stop_automatic_rename(model, window)?;
     if let Some(w) = model.windows.get_mut(&window) {
         w.name = name;
     }
     Ok(String::new())
+}
+
+/// A window name as tmux 3.7b stores it (`check_name`, then `clean_name`):
+/// control characters are `invalid window name`, a backslash is doubled.
+fn clean_name(name: &str) -> Result<String, String> {
+    if name.chars().any(|c| c.is_ascii_control()) {
+        return Err(format!("invalid window name: {name}"));
+    }
+    Ok(name.replace('\\', "\\\\"))
 }
 
 /// Which way `next-window` / `previous-window` steps.
@@ -631,4 +645,23 @@ pub(crate) fn main_sizes(model: &Model, window: WindowId) -> (MainSize, MainSize
             MainSize::HEIGHT,
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_name;
+
+    #[test]
+    fn a_tmux_window_name_is_stored_as_tmux_stores_it() {
+        assert_eq!(
+            clean_name("q \"x\" $HOME ; y \\z").as_deref(),
+            Ok("q \"x\" $HOME ; y \\\\z")
+        );
+        assert_eq!(clean_name("caf\u{e9}").as_deref(), Ok("caf\u{e9}"));
+        assert_eq!(
+            clean_name("a\tb"),
+            Err("invalid window name: a\tb".to_string())
+        );
+        assert!(clean_name("a\x7fb").is_err());
+    }
 }

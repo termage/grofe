@@ -2744,6 +2744,23 @@ mod tests {
         assert_eq!(replace_template("%2 %a", "x"), "%2 %a");
     }
 
+    #[test]
+    fn a_triple_percent_escapes_what_the_command_parser_reads() {
+        let typed = "q \"x\" $HOME ; y \\z ~";
+        // `%%` puts the text in as typed, `%%%` and `%1%` escape it.
+        assert_eq!(replace_template("\"%%\"", typed), format!("\"{typed}\""));
+        let escaped = "q \\\"x\\\" \\$HOME \\; y \\\\z \\~";
+        assert_eq!(replace_template("\"%%%\"", typed), format!("\"{escaped}\""));
+        assert_eq!(replace_template("\"%1%\"", typed), format!("\"{escaped}\""));
+        // What the parser reads back is the typed text.
+        let cmds = cmd::split_command_string(&replace_template("a -- \"%%%\"", typed)).unwrap();
+        assert_eq!(cmds, vec![vec!["a".to_string(), "--".into(), typed.into()]]);
+        // The second prompt's answer: `%2%` escapes, and the first `%%` left
+        // takes it (each answer's pass has its own "first").
+        assert_eq!(replace_template_idx("%1 %2% %%", "b$", 2), "%1 b\\$ b$");
+        assert_eq!(replace_template_idx("%% %%%", "x", 1), "x %%%");
+    }
+
     fn meta(c: char) -> Key {
         Key {
             code: KeyCode::Char(c),

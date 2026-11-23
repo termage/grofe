@@ -705,11 +705,16 @@ pub fn table_of(spec: &EventSpec, pane: bool) -> Table {
 
 /// Parses a command string for a hook: split now, and each command must
 /// parse (in the request's dialect), as tmux checks at set time; formats in
-/// it expand when it runs. An empty or blank string is no commands.
-fn parse_command(ctx: &ClientCtx, command: &str) -> Result<Vec<Vec<String>>, String> {
+/// it expand when it runs. An empty or blank string is no commands. A
+/// `command-alias` verb parses as the command it stands for.
+fn parse_command(
+    state: &State,
+    ctx: &ClientCtx,
+    command: &str,
+) -> Result<Vec<Vec<String>>, String> {
     let cmds = cmd::split_command_string(command).map_err(|e| e.to_string())?;
     for argv in &cmds {
-        crate::compat::parse_split(ctx, &unformatted(argv))?;
+        dispatch::parse_split(state, ctx, &unformatted(argv))?;
     }
     Ok(cmds)
 }
@@ -739,7 +744,7 @@ pub fn assign(
         state.hooks.bound.entry(key).or_default();
         return Ok(());
     }
-    let cmds = parse_command(ctx, command)?;
+    let cmds = parse_command(state, ctx, command)?;
     let elems = state.hooks.bound.entry(key).or_default();
     let at = index.unwrap_or_else(|| (0..).find(|i| !elems.contains_key(i)).unwrap_or(0));
     elems.insert(

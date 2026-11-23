@@ -667,6 +667,128 @@ fn prompt_and_confirm(grofe_server: bool) {
     let _ = cli.run(&words(&["kill-server"]));
 }
 
+/// A `command-alias` verb in `confirm-before`'s command, in a
+/// `command-prompt` template and in a hook's command runs the command it
+/// stands for, as in tmux 3.7b (the alias is expanded where the command is
+/// parsed, not only for a typed command or a menu item).
+#[test]
+fn a_command_alias_runs_in_confirm_before_prompts_and_hooks() {
+    aliases_in_prompts(false);
+}
+
+#[test]
+fn a_command_alias_runs_in_confirm_before_prompts_and_hooks_on_a_grofe_server() {
+    aliases_in_prompts(true);
+}
+
+fn aliases_in_prompts(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(
+        &cli,
+        &["set", "-s", "command-alias[203]", "myren=rename-window"],
+    );
+    // A hook's command is parsed when it is set.
+    out(
+        &cli,
+        &["set-hook", "-g", "after-new-window", "myren hooked"],
+    );
+    out(
+        &cli,
+        &["bind", "u", "confirm-before -p 'ok? ' 'myren confirmed'"],
+    );
+    out(
+        &cli,
+        &["bind", "y", "command-prompt -p name 'myren \"%%\"'"],
+    );
+    let mut client = Attached::spawn(&cli, "main");
+    let names = || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+    };
+    client.press(b"\x02u");
+    client.press(b"y");
+    wait_until("the confirmed alias", || names() == "confirmed\n");
+    client.press(b"\x02y");
+    client.press(b"viaprompt\r");
+    wait_until("the prompt's alias", || names() == "viaprompt\n");
+    out(&cli, &["new-window", "-d", "-t", "main"]);
+    wait_until("the hook's alias", || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+        .contains("hooked")
+    });
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `%%%` in a `command-prompt` template inserts the typed text escaped for
+/// the command parser, `%%` as typed (tmux 3.7b `cmd_template_replace`):
+/// `rename-window -- "%%%"` and `set -g @v "%%%"` give the typed text back,
+/// quotes, `$`, `;` and backslash intact. tmux stores a window name's
+/// backslash doubled (`clean_name`).
+#[test]
+fn a_triple_percent_in_a_prompt_template_escapes_the_typed_text() {
+    triple_percent(false);
+}
+
+#[test]
+fn a_triple_percent_in_a_prompt_template_escapes_the_typed_text_on_a_grofe_server() {
+    triple_percent(true);
+}
+
+fn triple_percent(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(
+        &cli,
+        &[
+            "bind",
+            "y",
+            "command-prompt -p name 'rename-window -- \"%%%\"'",
+        ],
+    );
+    out(
+        &cli,
+        &["bind", "u", "command-prompt -p name 'set -g @v \"%%%\"'"],
+    );
+    let typed = "q \"x\" $HOME ; y \\z";
+    let mut client = Attached::spawn(&cli, "main");
+    client.press(b"\x02y");
+    client.press(format!("{typed}\r").as_bytes());
+    wait_until("the prompt's rename", || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        ) == "q \"x\" $HOME ; y \\\\z\n"
+    });
+    client.press(b"\x02u");
+    client.press(format!("{typed}\r").as_bytes());
+    wait_until("the prompt's option", || {
+        cli.run(&words(&["show", "-gv", "@v"])).1 == format!("{typed}\n")
+    });
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
 /// A tmux binding's `display-menu` item that opens `command-prompt` keeps
 /// the tmux dialect through the menu and the prompt: `renamew` (tmux's
 /// alias) in the template runs, as in canopy's tmux-which-key menu.
