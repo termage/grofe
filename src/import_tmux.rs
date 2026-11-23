@@ -2086,7 +2086,7 @@ impl Importer {
             Ok(n) => n,
             Err(msg) => return self.report(file, line, &msg, text),
         };
-        if let Err(msg) = crate::server::hooks::check_command(&native) {
+        if let Err(msg) = crate::server::hooks::check_command_with(&native, &self.aliases()) {
             return self.report(file, line, &msg, text);
         }
         let entry = HookEntry {

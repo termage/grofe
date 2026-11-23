@@ -605,10 +605,21 @@ impl Hooks {
 /// a valid target until expanded) expanded to nothing. An empty string is
 /// no commands (the hook is removed).
 pub fn check_command(command: &str) -> Result<Vec<Vec<String>>, String> {
+    check_command_with(command, &[])
+}
+
+/// [`check_command`] with a `command-alias` verb expanded first, from
+/// `aliases` (the config's so far), as `set-hook` expands it when the hook
+/// is set: the hook keeps, and runs, what the alias stood for.
+pub fn check_command_with(command: &str, aliases: &[String]) -> Result<Vec<Vec<String>>, String> {
     if command.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let cmds = cmd::split_command_string(command).map_err(|e| e.to_string())?;
+    let cmds: Vec<Vec<String>> = cmd::split_command_string(command)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .flat_map(|argv| dispatch::menu::expand_alias(aliases, &argv).unwrap_or_else(|| vec![argv]))
+        .collect();
     for argv in &cmds {
         cmd::parse(&unformatted(argv)).map_err(|e| e.to_string())?;
     }
@@ -705,9 +716,22 @@ pub fn table_of(spec: &EventSpec, pane: bool) -> Table {
 
 /// Parses a command string for a hook: split now, and each command must
 /// parse (in the request's dialect), as tmux checks at set time; formats in
-/// it expand when it runs. An empty or blank string is no commands.
-fn parse_command(ctx: &ClientCtx, command: &str) -> Result<Vec<Vec<String>>, String> {
-    let cmds = cmd::split_command_string(command).map_err(|e| e.to_string())?;
+/// it expand when it runs. An empty or blank string is no commands. A
+/// `command-alias` verb is expanded now and the hook keeps the commands it
+/// stood for, as tmux stores a parsed hook (a redefined alias changes
+/// nothing).
+fn parse_command(
+    state: &State,
+    ctx: &ClientCtx,
+    command: &str,
+) -> Result<Vec<Vec<String>>, String> {
+    let cmds: Vec<Vec<String>> = cmd::split_command_string(command)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .flat_map(|argv| {
+            dispatch::menu::expand_alias_command(state, &argv).unwrap_or_else(|| vec![argv])
+        })
+        .collect();
     for argv in &cmds {
         crate::compat::parse_split(ctx, &unformatted(argv))?;
     }
@@ -739,7 +763,7 @@ pub fn assign(
         state.hooks.bound.entry(key).or_default();
         return Ok(());
     }
-    let cmds = parse_command(ctx, command)?;
+    let cmds = parse_command(state, ctx, command)?;
     let elems = state.hooks.bound.entry(key).or_default();
     let at = index.unwrap_or_else(|| (0..).find(|i| !elems.contains_key(i)).unwrap_or(0));
     elems.insert(
@@ -1583,6 +1607,8 @@ struct HookQueue {
 /// A hook's commands waiting to run in order, with the context they run
 /// in. Formats are not expanded here: each command expands its own when
 /// it runs, as in tmux (`set -g @x '#{pane_id}'` stores the literal).
+/// Aliases were expanded when the commands were parsed, so they run as
+/// bound (`dispatch::run_bound`).
 struct Queued {
     fired: Fired,
     dialect: Dialect,
@@ -1686,7 +1712,9 @@ fn drain(state: &mut State, origin: Origin) {
         {
             let ctx = hook_ctx(state, &item);
             state.hooks.current = Some(item.fired.vars.clone());
-            match dispatch::run_split(state, &ctx, &argv) {
+            // Stored parsed, aliases expanded when the hook was set (or the
+            // config loaded), as tmux keeps a hook's command list: not again.
+            match dispatch::run_bound(state, &ctx, &argv) {
                 Ok(text) => printed.push_str(&text),
                 Err(e) => {
                     eprintln!("grofe hook {}: {e}", item.fired.event);

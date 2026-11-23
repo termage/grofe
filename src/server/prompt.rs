@@ -161,6 +161,10 @@ struct Prompt {
     /// `confirm-before`: the key that confirms, and whether Enter does.
     confirm_key: char,
     default_yes: bool,
+    /// `confirm-before`'s command as parsed when the prompt opened, aliases
+    /// expanded (tmux keeps the parsed command): what a confirm runs,
+    /// instead of `template` read again.
+    parsed: Option<Vec<Vec<String>>>,
     /// Which of [`PROMPT_TYPES`] the prompt is, so which history it walks.
     kind: usize,
     /// The key whose binding opened the prompt: its command is logged as
@@ -261,6 +265,7 @@ impl Prompt {
             last: String::new(),
             confirm_key: 'y',
             default_yes: false,
+            parsed: None,
             kind: 0,
             key: None,
             vi: false,
@@ -1130,11 +1135,22 @@ impl InputHook for PromptHook {
                     clients::mark_dirty(state, client);
                     return Some(routed);
                 }
-                let command = match prompt.read {
-                    Read::Line | Read::Single | Read::Key => Some(prompt.command(&line)),
-                    Read::Confirm => prompt.confirmed().then_some(prompt.template.clone()),
+                // confirm-before's command list was parsed, aliases expanded,
+                // when the prompt opened, as tmux keeps it: it runs as is.
+                let parsed = prompt.read == Read::Confirm && prompt.parsed.is_some();
+                let cmds = match (prompt.read, prompt.parsed.take()) {
+                    (Read::Confirm, Some(cmds)) => prompt.confirmed().then_some(Ok(cmds)),
+                    (Read::Confirm, None) => prompt
+                        .confirmed()
+                        .then(|| cmd::split_command_string(&prompt.template)),
+                    (Read::Line | Read::Single | Read::Key, _) => {
+                        Some(cmd::split_command_string(&prompt.command(&line)))
+                    }
                 };
-                match command.map(|c| cmd::split_command_string(&c)) {
+                match cmds {
+                    Some(Ok(cmds)) if !cmds.is_empty() && parsed => {
+                        Routed::KeyedBound(cmds, prompt.dialect, prompt.key.clone())
+                    }
                     Some(Ok(cmds)) if !cmds.is_empty() => {
                         Routed::Keyed(cmds, prompt.dialect, prompt.key.clone())
                     }
@@ -2056,6 +2072,7 @@ pub fn confirm(
     c: &cmd::ConfirmBefore,
     verb: &str,
     command: String,
+    parsed: Vec<Vec<String>>,
 ) -> Result<String, String> {
     // tmux checks `-c` before it looks for a client.
     let key = match c.confirm_key.as_deref() {
@@ -2081,6 +2098,7 @@ pub fn confirm(
         read: Read::Confirm,
         confirm_key: key,
         default_yes: c.default_yes,
+        parsed: Some(parsed),
         ..Prompt::new(label, "", command)
     };
     open(state, ctx, id, prompt, !c.background);
@@ -2347,6 +2365,18 @@ fn run_server_command(state: &mut State, ctx: &ClientCtx, c: RunShell) -> Result
 /// the current pane and client, and inside a hook its `#{hook*}`
 /// variables. Menus expand their items the same way (TC.7).
 pub(crate) fn expand_command(state: &State, ctx: &ClientCtx, text: &str) -> String {
+    let pane = state.model.resolve_pane(&cmd::Target::Current, ctx).ok();
+    expand_at(state, ctx, pane, text)
+}
+
+/// [`expand_command`] against `pane` (none: only the hook and no pane
+/// variables), with the client's variables when `ctx` has a client.
+pub(crate) fn expand_at(
+    state: &State,
+    ctx: &ClientCtx,
+    pane: Option<crate::types::PaneId>,
+    text: &str,
+) -> String {
     use crate::server::dispatch::options::ServerVars;
     let model = &state.model;
     let hook = hooks::current_formats(state);
@@ -2360,7 +2390,7 @@ pub(crate) fn expand_command(state: &State, ctx: &ClientCtx, text: &str) -> Stri
         ),
         None => cmd::expand(text, inner),
     };
-    let Ok(pane) = model.resolve_pane(&cmd::Target::Current, ctx) else {
+    let Some(pane) = pane else {
         return with_hook(&NoVars);
     };
     match clients::current_client(state, ctx).and_then(|id| state.clients.get(&id)) {

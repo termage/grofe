@@ -667,6 +667,455 @@ fn prompt_and_confirm(grofe_server: bool) {
     let _ = cli.run(&words(&["kill-server"]));
 }
 
+/// A `command-alias` verb in `confirm-before`'s command, in a
+/// `command-prompt` template and in a hook's command runs the command it
+/// stands for, as in tmux 3.7b (the alias is expanded where the command is
+/// parsed, not only for a typed command or a menu item).
+#[test]
+fn a_command_alias_runs_in_confirm_before_prompts_and_hooks() {
+    aliases_in_prompts(false);
+}
+
+#[test]
+fn a_command_alias_runs_in_confirm_before_prompts_and_hooks_on_a_grofe_server() {
+    aliases_in_prompts(true);
+}
+
+fn aliases_in_prompts(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(
+        &cli,
+        &["set", "-s", "command-alias[203]", "myren=rename-window"],
+    );
+    // A hook's command is parsed when it is set.
+    out(
+        &cli,
+        &["set-hook", "-g", "after-new-window", "myren hooked"],
+    );
+    out(
+        &cli,
+        &["bind", "u", "confirm-before -p 'ok? ' 'myren confirmed'"],
+    );
+    out(
+        &cli,
+        &["bind", "y", "command-prompt -p name 'myren \"%%\"'"],
+    );
+    let mut client = Attached::spawn(&cli, "main");
+    let names = || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+    };
+    client.press(b"\x02u");
+    client.press(b"y");
+    wait_until("the confirmed alias", || names() == "confirmed\n");
+    client.press(b"\x02y");
+    client.press(b"viaprompt\r");
+    wait_until("the prompt's alias", || names() == "viaprompt\n");
+    out(&cli, &["new-window", "-d", "-t", "main"]);
+    wait_until("the hook's alias", || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+        .contains("hooked")
+    });
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// A hook keeps the command its alias stood for when it was set (tmux 3.7b
+/// expands the alias then): `show-hooks` lists the expansion, and
+/// redefining the alias changes neither the listing nor what the hook runs.
+#[test]
+fn a_hook_keeps_the_command_its_alias_stood_for() {
+    hook_alias(false);
+}
+
+#[test]
+fn a_hook_keeps_the_command_its_alias_stood_for_on_a_grofe_server() {
+    hook_alias(true);
+}
+
+fn hook_alias(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(
+        &cli,
+        &["set", "-s", "command-alias[203]", "myren=rename-window"],
+    );
+    out(
+        &cli,
+        &[
+            "set",
+            "-s",
+            "command-alias[204]",
+            "two=rename-window a ; rename-window b",
+        ],
+    );
+    out(&cli, &["set-hook", "-g", "pane-focus-in", "myren hook"]);
+    out(&cli, &["set-hook", "-g", "pane-focus-out", "two"]);
+    out(
+        &cli,
+        &["set-hook", "-g", "after-new-window", "myren hooked"],
+    );
+    out(
+        &cli,
+        &["set", "-s", "command-alias[203]", "myren=rename-session"],
+    );
+    assert_eq!(
+        out(&cli, &["show-hooks", "-g", "pane-focus-in"]),
+        "pane-focus-in[0] rename-window hook\n"
+    );
+    assert_eq!(
+        out(&cli, &["show-hooks", "-g", "pane-focus-out"]),
+        "pane-focus-out[0] rename-window a ; rename-window b\n"
+    );
+    out(&cli, &["new-window", "-d", "-t", "main"]);
+    wait_until("the hook's expanded command", || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+        .contains("hooked")
+    });
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// A command parsed once is alias-expanded once, as tmux 3.7b's
+/// `cmd_parse_expand_alias` marks it: a hook and a `confirm-before`
+/// command keep the list parsed when they were set or opened and run it
+/// as is. With `rename-window=rename-window ZZ` a second expansion would
+/// run `rename-window ZZ ZZ` (too many arguments). `confirm-before` also
+/// expands formats in its command when the prompt opens (recorded: `@f`
+/// is `main`, not the format).
+#[test]
+fn a_hook_expands_an_alias_once() {
+    alias_once(false, true);
+}
+
+#[test]
+fn a_hook_expands_an_alias_once_on_a_grofe_server() {
+    alias_once(true, true);
+}
+
+#[test]
+fn a_confirm_expands_an_alias_once_and_formats_when_it_opens() {
+    alias_once(false, false);
+}
+
+#[test]
+fn a_confirm_expands_an_alias_once_and_formats_when_it_opens_on_a_grofe_server() {
+    alias_once(true, false);
+}
+
+fn alias_once(grofe_server: bool, hook: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(
+        &cli,
+        &[
+            "set",
+            "-s",
+            "command-alias[209]",
+            "rename-window=rename-window ZZ",
+        ],
+    );
+    let names = || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        )
+    };
+    if hook {
+        out(
+            &cli,
+            &["set-hook", "-g", "after-new-window", "rename-window"],
+        );
+        out(&cli, &["new-window", "-d", "-t", "main"]);
+        wait_until("the hook's rename", || names().ends_with("ZZ\n"));
+        let _ = cli.run(&words(&["kill-server"]));
+        return;
+    }
+    out(
+        &cli,
+        &["bind", "u", "confirm-before -p 'ok? ' 'rename-window'"],
+    );
+    out(
+        &cli,
+        &[
+            "bind",
+            "v",
+            "confirm-before -p 'ok? ' 'set -g @f \"#{session_name}\"'",
+        ],
+    );
+    let mut client = Attached::spawn(&cli, "main");
+    client.press(b"\x02u");
+    client.press(b"y");
+    wait_until("the confirmed rename", || names().starts_with("ZZ\n"));
+    client.press(b"\x02v");
+    client.press(b"y");
+    wait_until("the confirmed option", || {
+        cli.run(&words(&["show", "-gv", "@f"])).1 == "main\n"
+    });
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `new-window -n` and `new-session -n` are formats, expanded before the
+/// name is checked and cleaned, and `new-window -S` looks for the cleaned
+/// name expanded once more (tmux 3.7b, recorded): `e\f` selects the `e\\f`
+/// it stored, `##{session_name}q` selects `mainq`.
+#[test]
+fn a_new_window_name_is_a_format_cleaned_before_s_looks_for_it() {
+    window_name_format(false);
+}
+
+#[test]
+fn a_new_window_name_is_a_format_cleaned_before_s_looks_for_it_on_a_grofe_server() {
+    window_name_format(true);
+}
+
+fn window_name_format(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(&cli, &["rename-window", "-t", "main", "zero"]);
+    out(&cli, &["new-window", "-d", "-n", "e\\f"]);
+    out(&cli, &["new-window", "-d", "-S", "-n", "e\\f"]);
+    out(&cli, &["new-window", "-d", "-n", "#{session_name}\\x"]);
+    out(&cli, &["new-window", "-d", "-n", "mainq"]);
+    out(&cli, &["new-window", "-d", "-S", "-n", "##{session_name}q"]);
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "two", "-n", "#{session_name}\\y"],
+    );
+    assert_eq!(
+        out(
+            &cli,
+            &["list-windows", "-a", "-F", "#{session_name}:#{window_name}"]
+        ),
+        "main:zero\nmain:e\\\\f\nmain:main\\\\x\nmain:mainq\ntwo:\\\\y\n"
+    );
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `new-session -s` is a format too, expanded before the name is checked
+/// and cleaned (tmux 3.7b, an expanded `p#{e|+:1,2}` is `p3`),
+/// and `-A` looks up that cleaned name: `new -A -d -s 'k\l'` finds the
+/// `k\\l` it stored instead of failing as a duplicate session.
+#[test]
+fn a_new_session_name_is_a_format_and_a_looks_up_the_cleaned_name() {
+    session_name_format(false);
+}
+
+#[test]
+fn a_new_session_name_is_a_format_and_a_looks_up_the_cleaned_name_on_a_grofe_server() {
+    session_name_format(true);
+}
+
+fn session_name_format(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(&cli, &["new-session", "-d", "-s", "p#{e|+:1,2}"]);
+    out(&cli, &["new-session", "-d", "-s", "k\\l"]);
+    out(&cli, &["new-session", "-A", "-d", "-s", "k\\l"]);
+    assert_eq!(
+        out(&cli, &["list-sessions", "-F", "#{session_name}"]),
+        "k\\\\l\nmain\np3\n"
+    );
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `new-window -n` expands with the client's variables and a running
+/// hook's, as tmux does: `#{hook}` names the window the hook made, and
+/// `#{client_name}` the attached client.
+#[test]
+fn a_new_window_name_sees_the_client_and_the_hook() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    use_grofe_identity(&mut cli, dir.path());
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    let client = Attached::spawn(&cli, "main");
+    let name = out(&cli, &["list-clients", "-F", "#{client_name}"]);
+    let name = name.trim_end();
+    assert!(!name.is_empty());
+    out(&cli, &["new-window", "-d", "-n", "#{client_name}"]);
+    out(
+        &cli,
+        &[
+            "set-hook",
+            "-g",
+            "after-new-session",
+            "new-window -d -n \"x#{hook}\"",
+        ],
+    );
+    out(&cli, &["new-session", "-d", "-s", "two"]);
+    let windows = || {
+        out(
+            &cli,
+            &["list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
+        )
+    };
+    wait_until("the hook's window", || {
+        windows().contains("two:xafter-new-session\n")
+    });
+    assert!(
+        windows().contains(&format!("main:{name}\n")),
+        "{}",
+        windows()
+    );
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `new-window -n`, `new-session -n` and `break-pane -n` store a window name
+/// as tmux 3.7b does, like `rename-window`: a backslash doubled, a control
+/// character `invalid window name`.
+#[test]
+fn a_window_name_given_at_creation_is_cleaned_as_tmux_cleans_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let cli = grofe_cli(dir.path());
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    let shown = |w: &[&str]| out(&cli, w);
+    assert_eq!(
+        shown(&["new-window", "-n", "e\\f", "-P", "-F", "#{window_name}"]),
+        "e\\\\f\n"
+    );
+    out(&cli, &["new-session", "-d", "-s", "two", "-n", "e\\f"]);
+    assert_eq!(
+        shown(&["list-windows", "-t", "two", "-F", "#{window_name}"]),
+        "e\\\\f\n"
+    );
+    let pane = out(
+        &cli,
+        &["split-window", "-d", "-t", "main", "-P", "-F", "#{pane_id}"],
+    );
+    let pane = pane.trim_end();
+    assert_eq!(
+        shown(&[
+            "break-pane",
+            "-d",
+            "-s",
+            pane,
+            "-n",
+            "e\\f",
+            "-P",
+            "-F",
+            "#{window_name}"
+        ]),
+        "e\\\\f\n"
+    );
+    for args in [
+        &["new-window", "-n", "g\th"][..],
+        &["new-session", "-d", "-s", "three", "-n", "g\th"],
+        &["break-pane", "-d", "-s", pane, "-n", "g\th"],
+    ] {
+        let (status, _, err) = cli.run(&words(args));
+        assert!(!status.success(), "{args:?}");
+        assert_eq!(err, "invalid window name: g\th\n", "{args:?}");
+    }
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
+/// `%%%` in a `command-prompt` template inserts the typed text escaped for
+/// the command parser, `%%` as typed (tmux 3.7b `cmd_template_replace`):
+/// `rename-window -- "%%%"` and `set -g @v "%%%"` give the typed text back,
+/// quotes, `$`, `;` and backslash intact. tmux stores a window name's
+/// backslash doubled (`clean_name`).
+#[test]
+fn a_triple_percent_in_a_prompt_template_escapes_the_typed_text() {
+    triple_percent(false);
+}
+
+#[test]
+fn a_triple_percent_in_a_prompt_template_escapes_the_typed_text_on_a_grofe_server() {
+    triple_percent(true);
+}
+
+fn triple_percent(grofe_server: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cli = grofe_cli(dir.path());
+    if grofe_server {
+        use_grofe_identity(&mut cli, dir.path());
+    }
+    out(
+        &cli,
+        &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],
+    );
+    out(
+        &cli,
+        &[
+            "bind",
+            "y",
+            "command-prompt -p name 'rename-window -- \"%%%\"'",
+        ],
+    );
+    out(
+        &cli,
+        &["bind", "u", "command-prompt -p name 'set -g @v \"%%%\"'"],
+    );
+    let typed = "q \"x\" $HOME ; y \\z";
+    let mut client = Attached::spawn(&cli, "main");
+    client.press(b"\x02y");
+    client.press(format!("{typed}\r").as_bytes());
+    wait_until("the prompt's rename", || {
+        out(
+            &cli,
+            &["list-windows", "-t", "main", "-F", "#{window_name}"],
+        ) == "q \"x\" $HOME ; y \\\\z\n"
+    });
+    client.press(b"\x02u");
+    client.press(format!("{typed}\r").as_bytes());
+    wait_until("the prompt's option", || {
+        cli.run(&words(&["show", "-gv", "@v"])).1 == format!("{typed}\n")
+    });
+    drop(client);
+    let _ = cli.run(&words(&["kill-server"]));
+}
+
 /// A tmux binding's `display-menu` item that opens `command-prompt` keeps
 /// the tmux dialect through the menu and the prompt: `renamew` (tmux's
 /// alias) in the template runs, as in canopy's tmux-which-key menu.

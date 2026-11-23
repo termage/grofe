@@ -14,7 +14,7 @@ use crate::server::dispatch::{resolve_cwd, spawn_pane};
 use crate::server::layout::{LayoutTree, MainSize, Preset};
 use crate::server::model::{Model, Window};
 use crate::server::{State, clients};
-use crate::types::{SessionId, WindowId};
+use crate::types::{PaneId, SessionId, WindowId};
 
 pub(crate) const AUTOMATIC_RENAME: &str = "automatic-rename";
 
@@ -30,21 +30,42 @@ pub fn default_name(cwd: &Path) -> String {
 /// any other target picks the session and the lowest free index. With
 /// `-a`, the index after the target window, later windows moving up as
 /// tmux's `winlink_shuffle_up` moves them. `-P` prints the new pane.
-pub fn new_window(state: &mut State, ctx: &ClientCtx, c: NewWindow) -> Result<String, String> {
+pub fn new_window(state: &mut State, ctx: &ClientCtx, mut c: NewWindow) -> Result<String, String> {
+    let target = state.model.window_index_type(&c.target, ctx)?;
+    // In the tmux dialect `-n` is a format, expanded against the target
+    // session's current pane, then checked and cleaned, as tmux 3.7b's
+    // `cmd_new_window_exec` does before it looks at `-S`.
+    let tmux = ctx.dialect == crate::protocol::Dialect::Tmux;
+    let current = state
+        .model
+        .resolve_session(&target, ctx)
+        .ok()
+        .and_then(|s| active_pane_of(&state.model, s));
+    if tmux {
+        c.name = c
+            .name
+            .map(|n| clean_name("window", &expand_name(state, ctx, current, &n)))
+            .transpose()?;
+    }
     let model = &state.model;
-    let target = model.window_index_type(&c.target, ctx)?;
     // `-S` with `-n` and no index: a window of that name is selected
-    // instead, if the session has one (and two is an error).
+    // instead, if the session has one (and two is an error). tmux compares
+    // the cleaned name expanded once more.
     if c.select_existing
         && let Some(name) = &c.name
         && !matches!(target, Target::Window(_, WindowRef::Index(_)))
     {
         let session = model.resolve_session(&target, ctx)?;
+        let wanted = if tmux {
+            expand_name(state, ctx, current, name)
+        } else {
+            name.clone()
+        };
         let named: Vec<_> = model.sessions[&session]
             .windows
             .iter()
             .copied()
-            .filter(|w| model.windows.get(w).is_some_and(|w| &w.name == name))
+            .filter(|w| model.windows.get(w).is_some_and(|w| w.name == wanted))
             .collect();
         match named[..] {
             [] => {}
@@ -219,12 +240,45 @@ pub fn rename_window(state: &mut State, ctx: &ClientCtx, c: Rename) -> Result<St
         }
         _ => c.name,
     };
+    let name = if ctx.dialect == crate::protocol::Dialect::Tmux {
+        clean_name("window", &name)?
+    } else {
+        name
+    };
     let model = &mut state.model;
     stop_automatic_rename(model, window)?;
     if let Some(w) = model.windows.get_mut(&window) {
         w.name = name;
     }
     Ok(String::new())
+}
+
+/// A session's current pane: its active window's active pane.
+fn active_pane_of(model: &Model, session: SessionId) -> Option<PaneId> {
+    let s = model.sessions.get(&session)?;
+    model.windows.get(&s.active).map(|w| w.active)
+}
+
+/// A tmux-dialect `-n` name expanded as a format (`format_single`) against
+/// `pane` with the client's variables and a running hook's, or against
+/// nothing but the hook's when there is no pane.
+pub(super) fn expand_name(
+    state: &State,
+    ctx: &ClientCtx,
+    pane: Option<PaneId>,
+    name: &str,
+) -> String {
+    crate::server::prompt::expand_at(state, ctx, pane, name)
+}
+
+/// A window or session name (`noun`) as tmux 3.7b stores it (`check_name`,
+/// then `clean_name`): control characters are `invalid <noun> name`, a
+/// backslash is doubled.
+pub(super) fn clean_name(noun: &str, name: &str) -> Result<String, String> {
+    if name.chars().any(|c| c.is_ascii_control()) {
+        return Err(format!("invalid {noun} name: {name}"));
+    }
+    Ok(name.replace('\\', "\\\\"))
 }
 
 /// Which way `next-window` / `previous-window` steps.
@@ -631,4 +685,26 @@ pub(crate) fn main_sizes(model: &Model, window: WindowId) -> (MainSize, MainSize
             MainSize::HEIGHT,
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_name;
+
+    #[test]
+    fn a_tmux_window_name_is_stored_as_tmux_stores_it() {
+        assert_eq!(
+            clean_name("window", "q \"x\" $HOME ; y \\z").as_deref(),
+            Ok("q \"x\" $HOME ; y \\\\z")
+        );
+        assert_eq!(
+            clean_name("window", "caf\u{e9}").as_deref(),
+            Ok("caf\u{e9}")
+        );
+        assert_eq!(
+            clean_name("window", "a\tb"),
+            Err("invalid window name: a\tb".to_string())
+        );
+        assert!(clean_name("window", "a\x7fb").is_err());
+    }
 }

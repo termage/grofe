@@ -539,8 +539,16 @@ impl Loader {
                 continue;
             };
             let vars = &self.env_expanded;
-            let checked =
-                cmd::parse::with_variables(vars, || crate::server::hooks::check_command(command));
+            // A `command-alias` verb is expanded now, with the aliases set
+            // so far, as for a binding (`expand_aliases`); the hook runs
+            // what it stood for and does not expand it again.
+            let aliases = self
+                .lists
+                .get("command-alias")
+                .map_or(&[][..], Vec::as_slice);
+            let checked = cmd::parse::with_variables(vars, || {
+                crate::server::hooks::check_command_with(command, aliases)
+            });
             let cmds = match checked {
                 Ok(cmds) => cmds,
                 Err(msg) => {

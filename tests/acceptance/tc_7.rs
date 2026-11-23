@@ -269,6 +269,45 @@ fn confirm_before_runs_its_command_only_on_y() {
     a.send("\x1b");
 }
 
+/// `confirm-before`'s default prompt names the command an alias stands for
+/// (`Confirm 'rename-window'?`), and the command that runs on `y` is the one
+/// the alias meant when the prompt opened, as tmux parses it then.
+#[test]
+fn confirm_before_names_and_keeps_the_command_its_alias_stood_for() {
+    let srv = start();
+    srv.cmd(&["set", "-ag", "command-alias", "myren=rename-window"])
+        .expect("alias");
+    bind(&srv, &["X", "confirm-before", "myren confirmed"]);
+    let mut a = attach(&srv);
+    a.send("\x02X");
+    wait_last_row(&mut a, "Confirm 'rename-window'? (y/n)");
+    srv.cmd(&["set", "-g", "command-alias", "myren=rename-session"])
+        .expect("redefine");
+    a.send("y");
+    wait_window_name(&srv, "confirmed");
+}
+
+/// The native dialect keeps `confirm-before`'s command as written: the
+/// prompt expands formats in it only for a tmux client, so `set -g @x
+/// "#{session_name}"` stores the format itself.
+#[test]
+fn a_native_confirm_before_keeps_its_formats_literal() {
+    let srv = start();
+    bind(
+        &srv,
+        &["X", "confirm-before", "set -g @x \"#{session_name}\""],
+    );
+    let mut a = attach(&srv);
+    a.send("\x02X");
+    wait_last_row(&mut a, "Confirm 'set-option'? (y/n)");
+    a.send("y");
+    try_wait_until(
+        || srv.cmd(&["show", "-gv", "@x"]).unwrap_or_default() == "#{session_name}\n",
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("@x: {e}, got {:?}", srv.cmd(&["show", "-gv", "@x"])));
+}
+
 /// Case 5: a rename prompt starts with the old name.
 #[test]
 fn a_rename_prompt_shows_the_old_name_prefilled() {
@@ -367,6 +406,38 @@ fn an_alias_defined_in_config_becomes_a_command() {
     let mut a = attach(&srv);
     a.send("\x02a");
     wait_window_name(&srv, "runtime");
+}
+
+/// The config's `[hooks]` and `load-commands` are parsed once, at load: an
+/// alias in them is expanded then, with the config's aliases, and not again
+/// when they run (`set-option=set-option -g @v` twice would be
+/// `set-option -g @v -g @v one`), as tmux expands a parsed command once.
+#[test]
+fn config_hooks_and_load_commands_expand_an_alias_once() {
+    let srv = start();
+    let dir = srv.config_home.join("grofe");
+    fs::create_dir_all(&dir).expect("config dir");
+    fs::write(
+        dir.join("config.toml"),
+        "command-alias = [\"zz=rename-window ZZ\", \"set-option=set-option -g @v\"]\n\
+         load-commands = [\"set-option one\"]\n\
+         [hooks]\nwindow-created = \"zz\"\n",
+    )
+    .expect("config");
+    srv.cmd(&["reload"]).expect("reload");
+    try_wait_until(
+        || srv.cmd(&["show", "-gv", "@v"]).unwrap_or_default() == "one\n",
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("@v: {e}, got {:?}", srv.cmd(&["show", "-gv", "@v"])));
+    srv.cmd(&["new-window", "-d", "-t", "main"])
+        .expect("new-window");
+    let names = || {
+        srv.cmd(&["list-windows", "-t", "main", "-F", "#{window_name}"])
+            .unwrap_or_default()
+    };
+    try_wait_until(|| names().ends_with("ZZ\n"), WAIT)
+        .unwrap_or_else(|e| panic!("hook rename: {e}, got {:?}", names()));
 }
 
 /// Case 8 (D15): a menu opened by client A is drawn on A only, and B's keys

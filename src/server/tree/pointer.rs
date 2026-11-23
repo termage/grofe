@@ -24,6 +24,9 @@ pub(super) fn apply(state: &mut State, client: ClientId, routed: Routed) {
         Routed::Bound(cmds, dialect) => {
             clients::run_commands_for(state, client, &cmds, dialect, true, None, None);
         }
+        Routed::KeyedBound(cmds, dialect, key) => {
+            clients::run_commands_for(state, client, &cmds, dialect, true, None, key);
+        }
         Routed::ToPane(_) | Routed::Consumed => {}
     }
     clients::mark_dirty(state, client);
