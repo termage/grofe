@@ -227,11 +227,13 @@ pub fn confirm_before(
     let Some(command) = c.command.clone() else {
         return Err(too_few_arguments("confirm-before"));
     };
-    // An alias is expanded now, as tmux parses the command when the prompt
-    // opens: the prompt names and later runs what it stands for.
+    // Formats are expanded and an alias is expanded now, as tmux expands
+    // and parses the command when the prompt opens (`args_make_commands_now`):
+    // the prompt names and later runs what it stands for.
+    let expanded = prompt::expand_command(state, ctx, &command);
     let mut cmds: Vec<Vec<String>> = Vec::new();
     let mut verb = "";
-    for argv in cmd::split_command_string(&command).map_err(|e| e.to_string())? {
+    for argv in cmd::split_command_string(&expanded).map_err(|e| e.to_string())? {
         for argv in expand_alias_command(state, &argv).unwrap_or_else(|| vec![argv]) {
             let named = crate::compat::named::split(ctx, &argv)?;
             if verb.is_empty() {

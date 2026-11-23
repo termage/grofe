@@ -1135,6 +1135,9 @@ impl InputHook for PromptHook {
                     clients::mark_dirty(state, client);
                     return Some(routed);
                 }
+                // confirm-before's command list was parsed, aliases expanded,
+                // when the prompt opened, as tmux keeps it: it runs as is.
+                let parsed = prompt.read == Read::Confirm && prompt.parsed.is_some();
                 let cmds = match (prompt.read, prompt.parsed.take()) {
                     (Read::Confirm, Some(cmds)) => prompt.confirmed().then_some(Ok(cmds)),
                     (Read::Confirm, None) => prompt
@@ -1145,6 +1148,9 @@ impl InputHook for PromptHook {
                     }
                 };
                 match cmds {
+                    Some(Ok(cmds)) if !cmds.is_empty() && parsed => {
+                        Routed::KeyedBound(cmds, prompt.dialect, prompt.key.clone())
+                    }
                     Some(Ok(cmds)) if !cmds.is_empty() => {
                         Routed::Keyed(cmds, prompt.dialect, prompt.key.clone())
                     }

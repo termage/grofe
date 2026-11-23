@@ -294,6 +294,10 @@ pub enum Routed {
     /// aliases already expanded when the key was bound, as tmux stores a
     /// parsed command list: a press does not expand them again.
     Bound(Vec<Vec<String>>, Dialect),
+    /// [`Routed::Bound`] with the key whose binding opened the prompt that
+    /// holds them (`confirm-before`'s command list, parsed and expanded
+    /// when the prompt opened): logged as run by that key.
+    KeyedBound(Vec<Vec<String>>, Dialect, Option<String>),
     /// Bytes for the active pane, encoded for its `InputModes`.
     ToPane(Vec<u8>),
     /// Eaten (a prefix key, an overlay's key).

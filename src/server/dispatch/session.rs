@@ -9,7 +9,7 @@ use crate::cmd::{
 use crate::protocol::ClientCtx;
 use crate::server::dispatch::options::{self, FormatCtx, Owner, ServerVars};
 use crate::server::dispatch::sorting::Sort;
-use crate::server::dispatch::window::{clean_name, default_name};
+use crate::server::dispatch::window::{clean_name, default_name, expand_name};
 use crate::server::dispatch::{resolve_cwd, spawn_pane};
 use crate::server::layout::LayoutTree;
 use crate::server::model::Model;
@@ -31,17 +31,26 @@ pub fn new_session(state: &mut State, ctx: &ClientCtx, c: NewSession) -> Result<
         attach_existing(state, ctx, id);
         return Ok(String::new());
     }
-    let model = &mut state.model;
     let tmux = ctx.dialect == crate::protocol::Dialect::Tmux;
     let mut c = c;
-    if let Some(name) = c.name.take() {
-        c.name = Some(check_name(model, &name, tmux)?);
-    }
+    // In the tmux dialect `-n` is a format, expanded against the client's
+    // session if it has one (tmux 3.7b gives `format_single` no session),
+    // then checked and cleaned.
     if tmux {
+        let current = ctx
+            .client
+            .and_then(|id| state.clients.get(&id))
+            .and_then(|client| state.model.sessions.get(&client.session))
+            .and_then(|s| state.model.windows.get(&s.active))
+            .map(|w| w.active);
         c.window_name = c
             .window_name
-            .map(|n| clean_name("window", &n))
+            .map(|n| clean_name("window", &expand_name(state, current, &n)))
             .transpose()?;
+    }
+    let model = &mut state.model;
+    if let Some(name) = c.name.take() {
+        c.name = Some(check_name(model, &name, tmux)?);
     }
     // `-t`: the session to group with, else the name of a new group.
     let group = c.group.as_deref().map(|raw| {

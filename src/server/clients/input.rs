@@ -414,7 +414,10 @@ pub(super) fn route(state: &mut State, id: ClientId, input: Input, now: Instant)
     // commands tmux marks read-only (`key_bindings_dispatch`).
     let routed = match routed {
         Routed::ToPane(_) if read_only && !matches!(input, Input::Focus(_)) => return,
-        Routed::Command(ref cmds, _) | Routed::Keyed(ref cmds, ..) | Routed::Bound(ref cmds, _)
+        Routed::Command(ref cmds, _)
+        | Routed::Keyed(ref cmds, ..)
+        | Routed::Bound(ref cmds, _)
+        | Routed::KeyedBound(ref cmds, ..)
             if read_only && !cmds.iter().all(|argv| read_only_command(argv)) =>
         {
             show_message(state, id, "client is read-only");
@@ -475,6 +478,9 @@ pub(super) fn route(state: &mut State, id: ClientId, input: Input, now: Instant)
                 Input::Key(key) => Some(key.to_string()),
                 _ => None,
             };
+            run_commands_for(state, id, &cmds, dialect, true, None, key);
+        }
+        Routed::KeyedBound(cmds, dialect, key) => {
             run_commands_for(state, id, &cmds, dialect, true, None, key);
         }
         Routed::Consumed => {}

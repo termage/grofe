@@ -387,6 +387,38 @@ fn an_alias_defined_in_config_becomes_a_command() {
     wait_window_name(&srv, "runtime");
 }
 
+/// The config's `[hooks]` and `load-commands` are parsed once, at load: an
+/// alias in them is expanded then, with the config's aliases, and not again
+/// when they run (`set-option=set-option -g @v` twice would be
+/// `set-option -g @v -g @v one`), as tmux expands a parsed command once.
+#[test]
+fn config_hooks_and_load_commands_expand_an_alias_once() {
+    let srv = start();
+    let dir = srv.config_home.join("grofe");
+    fs::create_dir_all(&dir).expect("config dir");
+    fs::write(
+        dir.join("config.toml"),
+        "command-alias = [\"zz=rename-window ZZ\", \"set-option=set-option -g @v\"]\n\
+         load-commands = [\"set-option one\"]\n\
+         [hooks]\nwindow-created = \"zz\"\n",
+    )
+    .expect("config");
+    srv.cmd(&["reload"]).expect("reload");
+    try_wait_until(
+        || srv.cmd(&["show", "-gv", "@v"]).unwrap_or_default() == "one\n",
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("@v: {e}, got {:?}", srv.cmd(&["show", "-gv", "@v"])));
+    srv.cmd(&["new-window", "-d", "-t", "main"])
+        .expect("new-window");
+    let names = || {
+        srv.cmd(&["list-windows", "-t", "main", "-F", "#{window_name}"])
+            .unwrap_or_default()
+    };
+    try_wait_until(|| names().ends_with("ZZ\n"), WAIT)
+        .unwrap_or_else(|e| panic!("hook rename: {e}, got {:?}", names()));
+}
+
 /// Case 8 (D15): a menu opened by client A is drawn on A only, and B's keys
 /// still reach the pane.
 #[test]
