@@ -987,6 +987,13 @@ mod tests {
     }
 
     #[test]
+    fn the_default_status_right_hides_the_offset_when_not_bigger() {
+        // tmux identity stores this default in grofe's spelling (options table).
+        let fmt = "#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}X";
+        assert_eq!(crate::cmd::expand(&native(fmt), &NoVars), "X");
+    }
+
+    #[test]
     fn short_forms_inside_bodies_and_conditions() {
         assert_eq!(native("#{?#W, #W,}"), "#{?#{window_name}, #{window_name},}");
         assert_eq!(native("#{==:#S,main}"), "#{==:#{session_name},main}");
