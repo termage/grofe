@@ -2229,8 +2229,17 @@ fn resize_pending(state: &State, pane: PaneId) -> bool {
 // (as `refresh-from-pane`) instead of tmux's reflow of the old copy.
 fn resize_to_pane(state: &mut State, pane: PaneId) {
     if resize_pending(state, pane) {
+        let from_top = state
+            .copy
+            .get(pane)
+            .map(|m| m.grid.hsize - m.oy.min(m.grid.hsize));
         refresh(state, pane);
         if let Some(mode) = state.copy.get_mut(pane) {
+            // A taller pane takes rows out of history: a view whose top
+            // line is now on the screen sits at the bottom, not the top.
+            if from_top.is_some_and(|t| t > mode.grid.hsize) {
+                mode.oy = 0;
+            }
             let limit = mode.cursor_limit(mode.py(), true);
             mode.cx = mode.cx.min(limit);
         }

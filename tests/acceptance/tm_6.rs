@@ -912,3 +912,27 @@ fn a_middle_click_pastes_the_newest_buffer() {
     assert_eq!(pane_var(&srv, "main", "#{pane_id}"), right);
     assert!(!srv.capture(&left).contains("tp9b-middle"));
 }
+
+/// Zooming a pane scrolled up in copy mode makes it taller, which takes
+/// rows out of history: the view's top line is then on the screen, so the
+/// view sits at the bottom and one `scroll-up` moves one line, as in tmux.
+/// It used to jump to the top of history.
+#[test]
+fn zooming_a_scrolled_pane_keeps_the_view_near_the_bottom() {
+    let srv = start(HISTORY);
+    srv.cmd(&["split-window", "-v", "-t", "main", "exec cat"])
+        .expect("split-window");
+    let top = srv
+        .cmd(&["list-panes", "-t", "main", "-F", "#{pane_id}"])
+        .expect("list-panes");
+    let top = top.lines().next().expect("a pane").to_string();
+    try_wait_until(|| pane_var(&srv, &top, "#{history_size}") != "0", WAIT).expect("history");
+    srv.cmd(&["copy-mode", "-t", &top]).expect("copy-mode");
+    srv.cmd(&["send-keys", "-t", &top, "-X", "-N", "5", "scroll-up"])
+        .expect("scroll-up");
+    assert_eq!(pane_var(&srv, &top, "#{scroll_position}"), "5");
+    srv.cmd(&["resize-pane", "-Z", "-t", &top]).expect("zoom");
+    srv.cmd(&["send-keys", "-t", &top, "-X", "scroll-up"])
+        .expect("scroll-up");
+    assert_eq!(pane_var(&srv, &top, "#{scroll_position}"), "1");
+}
