@@ -77,7 +77,9 @@ fi
 # owner's live servers, so they give each entry's name and kind only: a
 # live server rewrites its socket's metadata and never its name. The state
 # and config directories give names, kinds and, for regular files, sizes
-# and sha256s: byte-identical. canopy's store is a git checkout: its tree
+# and sha256s: byte-identical, except a server's state.json in the state
+# directory (mode "state"), named only: a live server autosaves it mid-run.
+# canopy's store is a git checkout: its tree
 # is hashed without .git, and HEAD and `git status` stand for .git.
 hash_file() {
   if command -v sha256sum >/dev/null; then
@@ -97,7 +99,7 @@ list_dir() {
       printf '%s socket\n' "$p"
     elif [ -d "$p" ]; then
       printf '%s dir\n' "$p"
-    elif [ -f "$p" ] && [ "$mode" = names ]; then
+    elif [ -f "$p" ] && { [ "$mode" = names ] || { [ "$mode" = state ] && [ "${p##*/}" = state.json ]; }; }; then
       printf '%s file\n' "$p"
     elif [ -f "$p" ]; then
       printf '%s file %s %s\n' "$p" "$(wc -c <"$p" | tr -d ' ')" "$(hash_file "$p")"
@@ -113,7 +115,7 @@ host_state() {
   [ "${TMUX_TMPDIR:-/tmp}" = /tmp ] || list_dir "/tmp/tmux-$uid" names
   list_dir "${XDG_RUNTIME_DIR:-/nonexistent}/grofe" names
   list_dir "${TMPDIR:-/tmp}/grofe-$uid" names
-  list_dir "${XDG_STATE_HOME:-$HOME/.local/state}/grofe" contents
+  list_dir "${XDG_STATE_HOME:-$HOME/.local/state}/grofe" state
   list_dir "${XDG_CONFIG_HOME:-$HOME/.config}/canopy" contents
   store="${XDG_DATA_HOME:-$HOME/.local/share}/canopy"
   list_dir "$store" contents
