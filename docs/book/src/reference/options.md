@@ -1784,7 +1784,7 @@ Default:
 Default under tmux identity:
 
 ```text
-#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}"#{=21:pane_title}" %H:%M %d-%b-%y
+#{?window_bigger,[#{window_offset_x}#{?,,,}#{window_offset_y}] ,}"#{=21:pane_title}" %H:%M %d-%b-%y
 ```
 
 ## status-right-length
