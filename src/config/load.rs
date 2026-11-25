@@ -1093,4 +1093,6 @@ mod tests {
         assert!(Requires::parse("grofe >= 1.0").is_ok_and(|r| !r.met("0.9.9")));
         assert!(Requires::parse("grofe >= 1.0").is_ok_and(|r| r.met("1.0.0-rc.1")));
     }
+
+    mod include;
 }

@@ -602,4 +602,28 @@ mod tests {
             "the error names the key: {errors:?}"
         );
     }
+
+    /// t4 (A4): a missing folder is a fine `--config-dir`, and the first
+    /// write creates it.
+    #[test]
+    fn a_missing_config_dir_is_created_on_the_first_write() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Kønfig dir").join("new");
+        let env = Env::from_dir(&dir, None).expect("a missing folder is fine");
+        assert_eq!(env.config_dir, Some(dir.clone()));
+        assert_eq!(env.config_file, Some(dir.join("config.toml")));
+        assert!(!dir.exists());
+        write::set(&dir, "status.left", toml_edit::value("A")).expect("write");
+        assert!(dir.join("settings.toml").is_file());
+    }
+
+    /// t4 (A4): a folder path that is a file is an error naming the path.
+    #[test]
+    fn a_config_dir_that_is_a_file_is_an_error_naming_the_path() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("afile");
+        std::fs::write(&file, "x").unwrap();
+        let e = Env::from_dir(&file, None).expect_err("a file is not a folder");
+        assert!(e.contains(&file.display().to_string()), "{e}");
+    }
 }
