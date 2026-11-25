@@ -3,7 +3,6 @@
 //! cell outside its own rect.
 
 use alacritty_terminal::vte::ansi::{Color, NamedColor};
-use unicode_width::UnicodeWidthChar;
 
 use crate::server::borders::{PaneBox, PaneLines};
 use crate::server::listdraw::fit_text;
@@ -83,48 +82,6 @@ pub(super) fn blank() -> SnapCell {
         underline_color: None,
         hyperlink: None,
     }
-}
-
-/// Draws `text` from `(x, y)`, never past column `end` (exclusive); a wide
-/// character that does not fit whole is dropped. Returns the column after.
-pub(super) fn put_text(
-    screen: &mut Screen,
-    mut x: usize,
-    y: usize,
-    end: usize,
-    text: &str,
-    style: &Style,
-) -> usize {
-    let end = end.min(usize::from(screen.cols));
-    if y >= usize::from(screen.rows) {
-        return x;
-    }
-    for c in text.chars() {
-        let w = match UnicodeWidthChar::width(c) {
-            Some(w) if w > 0 => w,
-            _ => continue,
-        };
-        if x + w > end {
-            break;
-        }
-        let at = y * usize::from(screen.cols) + x;
-        let cell = |c, flags| SnapCell {
-            c,
-            fg: style.fg,
-            bg: style.bg,
-            flags: style.attrs | flags,
-            underline_color: style.underline_color,
-            ..blank()
-        };
-        if w == 2 {
-            screen.cells[at] = cell(c, CellFlags::WIDE_CHAR);
-            screen.cells[at + 1] = cell(' ', CellFlags::WIDE_CHAR_SPACER);
-        } else {
-            screen.cells[at] = cell(c, CellFlags::empty());
-        }
-        x += w;
-    }
-    x
 }
 
 /// The tiles from `tiles[first]` on, as many as the layout shows, with
@@ -211,6 +168,7 @@ fn draw_tile(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthChar;
 
     const CORNERS: [char; 4] = ['┌', '┐', '└', '┘'];
 

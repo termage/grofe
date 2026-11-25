@@ -13,13 +13,14 @@ use super::dispatch::agent;
 use super::dispatch::options::{FormatCtx, ServerVars};
 use super::frameopts;
 use super::input::{Input, InputHook, KeyCode, Routed};
+use super::listdraw::put_text;
 use super::listview::{ListAction, ListState, filter};
 use super::pane::{CellFlags, SnapCell};
 use super::render::{Overlay, OverlayCtx, Screen};
 use super::status::Style;
 use crate::cmd::expand;
 use crate::types::{ClientId, PaneId};
-use draw::{Layout, Look, Tile, blank, put_text};
+use draw::{Layout, Look, Tile, blank};
 
 /// Open grids, per client. Lives on `State.grids`. `ListState.selected` is
 /// the tile, `top` the first tile row shown.
@@ -287,10 +288,12 @@ fn look(state: &State, client: ClientId) -> Look {
 /// The pane's number in its window, as `#{pane_index}` shows it (what
 /// `pane-border-lines number` draws).
 fn pane_index(state: &State, pane: PaneId) -> usize {
-    let vars = FormatCtx::new(&state.model, pane);
-    expand("#{pane_index}", &ServerVars::fresh(state, pane, &vars))
-        .parse()
-        .unwrap_or(0)
+    let m = &state.model;
+    let Some(w) = m.panes.get(&pane).and_then(|p| m.windows.get(&p.window)) else {
+        return 0;
+    };
+    let pos = w.pane_ids().iter().position(|id| *id == pane).unwrap_or(0);
+    pos + m.pane_base_index(w.id) as usize
 }
 
 /// The last rows of `pane`'s screen, `h` at most.
@@ -329,14 +332,17 @@ impl Overlay for GridOverlay {
         let tiles: Vec<Tile> = found
             .into_iter()
             .enumerate()
-            .map(|(i, (pane, label))| Tile {
-                label,
-                index: pane_index(state, pane),
-                body: if (first..first + lay.rows * lay.cols).contains(&i) {
-                    body(state, pane, lines)
-                } else {
-                    Vec::new()
-                },
+            .map(|(i, (pane, label))| {
+                let shown = (first..first + lay.rows * lay.cols).contains(&i);
+                Tile {
+                    label,
+                    index: if shown { pane_index(state, pane) } else { 0 },
+                    body: if shown {
+                        body(state, pane, lines)
+                    } else {
+                        Vec::new()
+                    },
+                }
             })
             .collect();
         draw::draw_tiles(
@@ -525,14 +531,100 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn number_lines_show_the_pane_index() {
-        let (mut state, client, _panes, _out) = setup(2, (130, 40));
-        run(&mut state, &["set", "-g", "pane-border-lines", "number"]);
+        // Two agent panes in one window, numbered from pane-base-index.
+        let (mut state, client, panes, _out) = setup(1, (130, 40));
         run(&mut state, &["set", "-g", "pane-base-index", "3"]);
+        run(&mut state, &["split-window", "-t", "a", "sleep 600"]);
+        let second = *state
+            .model
+            .panes
+            .keys()
+            .find(|p| **p != panes[0])
+            .expect("second pane");
+        state
+            .agents
+            .apply(second, report(AgentState::Idle), true, Instant::now());
+        run(&mut state, &["set", "-g", "pane-border-lines", "number"]);
         open(&mut state, client).expect("open");
         let lay = layout(&state, (130, 40));
         let s = draw_screen(&state, client, (130, 40));
-        let (x, y, w, h) = lay.rect(1);
-        assert_eq!(s.cells[(y + h - 1) * 130 + x + w - 1].c, '3');
+        let order: Vec<PaneId> = view(&state, "").into_iter().map(|(p, _)| p).collect();
+        assert_eq!(order, vec![panes[0], second]);
+        for (slot, want) in [(0, '3'), (1, '4')] {
+            let (x, y, w, h) = lay.rect(slot);
+            assert_eq!(
+                s.cells[(y + h - 1) * 130 + x + w - 1].c,
+                want,
+                "tile {slot}"
+            );
+        }
+    }
+
+    /// Spec §2.7 on the grid alone: format markup in an agent's message
+    /// and in a session name is drawn as text, opens no style and runs no
+    /// job.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn agent_text_is_inert_in_tiles() {
+        // A short marker dir: a long temp path would push the probes past
+        // the title's width.
+        let dir = std::path::PathBuf::from(format!(
+            "/tmp/gg{}{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.subsec_nanos())
+        ));
+        std::fs::create_dir_all(&dir).expect("marker dir");
+        let (x, y) = (dir.join("X"), dir.join("Y"));
+        let name = format!("s#[fg=red]#(touch {})", y.display());
+        let msg = format!("D#[range=user|x]E##[fg=red]F#(touch {})", x.display());
+        let mut state = test_state();
+        run(&mut state, &["new-session", "-d", "-s", &name, "sleep 600"]);
+        let pane = *state.model.panes.keys().next().expect("pane");
+        let mut r = report(AgentState::Blocked);
+        r.msg = Some(msg.clone());
+        state.agents.apply(pane, r, true, Instant::now());
+        state.agents_grid.tile_width = 200;
+        let accepted = clients::attach(
+            &mut state,
+            AttachRequest {
+                ctx: ClientCtx {
+                    client: None,
+                    ..test_ctx()
+                },
+                size: (160, 40),
+                term: "xterm".into(),
+                caps: Default::default(),
+                pid: None,
+                target: None,
+                detach_others: false,
+                nest: false,
+                tty: None,
+                created: false,
+                extras: Default::default(),
+            },
+        )
+        .expect("attach");
+        open(&mut state, accepted.id).expect("open");
+        let s = draw_screen(&state, accepted.id, (160, 40));
+        let top: String = s.cells[160..320].iter().map(|c| c.c).collect();
+        assert!(
+            top.contains(&format!("{name}:")),
+            "session name drawn: {top:?}"
+        );
+        // The message as stored (agents sanitise it on report), drawn as is.
+        let stored = state.agents.get(pane).and_then(|a| a.msg.clone());
+        let stored = stored.expect("a message");
+        assert!(stored.contains("#[range=user|x]"), "{stored:?}");
+        assert!(top.contains(&stored), "message drawn: {top:?}");
+        let red = status::parse_style("fg=red").fg;
+        assert!(
+            s.cells[160..320].iter().all(|c| c.fg != red),
+            "no style opened"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(!x.exists() && !y.exists(), "a job ran agent text");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
