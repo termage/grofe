@@ -6,11 +6,11 @@ $ new-window -d -t main -n w2 'sleep 1; echo hello; sleep 100'
 ? 0
 $ pipe-pane -t main:w2 'cat > "$HOME/dead1"; echo eof >> "$HOME/dead1"'
 ? 0
-$ run-shell 'sleep 2'
+$ run-shell 'for i in $(seq 100); do grep -qs hello "$HOME/dead1" && exit; sleep 0.1; done'
 ? 0
 $ kill-window -t main:w2
 ? 0
-$ run-shell 'sleep 1; cat -v "$HOME/dead1"'
+$ run-shell 'for i in $(seq 100); do grep -qs eof "$HOME/dead1" && break; sleep 0.1; done; cat -v "$HOME/dead1"'
 hello^M
 eof
 ? 0
