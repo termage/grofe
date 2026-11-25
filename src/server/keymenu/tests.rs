@@ -287,7 +287,7 @@ fn navigation_keys_belong_to_the_menu_not_the_bindings() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn down_moves_the_selection_and_a_page_key_a_screenful() {
+async fn down_moves_the_selection_and_a_page_key_a_drawn_page() {
     let (mut state, client) = client_state();
     let mut b = Binding::new(
         vec![vec!["select-pane".into(), "-D".into()]],
@@ -301,8 +301,10 @@ async fn down_moves_the_selection_and_a_page_key_a_screenful() {
             .key_tables
             .insert("prefix", key(name), b.clone());
     }
+    state.clients.get_mut(&client).expect("client").size = (80, 24);
     open(&mut state, client, "prefix").expect("open");
-    let size = state.clients[&client].size;
+    let pages = page_starts(&rows_for(&state, client, "prefix"), (80, 24));
+    assert!(pages.len() > 2, "{pages:?}");
     let press_key = |state: &mut State, name: &str| {
         KeyMenuHook.on_input(state, client, &Input::Key(key(name)), Instant::now())
     };
@@ -313,11 +315,11 @@ async fn down_moves_the_selection_and_a_page_key_a_screenful() {
     );
     assert_eq!(state.keymenus.open[&client].ui.selected, 1);
     press_key(&mut state, "NPage");
-    let page = list_height(size, false);
-    assert!(page > 10, "a screenful at 100x40 is more than the old 10");
-    assert_eq!(state.keymenus.open[&client].ui.selected, 1 + page);
+    assert_eq!(state.keymenus.open[&client].ui.selected, pages[1]);
+    press_key(&mut state, "NPage");
+    assert_eq!(state.keymenus.open[&client].ui.selected, pages[2]);
     press_key(&mut state, "PPage");
-    assert_eq!(state.keymenus.open[&client].ui.selected, 1);
+    assert_eq!(state.keymenus.open[&client].ui.selected, pages[1]);
     assert_eq!(state.clients[&client].keys.table(), "root");
 }
 
@@ -428,7 +430,7 @@ fn backspace_on_an_empty_query_leaves_search() {
 }
 
 #[test]
-fn groups_follow_the_defaults_order_then_first_seen() {
+fn groups_follow_the_defaults_order_then_name_order() {
     let mut t = tables();
     bind(
         &mut t,
@@ -446,8 +448,19 @@ fn groups_follow_the_defaults_order_then_first_seen() {
         Some("session"),
         false,
     );
+    bind(
+        &mut t,
+        "prefix",
+        "y",
+        &["copy-mode"],
+        Some("aa-mine"),
+        false,
+    );
     let r = rows(&t);
     let mut groups: Vec<&str> = r.iter().map(|r| r.group.as_str()).collect();
     groups.dedup();
-    assert_eq!(groups, ["window", "pane", "session", "zz-mine", "other"]);
+    assert_eq!(
+        groups,
+        ["window", "pane", "session", "aa-mine", "zz-mine", "other"]
+    );
 }

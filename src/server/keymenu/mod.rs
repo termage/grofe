@@ -11,12 +11,12 @@ mod draw;
 mod tests;
 
 pub use draw::KeyMenuOverlay;
-use draw::list_height;
+use draw::{list_height, page_starts};
 
 use crate::server::State;
 use crate::server::clients;
 use crate::server::input::{
-    GROUP_ORDER, Input, InputHook, Key, KeyCode, KeySettings, KeyState, KeyTables, Mods, Routed,
+    Input, InputHook, Key, KeyCode, KeySettings, KeyState, KeyTables, Mods, Routed, sort_groups,
 };
 use crate::server::listview::{self, ListAction, ListState};
 use crate::server::prompt;
@@ -118,8 +118,8 @@ fn is_reserved(key: &Key) -> bool {
     }
 }
 
-/// The table's bindings by group, groups in the defaults' order, then
-/// others in first-seen order, and `other` last. Mouse keys and `Any` are left out. `expand` turns a group or
+/// The table's bindings by group, groups as [`sort_groups`] orders them.
+/// Mouse keys and `Any` are left out. `expand` turns a group or
 /// description format into text.
 fn build_rows(tables: &KeyTables, table: &str, expand: &dyn Fn(&str) -> String) -> Vec<Row> {
     let mut groups: Vec<String> = Vec::new();
@@ -150,8 +150,7 @@ fn build_rows(tables: &KeyTables, table: &str, expand: &dyn Fn(&str) -> String) 
             cmd,
         });
     }
-    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
-    groups.sort_by_key(|g| (g == OTHER, rank(g).unwrap_or(GROUP_ORDER.len())));
+    sort_groups(&mut groups);
     let mut rows = Vec::with_capacity(found.len());
     for g in &groups {
         rows.extend(found.iter().filter(|r| &r.group == g).cloned());
@@ -165,10 +164,6 @@ fn visible(rows: &[Row], query: &str) -> Vec<usize> {
     listview::filter(&texts, query)
 }
 
-fn is_slash(key: &Key) -> bool {
-    key.code == KeyCode::Char('/') && key.mods == Mods::default()
-}
-
 /// Whether `/` runs a binding in `table`, so only `C-f` searches.
 fn slash_bound(tables: &KeyTables, table: &str) -> bool {
     tables
@@ -176,11 +171,23 @@ fn slash_bound(tables: &KeyTables, table: &str) -> bool {
         .is_some()
 }
 
-fn leave_search(ui: &mut ListState) {
-    *ui = ListState {
-        page: ui.page,
-        ..ListState::default()
+/// A page key in the grouped view moves to the first row of the next or
+/// previous page as drawn (`pages` holds those rows). False for any other
+/// key, which [`step`] then takes.
+fn page_key(ui: &mut ListState, pages: &[usize], last: usize, key: &Key) -> bool {
+    let down = key.code == KeyCode::PageDown;
+    if !(down || key.code == KeyCode::PageUp) || key.mods != Mods::default() {
+        return false;
+    }
+    if ui.filtering || pages.is_empty() {
+        return false;
+    }
+    let page = pages.iter().rposition(|&p| p <= ui.selected).unwrap_or(0);
+    ui.selected = match down {
+        true => pages.get(page + 1).copied().unwrap_or(last),
+        false => pages[page.saturating_sub(1)],
     };
+    true
 }
 
 /// What `key` does in the menu of `table`.
@@ -190,10 +197,13 @@ fn step(ui: &mut ListState, rows: &[Row], tables: &KeyTables, table: &str, key: 
         && plain
         && (key.code == KeyCode::Escape || key.code == KeyCode::Backspace && ui.query.is_empty())
     {
-        leave_search(ui);
+        *ui = ListState {
+            page: ui.page,
+            ..ListState::default()
+        };
         return Step::Redraw;
     }
-    if !ui.filtering && is_slash(key) && !slash_bound(tables, table) {
+    if !ui.filtering && plain && key.code == KeyCode::Char('/') && !slash_bound(tables, table) {
         ui.filtering = true;
         return Step::Redraw;
     }
@@ -278,13 +288,19 @@ impl InputHook for KeyMenuHook {
             // `ListState` before the key, not only after it.
             let n = visible(&rows, &menu.ui.query).len();
             menu.ui.clamp(n, list_height(size, menu.ui.filtering));
-            let outcome = step(
-                &mut menu.ui,
-                &rows,
-                &state.registry.key_tables,
-                &table,
-                &key,
-            );
+            let pages = page_starts(&rows, size);
+            let last = rows.len().saturating_sub(1);
+            let outcome = if page_key(&mut menu.ui, &pages, last, &key) {
+                Step::Redraw
+            } else {
+                step(
+                    &mut menu.ui,
+                    &rows,
+                    &state.registry.key_tables,
+                    &table,
+                    &key,
+                )
+            };
             let n = visible(&rows, &menu.ui.query).len();
             menu.ui.clamp(n, list_height(size, menu.ui.filtering));
             outcome

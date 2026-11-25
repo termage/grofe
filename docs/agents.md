@@ -67,8 +67,8 @@ Rebind any of them like any other key, in TOML or with `bind-key`.
 ## The key menu
 
 `prefix Space` opens a box titled `Keys · prefix` that lists the bindings of
-the prefix table by group (window, pane, session and so on, with `other`
-last), in as many columns as the client is wide; a narrow client gets one
+the prefix table by group (window, pane, session and so on, then your own
+groups by name, with `other` last), in as many columns as the client is wide; a narrow client gets one
 column. Each group has a bold header, and each binding shows its key in a
 bold, right-aligned column and its description. A binding with no
 description shows its command, dimmed, and a description too long for its
@@ -77,7 +77,8 @@ title shows which page is showing; the page always holds the selected row.
 
 Pressing a key that is bound in the table runs that binding at once and
 closes the menu. The menu keeps these keys for itself: `Up`, `Down`, `C-p` and
-`C-n` move the selection, `PageUp` and `PageDown` move a screenful, `Home` and
+`C-n` move the selection, `PageUp` and `PageDown` move to the first row of
+the previous or next page (a screenful of results while searching), `Home` and
 `End` jump to the first and last row, `Enter` runs the selected row when
 `Enter` is not bound itself, and `Escape` and `C-c` close it. A binding on one
 of those keys, such as `prefix Up` for `select-pane -U`, is still listed and

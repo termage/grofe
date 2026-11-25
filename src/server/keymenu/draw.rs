@@ -13,8 +13,8 @@ use crate::types::{ClientId, Rect};
 /// The narrowest a column of bindings is laid out.
 const MIN_COL: usize = 32;
 const GAP: usize = 2;
-/// The key column is as wide as the widest key, up to this.
-const KEY_CAP: usize = 10;
+/// The key column is as wide as the table's widest key, up to this.
+const KEY_CAP: usize = 16;
 /// Columns are balanced, but never shorter than this.
 const MIN_HEIGHT: usize = 8;
 
@@ -36,8 +36,7 @@ pub(super) fn area(size: (u16, u16)) -> Rect {
     }
 }
 
-/// Rows of bindings the largest box holds per column: inside the border,
-/// minus the search line while it is shown.
+/// Rows of results the largest box holds while searching.
 pub(super) fn list_height(size: (u16, u16), filtering: bool) -> usize {
     usize::from(area(size).rows.saturating_sub(2 + u16::from(filtering)))
 }
@@ -92,6 +91,29 @@ fn layout(rows: &[Row], ncols: usize, max_h: usize) -> Vec<Vec<Line>> {
         .unwrap_or_else(|| place(rows, max_h))
 }
 
+/// The grouped layout in the largest box: columns per page, their width
+/// and the columns.
+fn grid(rows: &[Row], full: Rect) -> (usize, usize, Vec<Vec<Line>>) {
+    let inner = usize::from(full.cols).saturating_sub(4);
+    let ncols = columns(inner);
+    let colw = inner.saturating_sub(GAP * (ncols - 1)) / ncols;
+    let max_h = usize::from(full.rows).saturating_sub(2).max(1);
+    (ncols, colw, layout(rows, ncols, max_h))
+}
+
+/// The first row of each page of the grouped layout, for the page keys.
+pub(super) fn page_starts(rows: &[Row], size: (u16, u16)) -> Vec<usize> {
+    let (ncols, _, cols) = grid(rows, area(size));
+    cols.chunks(ncols)
+        .filter_map(|page| {
+            page.iter().flatten().find_map(|l| match l {
+                Line::Item(i) => Some(*i),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
 /// The client's styles: `mode-style` for the selected row, its colour for
 /// group headers.
 pub(super) struct Look {
@@ -100,11 +122,10 @@ pub(super) struct Look {
 
 impl Look {
     fn head(&self) -> Style {
-        let mut head = Style::default();
+        let mut head = with(Style::default(), CellFlags::BOLD);
         if self.mode.bg != Color::Named(NamedColor::Background) {
             head.fg = self.mode.bg;
         }
-        head.attrs |= CellFlags::BOLD;
         head
     }
 }
@@ -125,43 +146,28 @@ pub(super) struct View<'a> {
 
 /// Draws the menu centred on `screen`: groups in columns, or the search
 /// results while searching.
-pub(super) fn render(screen: &mut Screen, view: &View, look: &Look) {
+pub(super) fn render(screen: &mut Screen, v: &View, look: &Look) {
     let full = area((screen.cols, screen.rows));
-    let kw = view
-        .rows
-        .iter()
-        .map(|r| width(&r.key.to_string()))
-        .max()
-        .unwrap_or(0)
-        .min(KEY_CAP);
-    let title = format!("Keys · {}", view.table);
-    if view.ui.filtering {
-        draw_search(screen, full, &title, view, look, kw);
-    } else {
-        draw_groups(screen, full, title, view, look, kw);
+    let widest = v.rows.iter().map(|r| width(&r.key.to_string())).max();
+    let kw = widest.unwrap_or(0).min(KEY_CAP);
+    let title = format!("Keys · {}", v.table);
+    if v.ui.filtering {
+        draw_search(screen, full, &title, v, look, kw);
+        return;
     }
-}
-
-fn draw_groups(screen: &mut Screen, full: Rect, title: String, v: &View, look: &Look, kw: usize) {
-    let inner = usize::from(full.cols).saturating_sub(4);
-    let ncols = columns(inner);
-    let colw = inner.saturating_sub(GAP * (ncols - 1)) / ncols;
-    let max_h = usize::from(full.rows).saturating_sub(2).max(1);
-    let cols = layout(v.rows, ncols, max_h);
+    let (ncols, colw, cols) = grid(v.rows, full);
     let sel = v.ui.selected.min(v.rows.len().saturating_sub(1));
-    let at = cols
-        .iter()
-        .position(|c| c.contains(&Line::Item(sel)))
-        .unwrap_or(0);
-    let (page, pages) = (at / ncols, cols.len().div_ceil(ncols));
+    let at = cols.iter().position(|c| c.contains(&Line::Item(sel)));
+    let (page, pages) = (at.unwrap_or(0) / ncols, cols.len().div_ceil(ncols));
     let shown = &cols[page * ncols..cols.len().min(page * ncols + ncols)];
     let used = shown.len().max(1);
     let height = shown.iter().map(Vec::len).max().unwrap_or(0).max(1);
     let hint = if v.slash_bound { HINT_C_F } else { HINT };
     let w = (used * colw + GAP * (used - 1) + 4).max(width(hint) + 6);
-    let w = w.min(usize::from(full.cols));
-    let h = (height + 2).min(usize::from(full.rows));
-    let (w, h) = (w as u16, h as u16);
+    let (w, h) = (
+        w.min(usize::from(full.cols)) as u16,
+        (height + 2).min(usize::from(full.rows)) as u16,
+    );
     let area = Rect {
         x: (screen.cols - w) / 2,
         y: (screen.rows - h) / 2,
@@ -192,13 +198,7 @@ fn draw_groups(screen: &mut Screen, full: Rect, title: String, v: &View, look: &
                     put_text(screen, x, y, end, &group, &look.head());
                 }
                 Line::Item(i) => {
-                    let item = Item {
-                        row: &v.rows[i],
-                        selected: i == sel,
-                        hits: &[],
-                        tail: false,
-                    };
-                    draw_item(screen, (x, end, y), kw, &item, look);
+                    draw_item(screen, (x, end, y), kw, &v.rows[i], i == sel, None, look);
                 }
             }
         }
@@ -212,139 +212,80 @@ fn draw_search(screen: &mut Screen, area: Rect, title: &str, v: &View, look: &Lo
     }
     let (x, y0) = (usize::from(area.x) + 2, usize::from(area.y));
     let end = usize::from(area.x + area.cols) - 2;
-    let bottom = y0 + usize::from(area.rows) - 1;
     let after = put_text(screen, x, y0 + 1, end, "/ ", &look.head());
     let after = put_text(screen, after, y0 + 1, end, &v.ui.query, &Style::default());
     let dim = with(Style::default(), CellFlags::DIM);
     let shown = visible(v.rows, &v.ui.query);
     if v.ui.query.is_empty() {
         put_text(screen, after, y0 + 1, end, "type to search", &dim);
-    } else if shown.is_empty() {
-        put_text(screen, x, y0 + 2, end, "no match", &dim);
     }
-    let height = bottom.saturating_sub(y0 + 2);
+    let height = usize::from(area.rows).saturating_sub(3);
     let mut ui = v.ui.clone();
     ui.clamp(shown.len(), height);
-    for (n, &i) in shown.iter().skip(ui.top).take(height).enumerate() {
+    for (n, &i) in shown.iter().enumerate().skip(ui.top).take(height) {
         let row = &v.rows[i];
-        let hits = listview::matches(&v.ui.query, &row.haystack())
-            .map(|(_, hits)| hits)
-            .unwrap_or_default();
-        let item = Item {
-            row,
-            selected: ui.top + n == ui.selected,
-            hits: &hits,
-            tail: true,
-        };
-        draw_item(screen, (x, end, y0 + 2 + n), kw, &item, look);
+        let hits = listview::matches(&v.ui.query, &row.haystack()).map(|(_, h)| h);
+        let at = (x, end, y0 + 2 + n - ui.top);
+        let hits = hits.unwrap_or_default();
+        draw_item(screen, at, kw, row, n == ui.selected, Some(&hits), look);
     }
     draw_hint(screen, area, SEARCH_HINT);
 }
 
-/// One binding to draw. `hits` are matched chars of the row's haystack;
-/// `tail` adds its group.
-struct Item<'a> {
-    row: &'a Row,
-    selected: bool,
-    hits: &'a [usize],
-    tail: bool,
-}
-
-/// `key  label  · group` in cells `x..end` of row `y`: the key bold and
-/// right-aligned in `kw` cells, a label that is only a command dimmed.
+/// `key  label` in cells `x..end` of row `y`, the key bold and
+/// right-aligned in `kw` cells and a label that is only a command dimmed.
+/// A search result (`hits` given) adds `  · group` and marks the chars of
+/// its haystack the query matched.
 fn draw_item(
     screen: &mut Screen,
     (x, end, y): (usize, usize, usize),
     kw: usize,
-    it: &Item,
+    row: &Row,
+    selected: bool,
+    hits: Option<&[usize]>,
     look: &Look,
 ) {
-    let base = if it.selected {
+    let base = if selected {
         look.mode
     } else {
         Style::default()
     };
-    if it.selected {
+    if selected {
         fill(screen, x, end, y, &base);
     }
-    let mark = with(base, CellFlags::BOLD | CellFlags::UNDERLINE);
-    let key = it.row.key.to_string();
-    let shown = fit_text(&key, kw.min(end - x));
-    let pad = kw.saturating_sub(width(&shown));
-    let key_style = with(base, CellFlags::BOLD);
-    put_marked(
-        screen,
-        (x + pad, end, y),
-        &key,
-        &shown,
-        0,
-        it.hits,
-        key_style,
-        mark,
-    );
-    let x = x + kw + 2;
-    if x >= end {
-        return;
-    }
-    let room = end - x;
-    let label_off = key.chars().count() + 1;
-    let tail_w = width(&it.row.group) + 4;
-    let tail = it.tail && room >= tail_w + 8;
-    let label_room = if tail { room - tail_w } else { room };
-    let label = fit_text(&it.row.label, label_room);
-    let label_style = if it.row.described {
-        base
-    } else {
-        with(base, CellFlags::DIM)
-    };
-    let x = put_marked(
-        screen,
-        (x, end, y),
-        &it.row.label,
-        &label,
-        label_off,
-        it.hits,
-        label_style,
-        mark,
-    );
+    let dim = with(base, CellFlags::DIM);
+    let key = row.key.to_string();
+    let shown_key = fit_text(&key, kw);
+    let room = end.saturating_sub(x + kw + 2);
+    let tail_w = width(&row.group) + 4;
+    let tail = hits.is_some() && room >= tail_w + 8;
+    let label = fit_text(&row.label, if tail { room - tail_w } else { room });
+    let label_at = key.chars().count() + 1;
+    let group_at = label_at + row.label.chars().count() + 1;
+    let label_style = if row.described { base } else { dim };
+    let pad = " ".repeat(kw.saturating_sub(width(&shown_key)));
+    let mut parts: Vec<(&str, &str, Option<usize>, Style)> = vec![
+        ("", &pad, None, base),
+        (&key, &shown_key, Some(0), with(base, CellFlags::BOLD)),
+        ("", "  ", None, base),
+        (&row.label, &label, Some(label_at), label_style),
+    ];
     if tail {
-        let dim = with(base, CellFlags::DIM);
-        let x = put_text(screen, x, y, end, "  · ", &dim);
-        let group_off = label_off + it.row.label.chars().count() + 1;
-        let group = &it.row.group;
-        put_marked(
-            screen,
-            (x, end, y),
-            group,
-            group,
-            group_off,
-            it.hits,
-            dim,
-            mark,
-        );
+        parts.push(("", "  · ", None, dim));
+        parts.push((&row.group, &row.group, Some(group_at), dim));
     }
-}
-
-/// Draws `shown` (`orig` as cut to fit) with the chars whose haystack
-/// position, `offset` on, is in `hits` in `mark`. Returns the next column.
-#[allow(clippy::too_many_arguments)]
-fn put_marked(
-    screen: &mut Screen,
-    (mut x, end, y): (usize, usize, usize),
-    orig: &str,
-    shown: &str,
-    offset: usize,
-    hits: &[usize],
-    style: Style,
-    mark: Style,
-) -> usize {
-    let orig: Vec<char> = orig.chars().collect();
-    for (i, c) in shown.chars().enumerate() {
-        let hit = orig.get(i) == Some(&c) && hits.contains(&(offset + i));
-        let st = if hit { mark } else { style };
-        x = put_text(screen, x, y, end, c.encode_utf8(&mut [0; 4]), &st);
+    let hits = hits.unwrap_or_default();
+    let mark = with(base, CellFlags::BOLD | CellFlags::UNDERLINE);
+    let mut x = x;
+    for (orig, shown, at, style) in parts {
+        // A char cut to `…` is not a match, so compare with the original.
+        let orig: Vec<char> = orig.chars().collect();
+        for (i, c) in shown.chars().enumerate() {
+            let hit = at.is_some_and(|at| orig.get(i) == Some(&c) && hits.contains(&(at + i)));
+            let st = if hit { &mark } else { &style };
+            x = put_text(screen, x, y, end, c.encode_utf8(&mut [0; 4]), st);
+        }
     }
-    x
 }
 
 /// The dim key hint in the box's bottom edge.
@@ -355,8 +296,14 @@ fn draw_hint(screen: &mut Screen, area: Rect, hint: &str) {
     let dim = with(Style::default(), CellFlags::DIM);
     let hint = format!(" {} ", fit_text(hint, usize::from(area.cols) - 6));
     let (x, y) = (usize::from(area.x) + 2, usize::from(area.y + area.rows) - 1);
-    let end = usize::from(area.x + area.cols) - 1;
-    put_text(screen, x, y, end, &hint, &dim);
+    put_text(
+        screen,
+        x,
+        y,
+        usize::from(area.x + area.cols) - 1,
+        &hint,
+        &dim,
+    );
 }
 
 /// The client's look, from its active pane's options.
@@ -397,7 +344,7 @@ impl Overlay for KeyMenuOverlay {
 mod tests {
     use super::*;
     use crate::server::input::parse_key;
-    use crate::server::keymenu::is_reserved;
+    use crate::server::keymenu::{is_reserved, page_key};
 
     fn row(key: &str, group: &str, desc: Option<&str>, cmd: &str) -> Row {
         Row {
@@ -697,6 +644,47 @@ mod tests {
             .collect();
         assert_eq!(marked, "splt");
         assert!(lines(&s).join("\n").contains(SEARCH_HINT));
+    }
+
+    #[test]
+    fn page_down_from_a_pages_last_row_reaches_the_next_page_and_every_row() {
+        let rows = many(200);
+        let size = (60, 20);
+        let pages = page_starts(&rows, size);
+        assert!(pages.len() > 3 && pages[0] == 0, "{pages:?}");
+        let page_down = parse_key("PageDown").expect("key");
+        let mut seen = vec![false; rows.len()];
+        let mut ui = ListState::default();
+        for p in 0..pages.len() {
+            let text = lines(&draw(size, &rows, &ui)).join("\n");
+            for (i, r) in rows.iter().enumerate() {
+                seen[i] |= text.contains(&format!("{} ", r.label))
+                    || text.contains(&format!("{}│", r.label));
+            }
+            let end = pages.get(p + 1).map_or(rows.len(), |&n| n) - 1;
+            ui.selected = end;
+            assert!(page_key(&mut ui, &pages, rows.len() - 1, &page_down));
+            assert_eq!(
+                ui.selected,
+                pages.get(p + 1).copied().unwrap_or(end),
+                "page {p}"
+            );
+        }
+        let missed: Vec<usize> = (0..rows.len()).filter(|&i| !seen[i]).collect();
+        assert!(missed.is_empty(), "never shown: {missed:?}");
+    }
+
+    #[test]
+    fn the_key_column_fits_the_longest_key_uncut() {
+        let rows = [
+            row("C-M-Left", "g", Some("one"), "x"),
+            row("C-M-S-PageUp", "g", Some("two"), "x"),
+            row("c", "g", Some("three"), "x"),
+        ];
+        let text = lines(&draw((80, 20), &rows, &ListState::default()));
+        let col = |t: &str| text.iter().find_map(|l| l.find(t)).expect(t);
+        assert_eq!(col("   C-M-Left  one"), col("C-M-S-PPage  two"));
+        assert_eq!(col("          c  three"), col("C-M-S-PPage  two"));
     }
 
     #[test]

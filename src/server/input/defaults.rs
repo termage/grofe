@@ -240,9 +240,9 @@ pub(super) fn default_group(table: &str, cmds: &[Vec<String>]) -> &'static str {
     }
 }
 
-/// The sections of the keys reference and the key menu, in the order they
-/// list them; a group not named here comes after them.
-pub const GROUP_ORDER: &[&str] = &[
+/// The sections of the keys reference, in the order it lists them; a group
+/// not named here comes after them, in name order.
+const GROUP_ORDER: &[&str] = &[
     "window",
     "pane",
     "session",
@@ -258,6 +258,19 @@ pub const GROUP_ORDER: &[&str] = &[
     "server",
     "other",
 ];
+
+/// Sorts groups as the keys reference and the key menu list them: by
+/// [`GROUP_ORDER`], any other group after those in name order, `other` last.
+pub fn sort_groups(groups: &mut [String]) {
+    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
+    groups.sort_by_cached_key(|g| {
+        (
+            g == "other",
+            rank(g).unwrap_or(GROUP_ORDER.len()),
+            g.clone(),
+        )
+    });
+}
 
 /// The book's keys reference (`docs/book/src/keys.md`), generated from
 /// [`default_bindings`] so it cannot drift: every `prefix` binding of grofe
@@ -275,9 +288,8 @@ pub fn keys_reference_markdown() -> String {
             groups.entry(group).or_default().push((key, b));
         }
     }
-    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
     let mut order: Vec<String> = groups.keys().cloned().collect();
-    order.sort_by_key(|g| (rank(g).unwrap_or(GROUP_ORDER.len()), g.clone()));
+    sort_groups(&mut order);
     let mut out = String::from(
         "# Keys
 
