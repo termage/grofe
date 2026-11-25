@@ -46,8 +46,8 @@ Each of these is a Lua error, logged like any other:
 - a cycle, where a module requires itself through other modules
 - an error inside the module, which `require` passes on
 
-There is one `require` for all Lua code: packs and their callbacks load modules from your
-config folder too. Without a config folder, `require` is an error.
+There is one `require` for all Lua code: packs, at load time and in their callbacks, load
+modules from your config folder too, sharing the load's cache with `init.luau`. Without a config folder, `require` is an error.
 
 ## The no-freeze contract
 

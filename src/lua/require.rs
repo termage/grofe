@@ -30,11 +30,17 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     lua.globals().set("require", f)
 }
 
-/// Points `require` at `dir` and starts an empty module cache.
+/// Points `require` at `dir` and starts an empty module cache, unless it
+/// already points there (packs and `init.luau` share one load's cache).
 pub fn set_dir(lua: &Lua, dir: &Path) -> mlua::Result<()> {
     let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-    let bytes = lua.create_string(dir.as_os_str().as_bytes())?;
-    lua.set_named_registry_value(DIR, bytes)?;
+    let bytes = dir.as_os_str().as_bytes();
+    if let Value::String(cur) = lua.named_registry_value::<Value>(DIR)?
+        && *cur.as_bytes() == *bytes
+    {
+        return Ok(());
+    }
+    lua.set_named_registry_value(DIR, lua.create_string(bytes)?)?;
     lua.set_named_registry_value(CACHE, lua.create_table()?)?;
     lua.set_named_registry_value(LOADING, lua.create_table()?)
 }

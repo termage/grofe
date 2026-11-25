@@ -99,8 +99,21 @@ fn kill(srv: &TestServer) {
     let _ = tmux(srv, &["kill-server"]);
 }
 
+/// The server always reads the real `/etc/tmux.conf`, so the t10 order
+/// tests only hold on a host without one.
+fn host_has_etc_tmux_conf() -> bool {
+    let present = Path::new("/etc/tmux.conf").exists();
+    if present {
+        eprintln!("skip: /etc/tmux.conf exists on this host");
+    }
+    present
+}
+
 #[test]
 fn t10_home_tmux_conf_is_read_without_f() {
+    if host_has_etc_tmux_conf() {
+        return;
+    }
     let srv = TestServer::unstarted();
     write(&home_conf(&srv), "set -g status-left X\n");
     start(&srv);
@@ -110,6 +123,9 @@ fn t10_home_tmux_conf_is_read_without_f() {
 
 #[test]
 fn t10_both_files_load_in_order_so_the_xdg_one_wins() {
+    if host_has_etc_tmux_conf() {
+        return;
+    }
     let srv = TestServer::unstarted();
     write(&home_conf(&srv), "set -g @a 1\nset -g @order a\n");
     write(&xdg_conf(&srv), "set -g @order b\n");
@@ -121,6 +137,9 @@ fn t10_both_files_load_in_order_so_the_xdg_one_wins() {
 
 #[test]
 fn t10_with_xdg_config_home_set_the_same_file_loads_once() {
+    if host_has_etc_tmux_conf() {
+        return;
+    }
     let srv = TestServer::unstarted();
     write(&xdg_conf(&srv), "set -ga @n x\n");
     let xdg = srv.home.join(".config");
@@ -131,6 +150,9 @@ fn t10_with_xdg_config_home_set_the_same_file_loads_once() {
 
 #[test]
 fn t10_a_symlink_to_the_same_file_loads_twice_as_in_tmux() {
+    if host_has_etc_tmux_conf() {
+        return;
+    }
     let srv = TestServer::unstarted();
     write(&xdg_conf(&srv), "set -ga @n x\n");
     symlink(xdg_conf(&srv), home_conf(&srv)).unwrap();
@@ -141,6 +163,9 @@ fn t10_a_symlink_to_the_same_file_loads_twice_as_in_tmux() {
 
 #[test]
 fn t10_a_grofe_config_toml_is_ignored_when_a_tmux_file_exists() {
+    if host_has_etc_tmux_conf() {
+        return;
+    }
     let srv = TestServer::unstarted();
     write(
         &srv.home.join(".config/grofe/config.toml"),
@@ -155,6 +180,9 @@ fn t10_a_grofe_config_toml_is_ignored_when_a_tmux_file_exists() {
 
 #[test]
 fn t10_a_grofe_config_toml_is_used_when_no_tmux_file_exists() {
+    if host_has_etc_tmux_conf() {
+        return;
+    }
     let srv = TestServer::unstarted();
     write(
         &srv.home.join(".config/grofe/config.toml"),

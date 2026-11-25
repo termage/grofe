@@ -42,7 +42,7 @@ fn deferring() -> bool {
 
 /// The reload sequence over what a nested reload collected.
 fn run_deferred(state: &mut State, d: Deferred, config_dir: PathBuf) {
-    reset(state);
+    reset_at(state, &config_dir);
     for (name, dir) in &d.packs {
         if let Err(e) = load_pack(state, name, dir) {
             log(state, format!("lua: {e}"));
@@ -223,6 +223,27 @@ pub fn reset(state: &mut State) {
     }
 }
 
+/// `reset`, then points `require` at `config_dir` on the fresh runtime, so
+/// packs loaded before `init.luau` can require from it too.
+pub fn reset_at(state: &mut State, config_dir: &Path) {
+    reset(state);
+    if !deferring() && !config_dir.as_os_str().is_empty() {
+        set_folder(state, config_dir);
+    }
+}
+
+fn set_folder(state: &mut State, config_dir: &Path) {
+    let r = with_host(state, client_less_ctx(), |rt, _| {
+        require::set_dir(rt.lua(), config_dir).map_err(|e| LuaError {
+            who: "require".into(),
+            message: e.to_string(),
+        })
+    });
+    if let Err(e) = r {
+        log_error(state, &e);
+    }
+}
+
 /// `init.luau`, else `init.lua`, in `dir`.
 fn init_file(dir: &Path) -> Option<PathBuf> {
     ["init.luau", "init.lua"]
@@ -270,16 +291,7 @@ pub fn load_init(state: &mut State, config_dir: &Path) {
         return;
     }
     let Some(file) = init_file(config_dir) else {
-        let r = with_host(state, client_less_ctx(), |rt, _| {
-            require::set_dir(rt.lua(), config_dir).map_err(|e| LuaError {
-                who: "require".into(),
-                message: e.to_string(),
-            })
-        });
-        if let Err(e) = r {
-            log_error(state, &e);
-        }
-        return;
+        return set_folder(state, config_dir);
     };
     let who = file
         .file_name()

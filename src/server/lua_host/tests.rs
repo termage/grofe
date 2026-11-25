@@ -380,3 +380,26 @@ fn require_works_without_an_init_file() {
     load_init(&mut state, dir.path());
     assert_eq!(require(&mut state, "m"), Ok("m".into()));
 }
+
+/// A pack's top-level `require` loads from the folder: the reload sequence
+/// sets it before packs load, and init shares the pack's module cache.
+#[test]
+fn a_pack_requires_at_top_level_in_the_reload_order() {
+    let pack = tempfile::tempdir().unwrap();
+    std::fs::write(pack.path().join("init.luau"), "return { m = require('m') }").unwrap();
+    let dir = folder(
+        "grofe.cmd{'set-option','-g','@init',require('m')}",
+        &[(
+            "m.luau",
+            "grofe.cmd{'set-option','-ga','@runs','x'}\nreturn 'folder'",
+        )],
+    );
+    let mut state = test_state();
+    reset_at(&mut state, dir.path());
+    load_pack(&mut state, "p", pack.path()).unwrap();
+    load_init(&mut state, dir.path());
+    let r = run_chunk(&mut state, &test_ctx(), "return grofe.plugin('p').m");
+    assert_eq!(r, Ok("folder".into()), "{}", messages(&state));
+    assert_eq!(global(&mut state, "@init"), "folder");
+    assert_eq!(global(&mut state, "@runs"), "x");
+}
