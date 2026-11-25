@@ -3,20 +3,22 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use alacritty_terminal::vte::ansi::{Color, NamedColor};
-use unicode_width::UnicodeWidthChar;
+mod draw;
 
 use super::State;
 use super::agents::{Agent, Rank, rank};
+use super::borders::PaneLines;
 use super::clients;
 use super::dispatch::agent;
-use super::dispatch::options::{FormatCtx, ServerVars};
+use super::dispatch::options::{self, FormatCtx, ServerVars};
 use super::input::{Input, InputHook, KeyCode, Routed};
 use super::listview::{ListAction, ListState, filter};
 use super::pane::{CellFlags, SnapCell};
-use super::render::{Overlay, OverlayCtx, Screen};
+use super::render::{self, Overlay, OverlayCtx, PaneLooks, Screen};
+use super::status::{self, Style};
 use crate::cmd::expand;
 use crate::types::{ClientId, PaneId};
+use draw::{Layout, Look, Tile, blank, put_text};
 
 /// Open grids, per client. Lives on `State.grids`. `ListState.selected` is
 /// the tile, `top` the first tile row shown.
@@ -74,26 +76,12 @@ pub fn client_gone(state: &mut State, id: ClientId) {
     rearm(state, Instant::now());
 }
 
-/// How the tiles sit on a client: columns, tile width, tile height, and the
-/// tile rows that fit under the query line.
-struct Layout {
-    cols: usize,
-    tile_w: usize,
-    tile_h: usize,
-    rows: usize,
-}
-
 fn layout(state: &State, size: (u16, u16)) -> Layout {
-    let want = usize::from(state.agents_grid.tile_width).max(1);
-    let cols = (usize::from(size.0) / want).max(1);
-    let tile_h = usize::from(state.agents_grid.preview_lines) + 1;
-    let avail = usize::from(size.1).saturating_sub(1);
-    Layout {
-        cols,
-        tile_w: (usize::from(size.0) / cols).max(1),
-        tile_h,
-        rows: (avail / tile_h).max(1),
-    }
+    draw::layout(
+        size,
+        state.agents_grid.tile_width,
+        state.agents_grid.preview_lines,
+    )
 }
 
 fn target_label(state: &State, pane: PaneId) -> String {
@@ -280,53 +268,47 @@ fn enter(state: &mut State, client: ClientId, pane: PaneId) -> Routed {
     Routed::Consumed
 }
 
-fn blank() -> SnapCell {
-    SnapCell {
-        c: ' ',
-        fg: Color::Named(NamedColor::Foreground),
-        bg: Color::Named(NamedColor::Background),
-        flags: CellFlags::empty(),
-        zerowidth: Vec::new(),
-        underline_color: None,
-        hyperlink: None,
+/// The frame looks of the client's window, as the sidebar takes them:
+/// its lines, `pane-border-style` and `pane-active-border-style`.
+fn look(state: &State, client: ClientId) -> Look {
+    let model = &state.model;
+    let window = state
+        .clients
+        .get(&client)
+        .and_then(|c| model.sessions.get(&c.session))
+        .and_then(|s| model.windows.get(&s.active));
+    let Some(w) = window else {
+        return Look {
+            lines: PaneLines::parse(""),
+            border: Style::default(),
+            active: Style::default(),
+        };
+    };
+    let chain = options::chain(model, w.active);
+    let opt = |name: &str| model.options.lookup(name, &chain).unwrap_or("");
+    let mut looks = PaneLooks {
+        lines: PaneLines::parse(opt("pane-border-lines")),
+        ..Default::default()
+    };
+    render::apply_frames(model, w, &mut looks);
+    let inner = FormatCtx::new(model, w.active);
+    let vars = ServerVars::fresh(state, w.active, &inner);
+    let style = |name: &str| status::base_style(opt(name), &vars);
+    Look {
+        lines: looks.lines,
+        border: style("pane-border-style"),
+        active: style("pane-active-border-style"),
     }
 }
 
-/// Draws `text` from `(x, y)`, never past column `end` (exclusive); a wide
-/// character that does not fit whole is dropped.
-fn put_text(screen: &mut Screen, x: usize, y: usize, end: usize, text: &str, flags: CellFlags) {
-    let end = end.min(usize::from(screen.cols));
-    if y >= usize::from(screen.rows) {
-        return;
-    }
-    let mut x = x;
-    for c in text.chars() {
-        let w = match UnicodeWidthChar::width(c) {
-            Some(w) if w > 0 => w,
-            _ => continue,
-        };
-        if x + w > end {
-            break;
-        }
-        let at = y * usize::from(screen.cols) + x;
-        screen.cells[at] = SnapCell {
-            c,
-            flags: flags
-                | if w == 2 {
-                    CellFlags::WIDE_CHAR
-                } else {
-                    CellFlags::empty()
-                },
-            ..blank()
-        };
-        if w == 2 {
-            screen.cells[at + 1] = SnapCell {
-                flags: CellFlags::WIDE_CHAR_SPACER | flags,
-                ..blank()
-            };
-        }
-        x += w;
-    }
+/// The last rows of `pane`'s screen, `h` at most.
+fn body(state: &State, pane: PaneId, h: usize) -> Vec<Vec<SnapCell>> {
+    let Some(p) = state.model.panes.get(&pane) else {
+        return Vec::new();
+    };
+    let mut rows = p.handle.snapshot_rows(0..p.rows).rows;
+    rows.drain(..rows.len().saturating_sub(h));
+    rows
 }
 
 pub struct GridOverlay;
@@ -337,73 +319,41 @@ impl Overlay for GridOverlay {
             return;
         };
         let lay = layout(state, (screen.cols, screen.rows));
-        let tiles = view(state, &st.query);
+        let found = view(state, &st.query);
         screen.cells.fill(blank());
         screen.cursor = None;
         let cols = usize::from(screen.cols);
-        put_text(
-            screen,
-            0,
-            0,
-            cols,
-            &format!("agents> {}", st.query),
-            CellFlags::BOLD,
-        );
-        if tiles.is_empty() {
-            put_text(screen, 0, 1, cols, "no agents", CellFlags::empty());
+        let bold = Style {
+            attrs: CellFlags::BOLD,
+            ..Style::default()
+        };
+        put_text(screen, 0, 0, cols, &format!("agents> {}", st.query), &bold);
+        if found.is_empty() {
+            put_text(screen, 0, 1, cols, "no agents", &Style::default());
             return;
         }
-        for (i, (pane, label)) in tiles
-            .iter()
+        let first = st.top * lay.cols;
+        let lines = usize::from(state.agents_grid.preview_lines);
+        let tiles: Vec<Tile> = found
+            .into_iter()
             .enumerate()
-            .skip(st.top * lay.cols)
-            .take(lay.rows * lay.cols)
-        {
-            let x = (i % lay.cols) * lay.tile_w;
-            let y = 1 + (i / lay.cols - st.top) * lay.tile_h;
-            let flags = if i == st.selected {
-                CellFlags::INVERSE
-            } else {
-                CellFlags::BOLD
-            };
-            for dx in 0..lay.tile_w {
-                put_text(screen, x + dx, y, x + dx + 1, " ", flags);
-            }
-            put_text(screen, x, y, x + lay.tile_w, label, flags);
-            draw_body(
-                state,
-                *pane,
-                (x, y + 1),
-                (lay.tile_w, lay.tile_h - 1),
-                screen,
-            );
-        }
-    }
-}
-
-/// The bottom `h` rows of `pane`'s screen, cropped to `w` columns, at `at`.
-fn draw_body(
-    state: &State,
-    pane: PaneId,
-    at: (usize, usize),
-    (w, h): (usize, usize),
-    screen: &mut Screen,
-) {
-    let Some(p) = state.model.panes.get(&pane) else {
-        return;
-    };
-    let snap = p.handle.snapshot_rows(0..p.rows);
-    let first = snap.rows.len().saturating_sub(h);
-    for (j, row) in snap.rows[first..].iter().enumerate() {
-        for (i, cell) in row.iter().take(w).enumerate() {
-            if i + 1 == w && cell.flags.contains(CellFlags::WIDE_CHAR) {
-                continue;
-            }
-            let (x, y) = (at.0 + i, at.1 + j);
-            if x < usize::from(screen.cols) && y < usize::from(screen.rows) {
-                screen.cells[y * usize::from(screen.cols) + x] = cell.clone();
-            }
-        }
+            .map(|(i, (pane, label))| Tile {
+                label,
+                body: if (first..first + lay.rows * lay.cols).contains(&i) {
+                    body(state, pane, lines)
+                } else {
+                    Vec::new()
+                },
+            })
+            .collect();
+        draw::draw_tiles(
+            screen,
+            &lay,
+            &tiles,
+            first,
+            st.selected,
+            &look(state, client),
+        );
     }
 }
 
@@ -529,8 +479,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn columns_and_scroll() {
-        let (mut state, client, _panes, _out) = setup(5, (130, 40));
-        let lay = layout(&state, (130, 40));
+        let (mut state, client, _panes, _out) = setup(5, (130, 45));
+        let lay = layout(&state, (130, 45));
         assert_eq!(lay.cols, 2);
         // 40 rows hold three tile rows of 13: 5 agents are 3 rows, all shown.
         open(&mut state, client).expect("open");
@@ -602,12 +552,22 @@ mod tests {
         open(&mut state, client).expect("open");
         let lay = layout(&state, (130, 40));
         let (first, label) = view(&state, "").remove(0);
-        assert!(first == panes[0] && label.chars().count() > lay.tile_w);
+        let (_, _, w, _) = lay.rect(0);
+        assert!(first == panes[0] && label.chars().count() > w);
         let text = screen_text(&state, client, (130, 40));
         let row: Vec<char> = text.lines().nth(1).expect("title row").chars().collect();
-        let cut: String = label.chars().take(lay.tile_w).collect();
-        assert_eq!(row[..lay.tile_w].iter().collect::<String>(), cut);
-        assert_eq!(row[lay.tile_w], '○', "next tile starts at its own column");
+        let head: String = label.chars().take(3).collect();
+        let top: String = row[..w].iter().collect();
+        let corner = |c: char| c == '┌' || c == '╭';
+        assert!(
+            corner(row[0]) && top[3..].starts_with(&format!("─ {head}")),
+            "{top}"
+        );
+        assert!(top.contains("… ─"), "{top}");
+        assert!(
+            corner(row[lay.rect(1).0]),
+            "next tile starts at its own column"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

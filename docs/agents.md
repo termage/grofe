@@ -108,9 +108,15 @@ keys until `Escape`.
 
 ## The grid
 
-`prefix O` shows every agent at once, one tile each with the bottom lines of
-its pane. It is read only: arrows move, typing filters, `Enter` jumps,
-`Escape` closes.
+`prefix O` shows every agent at once, one framed tile each. The title sits in
+the top edge (glyph, `session:window.pane`, kind, time in state and last
+message, cut with `…` when it does not fit) and the box holds the bottom
+`preview-lines` lines of its pane, clipped to the tile. Frames use the
+window's `pane-border-lines` and `pane-border-style`; the selected tile takes
+`pane-active-border-style`. Tiles sit in as many columns of `tile-width` as
+fit, one cell apart and widened to fill the screen, so none is cut at the
+edge; rows scroll to keep the selection in view. It is read only: arrows
+move, typing filters, `Enter` jumps, `Escape` closes.
 
 ## Notifications
 
