@@ -72,6 +72,13 @@ wait_for_line() {
     [ ! -e "$SOCK" ]
 }
 
+@test "--help lists --config-dir and GROFE_CONFIG_DIR" {
+    run "$BIN" --help
+    [ "$status" -eq 0 ]
+    grep -q -- "--config-dir" <<<"$output"
+    grep -q -- "GROFE_CONFIG_DIR" <<<"$output"
+}
+
 @test "through a tmux symlink -V and -h stay tmux's" {
     mkdir -p "$TMP/bin"
     ln -s "$BIN" "$TMP/bin/tmux"
