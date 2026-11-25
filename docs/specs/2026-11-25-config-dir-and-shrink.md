@@ -17,6 +17,8 @@
 - Ruling (spec review): when started as `tmux` with no explicit config, and at least one default tmux file exists, grofe behaves exactly as if those files had been passed with `-f`. That is today's `-f` path, with no TOML chain and no `settings.toml`. When no default file exists, the TOML chain loads as it does today.
   - Reason: the TOML chain is applied in one go, and `source-file` sets are runtime, so mixing the two would make saves lose on every reload. The `-f` path is already tested and matches tmux.
   - Cost if wrong: a user with both a tmux.conf and TOML files, running grofe as `tmux`, must pass `--config` or `--config-dir` to get the TOML.
+- Ruling (churn rule, require scoping drew findings two review rounds running): there is one `require`, and it resolves in the config folder for all Lua code, packs included. Pack code never had a working `require` before (it always failed with "require is not supported in this context"), so no pack depends on the old behaviour. The per-caller scoping is removed. A9 is amended to match. Cost if wrong: a pack can load a module from the user's folder by name, and pack code is already trusted to run in the same sandbox.
+- Ruling: the "HOME unset uses the passwd home" edge case is covered by a unit test with an injected lookup only. An e2e test would read the real user's home.
 - Ruling: a Lua `require` name may not contain `..` and may not be absolute. The path is built lexically under the canonical config folder, and symlinks are followed.
   - Reason: the folder is the user's own, and stow or chezmoi files symlinked into it must work.
   - Cost if wrong: a symlink the user put inside the folder can point outside it.
@@ -61,10 +63,7 @@
   - a require cycle
 
   The 50 ms budget and the memory limit cover required modules. Symlinks are followed, per the ruling above.
-- A9: `require` is a Rust function that replaces mlua's global `require`.
-  - It is installed before `sandbox(true)`.
-  - It reads the folder from a registry slot that the init load sets, so it also works in callbacks such as `lua-call` after init returns.
-  - Plugin and pack code keep their current behaviour, as the existing tests check.
+- A9: `require` is a Rust function that replaces mlua's global `require`. It is installed before `sandbox(true)`, and it reads the folder from a registry slot that is set when the config loads, also when there is no init file. It is the same for init, its modules, callbacks and pack code (see the ruling). With no config folder, it fails with a plain Lua error.
 - A10: TOML `include = "keymaps.toml"` or `include = ["keymaps.toml", "theme.toml"]` behaves exactly like `source-file`:
   - paths are relative to the including file
   - cycles are detected
