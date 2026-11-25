@@ -15,7 +15,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use common::{CMD_TIMEOUT, TestServer, try_wait_until};
+use common::{CMD_TIMEOUT, TestServer, display_main as display, try_wait_until};
 
 use crate::harness::Harness;
 
@@ -41,13 +41,6 @@ fn attach(srv: &TestServer, session: &str) -> Harness {
     let mut a = Harness::spawn_attach_with_env(srv.command(), session, &[], 80, 24);
     a.wait_for_output(b"\x1b[2J", 0);
     a
-}
-
-fn display(srv: &TestServer, format: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", "main", format])
-        .unwrap_or_else(|e| panic!("display {format}: {e}"))
-        .trim_end()
-        .to_string()
 }
 
 fn wait_display(srv: &TestServer, format: &str, want: &str) {

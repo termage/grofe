@@ -5,28 +5,11 @@
 mod common;
 
 use std::fs;
-use std::path::Path;
 use std::time::Duration;
 
-use common::TestServer;
+use common::{TestServer, display, panes, wait_for_file};
 
 const WAIT: Duration = Duration::from_secs(5);
-
-fn display(srv: &TestServer, target: &str, fmt: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, fmt])
-        .unwrap_or_else(|e| panic!("display-message {fmt}: {e}"))
-        .trim_end()
-        .to_string()
-}
-
-/// `list-panes -F` for `target`, one string per pane in layout order.
-fn panes(srv: &TestServer, target: &str, fmt: &str) -> Vec<String> {
-    srv.cmd(&["list-panes", "-t", target, "-F", fmt])
-        .unwrap_or_else(|e| panic!("list-panes: {e}"))
-        .lines()
-        .map(str::to_string)
-        .collect()
-}
 
 /// Pane widths in layout order.
 fn widths(srv: &TestServer, target: &str) -> Vec<u16> {
@@ -45,15 +28,6 @@ fn heights(srv: &TestServer, target: &str) -> Vec<u16> {
 
 fn active(srv: &TestServer, target: &str) -> String {
     display(srv, target, "#{pane_index}")
-}
-
-fn wait_for_file(path: &Path) -> String {
-    common::try_wait_until(
-        || fs::read_to_string(path).is_ok_and(|s| s.ends_with('\n')),
-        WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{} never written: {e}", path.display()));
-    fs::read_to_string(path).unwrap_or_default()
 }
 
 /// Waits until the capture of `target` has a line exactly equal to `line`.

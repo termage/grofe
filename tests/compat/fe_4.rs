@@ -26,27 +26,9 @@ use nix::pty::Winsize;
 
 use crate::fe_1::grofe_cli;
 use crate::normalize::{Normalizer, fixtures_dir};
-use crate::replay::{Cli, parse_scenario, replay, split_words};
+use crate::replay::{Cli, parse_scenario, replay, split_words, steps};
 
 // ---- Goldens ---------------------------------------------------------------
-
-/// A transcript split into steps: each step's first line (`$ ...`,
-/// `client ...`, `screen ...`) with everything it recorded.
-fn steps(transcript: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for line in transcript.split_inclusive('\n') {
-        let starts = line.starts_with("$ ")
-            || line.starts_with("$& ")
-            || line.starts_with("client ")
-            || line == "screen\n"
-            || line.starts_with("screen ");
-        match out.last_mut() {
-            Some(step) if !starts => step.push_str(line),
-            _ => out.push(line.to_string()),
-        }
-    }
-    out
-}
 
 /// The grofe side of `fe_4/<name>` against its golden, allowing the listed
 /// steps (by their first line) to differ, and requiring that they do.

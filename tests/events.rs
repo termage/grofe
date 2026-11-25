@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use common::{Subscription, TestServer};
+use common::{Subscription, TestServer, display, panes};
 use grofe::event::Event;
 use grofe::protocol::{Hello, Reply, Request, encode_hello};
 use grofe::types::PaneId;
@@ -20,21 +20,6 @@ use grofe::types::PaneId;
 const WAIT: Duration = Duration::from_secs(5);
 /// How long a test waits to be sure an event did not come.
 const QUIET: Duration = Duration::from_millis(300);
-
-fn display(srv: &TestServer, target: &str, fmt: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, fmt])
-        .unwrap_or_else(|e| panic!("display-message {fmt}: {e}"))
-        .trim_end()
-        .to_string()
-}
-
-fn panes(srv: &TestServer, target: &str, fmt: &str) -> Vec<String> {
-    srv.cmd(&["list-panes", "-t", target, "-F", fmt])
-        .unwrap_or_else(|e| panic!("list-panes: {e}"))
-        .lines()
-        .map(str::to_string)
-        .collect()
-}
 
 fn pane_id(srv: &TestServer, target: &str) -> PaneId {
     display(srv, target, "#{pane_id}").parse().unwrap()

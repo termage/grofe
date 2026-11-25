@@ -5,10 +5,9 @@
 mod common;
 
 use std::fs;
-use std::path::Path;
 use std::time::Duration;
 
-use common::{CMD_TIMEOUT, TestServer, run_bounded};
+use common::{CMD_TIMEOUT, TestServer, run_bounded, wait_for_file};
 use grofe::server::StartOptions;
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -57,15 +56,6 @@ fn start_without_remain(srv: &TestServer, args: &[&str]) {
     cmd.env(StartOptions::REMAIN_ON_EXIT_ENV, "0").args(args);
     let out = run_bounded(cmd, CMD_TIMEOUT);
     assert!(out.status.success(), "{out:?}\nlog:\n{}", srv.log());
-}
-
-fn wait_for_file(path: &Path) -> String {
-    common::try_wait_until(
-        || fs::read_to_string(path).is_ok_and(|s| s.ends_with('\n')),
-        WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{} never written: {e}", path.display()));
-    fs::read_to_string(path).unwrap_or_default()
 }
 
 #[test]

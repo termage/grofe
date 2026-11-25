@@ -261,6 +261,28 @@ fn is_ctime(b: &[u8]) -> bool {
         && (20..24).all(digit)
 }
 
+/// `line` with its placeholders (`<...>`, `%N`, `@N`) made concrete.
+pub fn concrete(line: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(start) = rest.find('<') {
+        let end = rest[start..].find('>').map(|e| start + e);
+        match end {
+            Some(end) if !rest[start + 1..end].contains([' ', '<']) && end > start + 1 => {
+                out.push_str(&rest[..start]);
+                out.push('1');
+                rest = &rest[end + 1..];
+            }
+            _ => {
+                out.push_str(&rest[..=start]);
+                rest = &rest[start + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out.replace("%N", "%1").replace("@N", "@1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

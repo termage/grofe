@@ -11,25 +11,7 @@ use std::path::Path;
 
 use crate::fe_1::grofe_cli;
 use crate::normalize::{Normalizer, fixtures_dir};
-use crate::replay::{Cli, Transcript, parse_scenario, replay};
-
-/// A transcript split into steps: each step's first line (`$ ...`,
-/// `client ...`, `screen ...`) with everything it recorded.
-fn steps(transcript: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for line in transcript.split_inclusive('\n') {
-        let starts = line.starts_with("$ ")
-            || line.starts_with("$& ")
-            || line.starts_with("client ")
-            || line == "screen\n"
-            || line.starts_with("screen ");
-        match out.last_mut() {
-            Some(step) if !starts => step.push_str(line),
-            _ => out.push(line.to_string()),
-        }
-    }
-    out
-}
+use crate::replay::{Cli, Transcript, parse_scenario, replay, steps};
 
 /// The grofe side of `fe_3/<name>` against its golden, after `fix`
 /// (harness differences only), allowing the listed steps to differ.

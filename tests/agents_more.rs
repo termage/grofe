@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use common::{PROMPT, TestServer, try_wait_until};
+use common::{TestServer, display_main as display, try_wait_until, wait_prompt};
 use harness::Harness;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -26,29 +26,10 @@ fn start() -> TestServer {
     srv
 }
 
-fn wait_prompt(srv: &TestServer, target: &str) {
-    srv.wait_for(
-        || {
-            srv.capture(target)
-                .lines()
-                .any(|l| l.trim_end().ends_with(PROMPT.trim_end()))
-        },
-        WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{e}: prompt in {target}"));
-}
-
 fn attach(srv: &TestServer) -> Harness {
     let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 160, 40);
     a.wait_for_output(b"\x1b[2J", 0);
     a
-}
-
-fn display(srv: &TestServer, format: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", "main", format])
-        .unwrap_or_else(|e| panic!("display {format}: {e}"))
-        .trim_end()
-        .to_string()
 }
 
 fn window_count(srv: &TestServer) -> usize {
