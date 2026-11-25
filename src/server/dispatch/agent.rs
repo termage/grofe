@@ -827,7 +827,9 @@ mod tests {
         let (mut state, p1) = state_with_pane();
         crate::server::register_builtins(&mut state);
         state.notify.cfg.delivery = "off".into();
-        let dir = tempfile::tempdir().expect("tempdir");
+        // In /tmp, not TMPDIR: a long marker path in the agent text pushes
+        // the drawn part off the 160-column status line.
+        let dir = tempfile::tempdir_in("/tmp").expect("tempdir");
         let x = dir.path().join("X");
         let run = |state: &mut State, ctx: &ClientCtx, words: &[&str]| {
             let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
