@@ -18,8 +18,11 @@ const KEY_CAP: usize = 16;
 /// Columns are balanced, but never shorter than this.
 const MIN_HEIGHT: usize = 8;
 
-pub(super) const HINT: &str = "type a key to run · / search · ↑↓ move · Esc close";
-const HINT_C_F: &str = "type a key to run · C-f search · ↑↓ move · Esc close";
+/// The grouped view's hint; `C-f` is named when `/` runs a binding.
+fn hint(slash_bound: bool) -> String {
+    let search = if slash_bound { "C-f" } else { "/" };
+    format!("type a key to run · {search} search · ↑↓ move · Esc close")
+}
 const SEARCH_HINT: &str = "Enter run · ↑↓ move · Esc back";
 
 /// The largest box: 70% of a wide client, nearly all of a narrow one, so
@@ -103,7 +106,11 @@ fn grid(rows: &[Row], full: Rect) -> (usize, usize, Vec<Vec<Line>>) {
 
 /// The first row of each page of the grouped layout, for the page keys.
 pub(super) fn page_starts(rows: &[Row], size: (u16, u16)) -> Vec<usize> {
-    let (ncols, _, cols) = grid(rows, area(size));
+    let full = area(size);
+    if full.rows < 4 {
+        return Vec::new();
+    }
+    let (ncols, _, cols) = grid(rows, full);
     cols.chunks(ncols)
         .filter_map(|page| {
             page.iter().flatten().find_map(|l| match l {
@@ -114,20 +121,13 @@ pub(super) fn page_starts(rows: &[Row], size: (u16, u16)) -> Vec<usize> {
         .collect()
 }
 
-/// The client's styles: `mode-style` for the selected row, its colour for
-/// group headers.
-pub(super) struct Look {
-    pub mode: Style,
-}
-
-impl Look {
-    fn head(&self) -> Style {
-        let mut head = with(Style::default(), CellFlags::BOLD);
-        if self.mode.bg != Color::Named(NamedColor::Background) {
-            head.fg = self.mode.bg;
-        }
-        head
+/// Group headers: bold, in `mode-style`'s colour.
+fn head(mode: Style) -> Style {
+    let mut head = with(Style::default(), CellFlags::BOLD);
+    if mode.bg != Color::Named(NamedColor::Background) {
+        head.fg = mode.bg;
     }
+    head
 }
 
 fn with(mut style: Style, flags: CellFlags) -> Style {
@@ -146,13 +146,13 @@ pub(super) struct View<'a> {
 
 /// Draws the menu centred on `screen`: groups in columns, or the search
 /// results while searching.
-pub(super) fn render(screen: &mut Screen, v: &View, look: &Look) {
+pub(super) fn render(screen: &mut Screen, v: &View, mode: Style) {
     let full = area((screen.cols, screen.rows));
     let widest = v.rows.iter().map(|r| width(&r.key.to_string())).max();
     let kw = widest.unwrap_or(0).min(KEY_CAP);
     let title = format!("Keys · {}", v.table);
-    if v.ui.filtering {
-        draw_search(screen, full, &title, v, look, kw);
+    if v.ui.filtering || full.rows < 4 {
+        draw_search(screen, full, &title, v, mode, kw);
         return;
     }
     let (ncols, colw, cols) = grid(v.rows, full);
@@ -162,8 +162,8 @@ pub(super) fn render(screen: &mut Screen, v: &View, look: &Look) {
     let shown = &cols[page * ncols..cols.len().min(page * ncols + ncols)];
     let used = shown.len().max(1);
     let height = shown.iter().map(Vec::len).max().unwrap_or(0).max(1);
-    let hint = if v.slash_bound { HINT_C_F } else { HINT };
-    let w = (used * colw + GAP * (used - 1) + 4).max(width(hint) + 6);
+    let hint = hint(v.slash_bound);
+    let w = (used * colw + GAP * (used - 1) + 4).max(width(&hint) + 6);
     let (w, h) = (
         w.min(usize::from(full.cols)) as u16,
         (height + 2).min(usize::from(full.rows)) as u16,
@@ -195,41 +195,53 @@ pub(super) fn render(screen: &mut Screen, v: &View, look: &Look) {
                 Line::Blank => {}
                 Line::Head(i) => {
                     let group = fit_text(&v.rows[i].group, end - x);
-                    put_text(screen, x, y, end, &group, &look.head());
+                    put_text(screen, x, y, end, &group, &head(mode));
                 }
                 Line::Item(i) => {
-                    draw_item(screen, (x, end, y), kw, &v.rows[i], i == sel, None, look);
+                    draw_item(screen, (x, end, y), kw, &v.rows[i], i == sel, None, mode);
                 }
             }
         }
     }
-    draw_hint(screen, area, hint);
+    draw_hint(screen, area, &hint);
 }
 
-fn draw_search(screen: &mut Screen, area: Rect, title: &str, v: &View, look: &Look, kw: usize) {
+/// The search results, or, in a box with room for one row, every binding
+/// in one list with no headers and no search line.
+fn draw_search(screen: &mut Screen, area: Rect, title: &str, v: &View, mode: Style, kw: usize) {
     if !listdraw::draw_frame(screen, area, title) || area.cols < 5 || area.rows < 3 {
         return;
     }
     let (x, y0) = (usize::from(area.x) + 2, usize::from(area.y));
     let end = usize::from(area.x + area.cols) - 2;
-    let after = put_text(screen, x, y0 + 1, end, "/ ", &look.head());
-    let after = put_text(screen, after, y0 + 1, end, &v.ui.query, &Style::default());
-    let dim = with(Style::default(), CellFlags::DIM);
-    let shown = visible(v.rows, &v.ui.query);
-    if v.ui.query.is_empty() {
-        put_text(screen, after, y0 + 1, end, "type to search", &dim);
+    let top = y0 + 1 + usize::from(v.ui.filtering);
+    if v.ui.filtering {
+        let prompt = ("/ ", &head(mode));
+        listdraw::query_line(
+            screen,
+            (x, end, y0 + 1),
+            prompt,
+            &v.ui.query,
+            "type to search",
+        );
     }
-    let height = usize::from(area.rows).saturating_sub(3);
+    let shown = visible(v.rows, &v.ui.query);
+    let height = (y0 + usize::from(area.rows) - 1).saturating_sub(top);
     let mut ui = v.ui.clone();
     ui.clamp(shown.len(), height);
     for (n, &i) in shown.iter().enumerate().skip(ui.top).take(height) {
         let row = &v.rows[i];
         let hits = listview::matches(&v.ui.query, &row.haystack()).map(|(_, h)| h);
-        let at = (x, end, y0 + 2 + n - ui.top);
-        let hits = hits.unwrap_or_default();
-        draw_item(screen, at, kw, row, n == ui.selected, Some(&hits), look);
+        let hits = v.ui.filtering.then(|| hits.unwrap_or_default());
+        let at = (x, end, top + n - ui.top);
+        draw_item(screen, at, kw, row, n == ui.selected, hits.as_deref(), mode);
     }
-    draw_hint(screen, area, SEARCH_HINT);
+    let hint = if v.ui.filtering {
+        SEARCH_HINT.to_string()
+    } else {
+        hint(v.slash_bound)
+    };
+    draw_hint(screen, area, &hint);
 }
 
 /// `key  label` in cells `x..end` of row `y`, the key bold and
@@ -243,13 +255,9 @@ fn draw_item(
     row: &Row,
     selected: bool,
     hits: Option<&[usize]>,
-    look: &Look,
+    mode: Style,
 ) {
-    let base = if selected {
-        look.mode
-    } else {
-        Style::default()
-    };
+    let base = if selected { mode } else { Style::default() };
     if selected {
         fill(screen, x, end, y, &base);
     }
@@ -306,8 +314,8 @@ fn draw_hint(screen: &mut Screen, area: Rect, hint: &str) {
     );
 }
 
-/// The client's look, from its active pane's options.
-fn look(state: &State, client: ClientId) -> Look {
+/// The client's `mode-style`, from its active pane's options.
+fn mode_style(state: &State, client: ClientId) -> Style {
     let chain = state
         .clients
         .get(&client)
@@ -315,9 +323,7 @@ fn look(state: &State, client: ClientId) -> Look {
         .map(|p| options::chain(&state.model, p))
         .unwrap_or_default();
     let mode = state.model.options.lookup("mode-style", &chain);
-    Look {
-        mode: status::parse_style(mode.unwrap_or_default()),
-    }
+    status::parse_style(mode.unwrap_or_default())
 }
 
 /// Draws a client's key menu.
@@ -335,7 +341,7 @@ impl Overlay for KeyMenuOverlay {
             ui: &menu.ui,
             slash_bound: slash_bound(&state.registry.key_tables, &menu.table),
         };
-        render(screen, &view, &look(state, client));
+        render(screen, &view, mode_style(state, client));
         screen.cursor = None;
     }
 }
@@ -376,10 +382,8 @@ mod tests {
             .collect()
     }
 
-    fn look() -> Look {
-        Look {
-            mode: status::parse_style("bg=yellow,fg=black"),
-        }
+    fn mode() -> Style {
+        status::parse_style("bg=yellow,fg=black")
     }
 
     fn draw(size: (u16, u16), rows: &[Row], ui: &ListState) -> Screen {
@@ -393,7 +397,7 @@ mod tests {
             ui,
             slash_bound: false,
         };
-        render(&mut screen, &view, &look());
+        render(&mut screen, &view, mode());
         screen
     }
 
@@ -478,7 +482,7 @@ mod tests {
             "no desc: command dimmed"
         );
         assert!(text.contains("╭─ Keys · prefix "), "{text}");
-        assert!(text.contains(HINT), "{text}");
+        assert!(text.contains(&hint(false)), "{text}");
     }
 
     #[test]
@@ -610,7 +614,7 @@ mod tests {
                 assert!(
                     s.cells[y..y + usize::from(s.cols)]
                         .iter()
-                        .any(|c| c.bg == look().mode.bg),
+                        .any(|c| c.bg == mode().bg),
                     "{want} drawn selected"
                 );
             }
@@ -688,6 +692,18 @@ mod tests {
     }
 
     #[test]
+    fn a_one_row_box_still_draws_the_selected_binding() {
+        let rows = many(20);
+        let ui = ListState {
+            selected: 13,
+            ..ListState::default()
+        };
+        let text = lines(&draw((60, 5), &rows, &ui)).join("\n");
+        assert!(text.contains("desc 13"), "{text}");
+        assert!(page_starts(&rows, (60, 5)).is_empty());
+    }
+
+    #[test]
     fn hint_names_c_f_when_slash_is_bound() {
         assert!(!is_reserved(&parse_key("/").expect("key")));
         let rows = [row("/", "g", Some("Describe key"), "x")];
@@ -698,7 +714,7 @@ mod tests {
             ui: &ListState::default(),
             slash_bound: true,
         };
-        render(&mut screen, &view, &look());
-        assert!(lines(&screen).join("\n").contains(HINT_C_F));
+        render(&mut screen, &view, mode());
+        assert!(lines(&screen).join("\n").contains(&hint(true)));
     }
 }

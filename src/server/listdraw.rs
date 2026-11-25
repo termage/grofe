@@ -208,6 +208,24 @@ pub fn draw_frame(screen: &mut Screen, area: Rect, title: &str) -> bool {
     true
 }
 
+/// A list's query line in cells `x..end` of row `y`: `prompt` in its
+/// style, the query, and `placeholder` dimmed while the query is empty.
+pub fn query_line(
+    screen: &mut Screen,
+    (x, end, y): (usize, usize, usize),
+    (prompt, style): (&str, &Style),
+    query: &str,
+    placeholder: &str,
+) {
+    let x = put_text(screen, x, y, end, prompt, style);
+    let x = put_text(screen, x, y, end, query, &Style::default());
+    if query.is_empty() {
+        let mut dim = Style::default();
+        dim.attrs |= CellFlags::DIM;
+        put_text(screen, x, y, end, placeholder, &dim);
+    }
+}
+
 /// [`draw_list`], laying the columns out to the box when `cols` is given:
 /// each column is capped, the widest are narrowed until a row fits, and a
 /// cell cut short ends in `…`.
@@ -235,13 +253,13 @@ pub fn draw_list_fit(
     let (ix0, ix1) = (x0 + 1, x1);
     let mut y = y0 + 1;
     if show_query && y < y1 {
-        let x = put_text(screen, ix0, y, ix1, "> ", &plain);
-        let x = put_text(screen, x, y, ix1, &st.query, &plain);
-        if st.query.is_empty() {
-            let mut dim = plain;
-            dim.attrs |= CellFlags::DIM;
-            put_text(screen, x, y, ix1, "type to filter", &dim);
-        }
+        query_line(
+            screen,
+            (ix0, ix1, y),
+            ("> ", &plain),
+            &st.query,
+            "type to filter",
+        );
         y += 1;
     }
 
