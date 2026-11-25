@@ -1,7 +1,7 @@
 //! Agent status: the per-pane store and the report rules (spec §2).
 
-pub mod kinds;
-pub mod osc;
+pub(crate) mod kinds;
+pub(crate) mod osc;
 mod rank;
 mod text;
 
@@ -11,8 +11,8 @@ use std::time::Instant;
 use crate::server::resume::Binding;
 use crate::types::PaneId;
 
-pub use rank::{Rank, rank};
-pub use text::{sanitize, valid_kind, valid_session_id};
+pub(crate) use rank::{Rank, rank};
+pub(crate) use text::{sanitize, valid_kind, valid_session_id};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentState {
@@ -24,7 +24,7 @@ pub enum AgentState {
 }
 
 impl AgentState {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             AgentState::Idle => "idle",
             AgentState::Working => "working",
@@ -68,7 +68,7 @@ pub struct Report {
 }
 
 #[derive(Debug, Clone)]
-pub struct Agent {
+pub(crate) struct Agent {
     pub kind: Option<String>,
     pub state: AgentState,
     pub blocked: Option<String>,
@@ -188,7 +188,7 @@ impl Agents {
     }
 
     /// Make sure `pane` has a record of `kind`. True when anything changed.
-    pub fn ensure(
+    pub(crate) fn ensure(
         &mut self,
         pane: PaneId,
         kind: &str,
@@ -212,7 +212,7 @@ impl Agents {
     }
 
     /// Clear `unseen`. True when it was set.
-    pub fn mark_seen(&mut self, pane: PaneId) -> bool {
+    pub(crate) fn mark_seen(&mut self, pane: PaneId) -> bool {
         self.map
             .get_mut(&pane)
             .is_some_and(|a| std::mem::take(&mut a.unseen))
@@ -220,7 +220,7 @@ impl Agents {
 
     /// Bell or OSC 9/777 on a pane that never reported (spec §3.3). True when
     /// the record changed.
-    pub fn attention(&mut self, pane: PaneId, msg: Option<String>) -> bool {
+    pub(crate) fn attention(&mut self, pane: PaneId, msg: Option<String>) -> bool {
         let Some(a) = self.map.get_mut(&pane).filter(|a| !a.reported) else {
             return false;
         };
@@ -233,15 +233,15 @@ impl Agents {
         changed
     }
 
-    pub fn remove(&mut self, pane: PaneId) -> Option<Agent> {
+    pub(crate) fn remove(&mut self, pane: PaneId) -> Option<Agent> {
         self.map.remove(&pane)
     }
 
-    pub fn get(&self, pane: PaneId) -> Option<&Agent> {
+    pub(crate) fn get(&self, pane: PaneId) -> Option<&Agent> {
         self.map.get(&pane)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (PaneId, &Agent)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (PaneId, &Agent)> {
         self.map.iter().map(|(p, a)| (*p, a))
     }
 }

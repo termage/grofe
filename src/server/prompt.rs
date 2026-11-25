@@ -23,7 +23,6 @@ use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::vte::ansi::{Color, NamedColor};
 use tokio::sync::oneshot;
 use unicode_width::UnicodeWidthChar;
 
@@ -44,7 +43,7 @@ use crate::server::{State, hooks};
 use crate::types::ClientId;
 
 /// tmux's `prompt-history-limit`.
-pub const HISTORY_LIMIT: usize = 100;
+pub(crate) const HISTORY_LIMIT: usize = 100;
 
 /// `message-style`'s and `message-command-style`'s defaults, if the options
 /// are missing.
@@ -90,7 +89,7 @@ impl Prompts {
     }
 
     /// Whether client `id` has a prompt open.
-    pub fn is_open(&self, id: ClientId) -> bool {
+    pub(crate) fn is_open(&self, id: ClientId) -> bool {
         self.open.contains_key(&id)
     }
 
@@ -194,7 +193,7 @@ struct Prompt {
 
 /// A prompt's own answer handler (`status_prompt_set`'s input callback):
 /// called with the line when it is entered.
-pub type PromptFn = Box<dyn FnOnce(&mut State, ClientId, &str) -> Routed + Send>;
+pub(crate) type PromptFn = Box<dyn FnOnce(&mut State, ClientId, &str) -> Routed + Send>;
 
 #[derive(Default)]
 struct Then(Option<PromptFn>);
@@ -884,15 +883,7 @@ fn line_cells(line: &status::StyledLine, cols: usize) -> Vec<SnapCell> {
         }
     }
     out.truncate(cols);
-    let fill = out.last().cloned().unwrap_or_else(|| SnapCell {
-        c: ' ',
-        fg: Color::Named(NamedColor::Foreground),
-        bg: Color::Named(NamedColor::Background),
-        flags: CellFlags::empty(),
-        zerowidth: Vec::new(),
-        underline_color: None,
-        hyperlink: None,
-    });
+    let fill = out.last().cloned().unwrap_or_else(SnapCell::blank);
     out.resize(cols, SnapCell { c: ' ', ..fill });
     out
 }
@@ -969,7 +960,7 @@ pub(crate) fn replace_template_idx(template: &str, answer: &str, idx: usize) -> 
 }
 
 /// Eats a client's input while its prompt is open. Focus reports pass on.
-pub struct PromptHook;
+pub(crate) struct PromptHook;
 
 impl InputHook for PromptHook {
     fn on_input(
@@ -1531,7 +1522,7 @@ fn open_complete_menu(
 
 /// A row of the completion menu was picked: `text` takes the word's place
 /// (a window-target prompt's whole line).
-pub fn complete_chosen(state: &mut State, client: ClientId, text: &str) {
+pub(crate) fn complete_chosen(state: &mut State, client: ClientId, text: &str) {
     let Some(prompt) = state.prompts.open.get_mut(&client) else {
         return;
     };
@@ -1605,7 +1596,7 @@ fn common_prefix(list: &[String]) -> String {
 /// Draws a client's open prompt over its status row, in `message-style`,
 /// with the cursor at the insertion point. A line wider than the client
 /// scrolls so the cursor stays on screen.
-pub struct PromptOverlay;
+pub(crate) struct PromptOverlay;
 
 impl Overlay for PromptOverlay {
     fn draw(&self, state: &State, client: ClientId, cx: &OverlayCtx, screen: &mut Screen) {
@@ -1874,7 +1865,7 @@ fn draw_box(prompt: &Prompt, border: &Style, ends: &str, screen: &mut Screen) {
 // ponytail: tmux 3.7b keeps that CLI waiting until the server exits (then
 // exit 0, no output), recorded 2026-09-28 with `detach-client`; grofe
 // answers at once instead of leaking it.
-pub fn client_gone(state: &mut State, id: ClientId) {
+pub(crate) fn client_gone(state: &mut State, id: ClientId) {
     state.prompts.close(id);
 }
 
@@ -1884,7 +1875,7 @@ pub fn client_gone(state: &mut State, id: ClientId) {
 /// closes, as tmux's does, unless `-b`. `-1` answers with the one
 /// keystroke typed, `-k` with the name of the one key pressed (TC.7); `-T`
 /// picks the history the prompt walks (grofe's prompt has no completion).
-pub fn command_prompt(
+pub(crate) fn command_prompt(
     state: &mut State,
     ctx: &ClientCtx,
     c: CommandPrompt,
@@ -2015,7 +2006,7 @@ fn flags(c: &CommandPrompt) -> Flags {
 /// command (a chooser's search, filter, kill confirmation and command): its
 /// `label`, starting text, history `kind` ("command" or "search") and
 /// whether it takes one keystroke (`single`).
-pub fn ask(
+pub(crate) fn ask(
     state: &mut State,
     id: ClientId,
     label: &str,
@@ -2037,7 +2028,7 @@ pub fn ask(
 
 /// Records `key`, the key whose binding opened client `id`'s prompt, so
 /// its commands are logged as run by it (`show-messages`).
-pub fn opened_by(state: &mut State, id: ClientId, key: Option<String>) {
+pub(crate) fn opened_by(state: &mut State, id: ClientId, key: Option<String>) {
     if let Some(prompt) = state.prompts.open.get_mut(&id) {
         prompt.key = key;
     }
@@ -2066,7 +2057,7 @@ fn run_incremental(state: &mut State, client: ClientId, prefix: char, line: &str
 /// Enter with `-y`.
 /// From the CLI the reply waits until the prompt closes; a cancelled
 /// prompt exits 1 with no message, as tmux's does (recorded).
-pub fn confirm(
+pub(crate) fn confirm(
     state: &mut State,
     ctx: &ClientCtx,
     c: &cmd::ConfirmBefore,
@@ -2209,7 +2200,7 @@ fn verb(template: &str) -> String {
 /// and the CLI exits with the command's status (D20, as tmux 3.7b).
 /// With `-C` the command is one of the server's, run in the request's
 /// dialect where `run-shell` is, after `-d`'s delay.
-pub fn run_shell(state: &mut State, ctx: &ClientCtx, c: RunShell) -> Result<String, String> {
+pub(crate) fn run_shell(state: &mut State, ctx: &ClientCtx, c: RunShell) -> Result<String, String> {
     // tmux runs nothing for a `run-shell` with nothing to run.
     if c.cmd.is_empty() && c.delay.is_none() {
         return Ok(String::new());
@@ -2488,6 +2479,7 @@ fn exit_result(script: &str, status: ExitStatus) -> Result<(), (String, i32)> {
 mod tests {
     use super::*;
     use crate::server::input::Mods;
+    use alacritty_terminal::vte::ansi::{Color, NamedColor};
 
     /// `command-prompt -N` (FE.1): only digits reach the text.
     #[test]

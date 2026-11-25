@@ -8,7 +8,7 @@ use crate::cmd::{CopyMode, Resolve};
 use crate::protocol::ClientCtx;
 use crate::server::{State, copy, mouse};
 
-pub fn copy_mode(state: &mut State, ctx: &ClientCtx, c: CopyMode) -> Result<String, String> {
+pub(crate) fn copy_mode(state: &mut State, ctx: &ClientCtx, c: CopyMode) -> Result<String, String> {
     let pane = if c.mouse && !c.cancel {
         // As tmux: no mouse key, or none over a pane, does nothing.
         let Some(pane) = mouse::event_pane(state) else {

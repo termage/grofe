@@ -5,7 +5,9 @@
 use crate::cmd::{self, ConfirmBefore, DisplayMenu, DisplayPanes, MenuEntry, Resolve};
 use crate::protocol::{ClientCtx, Dialect};
 use crate::server::input::parse_key;
-use crate::server::menu::{self, Internal, Look, Menu, MenuItem, PanesArgs, Position, Start};
+use crate::server::menu::{
+    self, Internal, Look, Menu, MenuItem, PanesArgs, Position, Start, strtol,
+};
 use crate::server::popup::Lines;
 use crate::server::{State, clients, prompt};
 
@@ -169,26 +171,13 @@ fn position(
     ))))
 }
 
-/// C's `strtol(s, NULL, 10)`: blanks, a sign, then digits; 0 without any.
-fn strtol(s: &str) -> i64 {
-    let s = s.trim_start();
-    let (sign, digits) = match s.strip_prefix('-') {
-        Some(rest) => (-1, rest),
-        None => (1, s.strip_prefix('+').unwrap_or(s)),
-    };
-    let end = digits
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(digits.len());
-    digits[..end].parse::<i64>().map_or(0, |n| sign * n)
-}
-
 /// `display-panes [-bN] [-d duration] [-t client] [template]`: each pane
 /// of the current window labelled with its index until a key or `-d`
 /// milliseconds (`display-panes-time`; 0 keeps them up); a digit (or `a`
 /// to `z`) chooses that pane, and the template runs with `%%` for its id
 /// (`select-pane -t "%%%"` by default). `-N` takes no keys. From the CLI
 /// the reply waits until the labels close, unless `-b`.
-pub fn display_panes(
+pub(crate) fn display_panes(
     state: &mut State,
     ctx: &ClientCtx,
     c: DisplayPanes,
@@ -219,7 +208,7 @@ pub fn display_panes(
 /// client, `command` run only on `y`. The command must parse now, as
 /// tmux parses it when the prompt opens. Without `-p` the prompt names the
 /// first command, as tmux 3.7b words it (`Confirm 'kill-pane'? (y/n)`).
-pub fn confirm_before(
+pub(crate) fn confirm_before(
     state: &mut State,
     ctx: &ClientCtx,
     c: ConfirmBefore,
@@ -258,7 +247,7 @@ pub fn confirm_before(
 /// with its command's words, and the command's own arguments follow. An
 /// alias is expanded once, never inside its own expansion. `argv` may hold
 /// several commands split at `;` arguments; each one's verb is looked up.
-pub fn expand_aliases(state: &State, argv: &[String]) -> Option<Vec<String>> {
+pub(crate) fn expand_aliases(state: &State, argv: &[String]) -> Option<Vec<String>> {
     let cmds = cmd::parse::split_argv(argv);
     let expanded: Vec<Option<Vec<Vec<String>>>> = cmds
         .iter()
@@ -290,14 +279,14 @@ pub fn expand_aliases(state: &State, argv: &[String]) -> Option<Vec<String>> {
 /// (or its value does not split). A `;` word in `argv` stays literal.
 /// [`super::run_split`] runs what this returns; `bind-key` stores it, as
 /// tmux expands an alias when the binding is made.
-pub fn expand_alias_command(state: &State, argv: &[String]) -> Option<Vec<Vec<String>>> {
+pub(crate) fn expand_alias_command(state: &State, argv: &[String]) -> Option<Vec<Vec<String>>> {
     let aliases = state.model.options.lookup_list("command-alias", &[])?;
     expand_alias(aliases.values(), argv)
 }
 
 /// [`expand_alias_command`] over an explicit `command-alias` list (the
 /// config loader's, for its bindings).
-pub fn expand_alias<'a>(
+pub(crate) fn expand_alias<'a>(
     aliases: impl IntoIterator<Item = &'a String>,
     argv: &[String],
 ) -> Option<Vec<Vec<String>>> {

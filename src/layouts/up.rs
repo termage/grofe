@@ -10,7 +10,7 @@ use super::schema::{
 use super::{Server, words};
 use crate::server::layout::{parse_tmux_layout, tmux_checksum};
 
-pub struct UpOptions {
+pub(crate) struct UpOptions {
     /// `-d`: never attach.
     pub detach: bool,
     /// `--session`: rename a one-session file, or pick from several.
@@ -448,7 +448,7 @@ fn wait_for(server: &mut dyn Server, id: &str, w: &Wait) -> Result<(), String> {
 
 /// `layout __watch`: waits for the session to end (or its server to go),
 /// then runs the `on_stop` hook.
-pub fn watch(
+pub(crate) fn watch(
     server: &mut dyn Server,
     id: &str,
     name: &str,
@@ -467,7 +467,7 @@ pub fn watch(
 /// cells each way and moves `pad` up and left: the one-cell-border tree
 /// the framed window laid its panes out on. Anything else (a root at the
 /// corner, a preset, a string that does not parse) is returned as it is.
-pub fn unframed_layout(layout: &str) -> String {
+pub(crate) fn unframed_layout(layout: &str) -> String {
     let pad = match parse_tmux_layout(layout) {
         Some(g) if g.x == g.y && g.x > 0 => g.x,
         _ => return layout.to_string(),

@@ -12,7 +12,7 @@ use super::lock;
 
 mod ports;
 
-pub use ports::listening_ports;
+pub(crate) use ports::listening_ports;
 #[cfg(test)]
 use ports::parse_proc_net_tcp;
 
@@ -27,7 +27,7 @@ fn server_argv() -> &'static [String] {
 
 /// The last sample of a pane's foreground process.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ProcSample {
+pub(crate) struct ProcSample {
     pub command: Option<String>,
     pub argv: Option<Vec<String>>,
     pub path: Option<PathBuf>,
@@ -127,7 +127,7 @@ impl PortsCache {
 /// (`tcgetpgrp`): what a key binding's conditional tests, as
 /// vim-tmux-navigator's `ps -t <tty>` does on every keypress. The reads
 /// below use syscalls alone, never a fork.
-pub fn foreground_group(master: impl std::os::fd::AsFd) -> Option<i32> {
+pub(crate) fn foreground_group(master: impl std::os::fd::AsFd) -> Option<i32> {
     Some(nix::unistd::tcgetpgrp(master).ok()?.as_raw())
 }
 
@@ -135,7 +135,7 @@ pub fn foreground_group(master: impl std::os::fd::AsFd) -> Option<i32> {
 /// the leader has exited (the first command of a pipeline often has), or
 /// while it is a forked child that has not exec'd yet (still the server's
 /// own image), which [`Cache`] leaves out too.
-pub fn leader(pgrp: i32) -> ProcSample {
+pub(crate) fn leader(pgrp: i32) -> ProcSample {
     let leader = sample(pgrp);
     if leader.argv.as_deref() == Some(server_argv()) {
         return ProcSample::default();
@@ -145,13 +145,13 @@ pub fn leader(pgrp: i32) -> ProcSample {
 
 /// The cwd of group `pgrp`'s leader, read now with one syscall (or one
 /// `readlink`), never a fork: tmux's `osdep_get_cwd`.
-pub fn cwd(pgrp: i32) -> Option<PathBuf> {
+pub(crate) fn cwd(pgrp: i32) -> Option<PathBuf> {
     os::cwd(pgrp)
 }
 
 /// The argv of every live member of group `pgrp`, the leader first, then
 /// by pid, read now.
-pub fn members(pgrp: i32) -> Vec<Vec<String>> {
+pub(crate) fn members(pgrp: i32) -> Vec<Vec<String>> {
     let mut pids = os::group(pgrp);
     pids.sort_unstable();
     pids.dedup();
@@ -168,7 +168,7 @@ pub fn members(pgrp: i32) -> Vec<Vec<String>> {
 /// `members` as `#{pane_foreground_argv}` shows them: one argv per line,
 /// its words joined by spaces. A newline inside a word becomes a space, so
 /// no argument can pass for a member of its own.
-pub fn argv_lines(members: &[Vec<String>]) -> String {
+pub(crate) fn argv_lines(members: &[Vec<String>]) -> String {
     members
         .iter()
         .map(|argv| {
@@ -182,7 +182,7 @@ pub fn argv_lines(members: &[Vec<String>]) -> String {
 }
 
 /// The parent of process `pid`.
-pub fn parent(pid: i32) -> Option<i32> {
+pub(crate) fn parent(pid: i32) -> Option<i32> {
     os::parent(pid)
 }
 
@@ -190,7 +190,7 @@ pub fn parent(pid: i32) -> Option<i32> {
 /// boot on Linux, microseconds since the epoch on macOS): with the pid,
 /// what tells a process from a later one that reuses its pid. `None` once
 /// it has exited, a zombie included; a stopped process still has one.
-pub fn start_time(pid: i32) -> Option<u64> {
+pub(crate) fn start_time(pid: i32) -> Option<u64> {
     os::start_time(pid)
 }
 
@@ -198,7 +198,7 @@ pub fn start_time(pid: i32) -> Option<u64> {
 /// last exec'd) with, read now: `/proc/<pid>/environ` on Linux, the tail
 /// of `KERN_PROCARGS2` on macOS. `None` if it is unset or unreadable (a
 /// process of another user). A shell's later `export` is not seen.
-pub fn env_var(pid: i32, name: &str) -> Option<String> {
+pub(crate) fn env_var(pid: i32, name: &str) -> Option<String> {
     os::environ(pid)?.into_iter().find_map(|kv| {
         let (k, v) = kv.split_once('=')?;
         (k == name).then(|| v.to_string())
@@ -212,7 +212,7 @@ const SAMPLE_TRIES: usize = 4;
 /// The three reads are separate calls, so a process that execs between
 /// them would give its old name with its new argv; the name is read again
 /// after the rest, and a changed one takes the sample again.
-pub fn sample(pid: i32) -> ProcSample {
+pub(crate) fn sample(pid: i32) -> ProcSample {
     let mut command = os::command(pid);
     let mut tries = 0;
     loop {
@@ -237,22 +237,22 @@ pub fn sample(pid: i32) -> ProcSample {
 mod os {
     use std::path::PathBuf;
 
-    pub fn command(pid: i32) -> Option<String> {
+    pub(crate) fn command(pid: i32) -> Option<String> {
         let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
         Some(comm.trim_end_matches('\n').to_string())
     }
 
-    pub fn argv(pid: i32) -> Option<Vec<String>> {
+    pub(crate) fn argv(pid: i32) -> Option<Vec<String>> {
         let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
         split_nul(&raw)
     }
 
-    pub fn cwd(pid: i32) -> Option<PathBuf> {
+    pub(crate) fn cwd(pid: i32) -> Option<PathBuf> {
         std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
     }
 
     /// Every pid in process group `pgrp`, from each `/proc/<pid>/stat`.
-    pub fn group(pgrp: i32) -> Vec<i32> {
+    pub(crate) fn group(pgrp: i32) -> Vec<i32> {
         let Ok(dir) = std::fs::read_dir("/proc") else {
             return Vec::new();
         };
@@ -263,7 +263,7 @@ mod os {
 
     /// Field 22 of `/proc/<pid>/stat`, unless field 3 says the process
     /// is a zombie (`Z`) or dead (`X`).
-    pub fn start_time(pid: i32) -> Option<u64> {
+    pub(crate) fn start_time(pid: i32) -> Option<u64> {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         let rest = stat.get(stat.rfind(')')? + 2..)?;
         let mut fields = rest.split(' ');
@@ -273,13 +273,13 @@ mod os {
         fields.nth(18)?.parse().ok()
     }
 
-    pub fn environ(pid: i32) -> Option<Vec<String>> {
+    pub(crate) fn environ(pid: i32) -> Option<Vec<String>> {
         let raw = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
         split_nul(&raw)
     }
 
     /// Field 4 of `/proc/<pid>/stat`.
-    pub fn parent(pid: i32) -> Option<i32> {
+    pub(crate) fn parent(pid: i32) -> Option<i32> {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         let rest = stat.get(stat.rfind(')')? + 2..)?;
         rest.split(' ').nth(1)?.parse().ok()
@@ -294,7 +294,7 @@ mod os {
     }
 
     /// Every process's pid and parent.
-    pub fn all_parents() -> Vec<(i32, i32)> {
+    pub(crate) fn all_parents() -> Vec<(i32, i32)> {
         let Ok(dir) = std::fs::read_dir("/proc") else {
             return Vec::new();
         };
@@ -325,7 +325,7 @@ mod os {
 
     use nix::libc;
 
-    pub fn command(pid: i32) -> Option<String> {
+    pub(crate) fn command(pid: i32) -> Option<String> {
         let mut buf = [0u8; 256];
         // SAFETY: the buffer is valid for its full length.
         let n = unsafe { libc::proc_name(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
@@ -335,7 +335,7 @@ mod os {
         Some(String::from_utf8_lossy(&buf[..n as usize]).into_owned())
     }
 
-    pub fn cwd(pid: i32) -> Option<PathBuf> {
+    pub(crate) fn cwd(pid: i32) -> Option<PathBuf> {
         // SAFETY: an all-zero proc_vnodepathinfo is a valid value.
         let mut info: libc::proc_vnodepathinfo = unsafe { mem::zeroed() };
         let size = mem::size_of::<libc::proc_vnodepathinfo>() as i32;
@@ -386,13 +386,13 @@ mod os {
     }
 
     /// The parent pid, from `proc_pidinfo`'s `PROC_PIDTBSDINFO`.
-    pub fn parent(pid: i32) -> Option<i32> {
+    pub(crate) fn parent(pid: i32) -> Option<i32> {
         bsdinfo(pid).map(|info| info.pbi_ppid as i32)
     }
 
     /// The start time in microseconds since the epoch, from
     /// `PROC_PIDTBSDINFO`; `None` for a zombie.
-    pub fn start_time(pid: i32) -> Option<u64> {
+    pub(crate) fn start_time(pid: i32) -> Option<u64> {
         let info = bsdinfo(pid)?;
         if info.pbi_status == libc::SZOMB {
             return None;
@@ -405,7 +405,7 @@ mod os {
     const PROC_PGRP_ONLY: u32 = 2;
 
     /// Every pid in process group `pgrp`.
-    pub fn group(pgrp: i32) -> Vec<i32> {
+    pub(crate) fn group(pgrp: i32) -> Vec<i32> {
         let Ok(pgrp) = u32::try_from(pgrp) else {
             return Vec::new();
         };
@@ -428,11 +428,11 @@ mod os {
         pids
     }
 
-    pub fn argv(pid: i32) -> Option<Vec<String>> {
+    pub(crate) fn argv(pid: i32) -> Option<Vec<String>> {
         parse_procargs2(&procargs2(pid)?).map(|(argv, _)| argv)
     }
 
-    pub fn environ(pid: i32) -> Option<Vec<String>> {
+    pub(crate) fn environ(pid: i32) -> Option<Vec<String>> {
         parse_procargs2(&procargs2(pid)?).map(|(_, env)| env)
     }
 
@@ -479,7 +479,7 @@ mod os {
     }
 
     /// Every process's pid and parent.
-    pub fn all_parents() -> Vec<(i32, i32)> {
+    pub(crate) fn all_parents() -> Vec<(i32, i32)> {
         let mut pids = vec![0 as libc::c_int; 8192];
         let size = (pids.len() * mem::size_of::<libc::c_int>()) as libc::c_int;
         // SAFETY: `pids` is valid for `size` bytes.

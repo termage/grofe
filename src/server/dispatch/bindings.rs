@@ -35,7 +35,7 @@ use crate::types::PaneId;
 use super::{parse_split, run_commands};
 
 /// `if-shell`.
-pub fn if_shell(state: &mut State, ctx: &ClientCtx, c: If) -> Result<String, String> {
+pub(crate) fn if_shell(state: &mut State, ctx: &ClientCtx, c: If) -> Result<String, String> {
     let (Some(condition), Some(then)) = (c.condition, c.then) else {
         return Err("command if-shell: too few arguments (need at least 2)".to_string());
     };

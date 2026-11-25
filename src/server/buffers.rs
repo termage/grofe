@@ -26,29 +26,29 @@ use crate::server::State;
 /// scrollback. A paste is bounded separately ([`MAX_PASTE_BYTES`]).
 pub const MAX_BUFFER_BYTES: usize = 32 << 20;
 /// The most every buffer's data and name may add up to.
-pub const MAX_TOTAL_BYTES: usize = 128 << 20;
+pub(crate) const MAX_TOTAL_BYTES: usize = 128 << 20;
 /// The most one paste may write, separators and escapes included: a whole
 /// buffer's worth. It goes to the pane as one queued chunk, which the
 /// pane's writer task writes 4 KiB per `write` (`pane::io::WRITE_CHUNK`),
 /// yielding between them, so a large paste never blocks the server.
-pub const MAX_PASTE_BYTES: usize = 32 << 20;
+pub(crate) const MAX_PASTE_BYTES: usize = 32 << 20;
 /// What each buffer costs beyond its name and data.
-pub const OVERHEAD: usize = 64;
+pub(crate) const OVERHEAD: usize = 64;
 /// The longest buffer name (tmux has no limit).
-pub const MAX_NAME_BYTES: usize = 1024;
+pub(crate) const MAX_NAME_BYTES: usize = 1024;
 /// tmux's `buffer-limit` default.
-pub const DEFAULT_LIMIT: usize = 50;
+pub(crate) const DEFAULT_LIMIT: usize = 50;
 /// How much of a buffer `buffer_sample` shows (tmux's `paste_make_sample`).
 const SAMPLE_WIDTH: usize = 200;
 
 /// tmux 3.7b's `list-buffers` template.
-pub const LIST_FORMAT: &str = "#{buffer_name}: #{buffer_size} bytes: \"#{buffer_sample}\"";
+pub(crate) const LIST_FORMAT: &str = "#{buffer_name}: #{buffer_size} bytes: \"#{buffer_sample}\"";
 
 const PASTE_START: &[u8] = b"\x1b[200~";
 const PASTE_END: &[u8] = b"\x1b[201~";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Buffer {
+pub(crate) struct Buffer {
     /// Unique for the server's life, kept through a rename (a chooser's
     /// line finds its buffer again by it).
     pub id: u64,
@@ -105,12 +105,12 @@ fn too_large(len: usize) -> String {
 
 impl Buffers {
     /// Newest first.
-    pub fn iter(&self) -> impl Iterator<Item = &Buffer> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Buffer> {
         self.list.iter()
     }
 
     /// The buffer called `name`; an empty name is none, as in tmux.
-    pub fn get(&self, name: &str) -> Option<&Buffer> {
+    pub(crate) fn get(&self, name: &str) -> Option<&Buffer> {
         if name.is_empty() {
             return None;
         }
@@ -118,23 +118,23 @@ impl Buffers {
     }
 
     /// The buffer with this [`Buffer::id`].
-    pub fn by_id(&self, id: u64) -> Option<&Buffer> {
+    pub(crate) fn by_id(&self, id: u64) -> Option<&Buffer> {
         self.list.iter().find(|b| b.id == id)
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
 
     /// The newest automatic buffer.
-    pub fn top(&self) -> Option<&Buffer> {
+    pub(crate) fn top(&self) -> Option<&Buffer> {
         self.list.iter().find(|b| b.automatic)
     }
 
     /// Adds a new automatic buffer, dropping the oldest automatic ones
     /// while `limit` (at least 1) or more exist, and while the total would
     /// pass [`MAX_TOTAL_BYTES`]. Empty data adds nothing.
-    pub fn add(&mut self, data: Vec<u8>, limit: usize) -> Result<(), String> {
+    pub(crate) fn add(&mut self, data: Vec<u8>, limit: usize) -> Result<(), String> {
         if data.is_empty() {
             return Ok(());
         }
@@ -169,7 +169,7 @@ impl Buffers {
 
     /// Sets the named buffer `name` to `data`, replacing any buffer of
     /// that name; it becomes the newest. Empty data changes nothing.
-    pub fn set(&mut self, name: &str, data: Vec<u8>) -> Result<(), String> {
+    pub(crate) fn set(&mut self, name: &str, data: Vec<u8>) -> Result<(), String> {
         if name.is_empty() {
             return Err("empty buffer name".to_string());
         }
@@ -199,7 +199,7 @@ impl Buffers {
     /// Renames `old` to `new`, replacing a buffer called `new`; the
     /// renamed buffer keeps its place and becomes a named one. tmux's
     /// `paste_rename` and its errors.
-    pub fn rename(&mut self, old: &str, new: &str) -> Result<(), String> {
+    pub(crate) fn rename(&mut self, old: &str, new: &str) -> Result<(), String> {
         if old.is_empty() {
             return Err("no buffer".to_string());
         }
@@ -227,7 +227,7 @@ impl Buffers {
     }
 
     /// Deletes the buffer called `name`; whether there was one.
-    pub fn delete(&mut self, name: &str) -> bool {
+    pub(crate) fn delete(&mut self, name: &str) -> bool {
         let Some(i) = self.list.iter().position(|b| b.name == name) else {
             return false;
         };
@@ -254,7 +254,7 @@ impl Buffers {
 }
 
 /// `buffer-limit`, at least 1.
-pub fn limit(state: &State) -> usize {
+pub(crate) fn limit(state: &State) -> usize {
     state
         .model
         .options
@@ -267,7 +267,7 @@ pub fn limit(state: &State) -> usize {
 /// One buffer's format variables (`list-buffers -F`), and nothing else:
 /// tmux 3.7b gives a buffer's format no session or pane (recorded:
 /// `#{session_name}` is empty there).
-pub struct BufferVars<'a>(pub &'a Buffer);
+pub(crate) struct BufferVars<'a>(pub &'a Buffer);
 
 impl FormatVars for BufferVars<'_> {
     fn get(&self, name: &str) -> Option<String> {
@@ -289,7 +289,7 @@ impl FormatVars for BufferVars<'_> {
 
 /// `buffer_*` in any other format: the newest automatic buffer's, as tmux
 /// adds it to every format; nothing when there is none.
-pub fn format_var(state: &State, name: &str) -> Option<String> {
+pub(crate) fn format_var(state: &State, name: &str) -> Option<String> {
     if !name.starts_with("buffer_") {
         return None;
     }
@@ -304,7 +304,7 @@ pub fn format_var(state: &State, name: &str) -> Option<String> {
 // ponytail: the cut lands on a character boundary at or before byte 200,
 // where tmux cuts at byte 200 exactly; they differ only when a character
 // of more than one byte straddles it.
-pub fn sample(data: &[u8]) -> String {
+pub(crate) fn sample(data: &[u8]) -> String {
     let mut out = escape(&data[..data.len().min(SAMPLE_WIDTH)]);
     if data.len() > SAMPLE_WIDTH || out.len() > SAMPLE_WIDTH {
         let mut cut = SAMPLE_WIDTH.min(out.len());
@@ -320,7 +320,7 @@ pub fn sample(data: &[u8]) -> String {
 /// `data` escaped as `vis(3)` with `VIS_OCTAL | VIS_CSTYLE | VIS_TAB |
 /// VIS_NL`, valid UTF-8 kept whole (tmux's `utf8_strvis`): what a
 /// sample, and each line of `choose-buffer`'s preview, shows.
-pub fn escape(data: &[u8]) -> String {
+pub(crate) fn escape(data: &[u8]) -> String {
     let mut out = String::new();
     for chunk in data.utf8_chunks() {
         let mut chars = chunk.valid().chars().peekable();
@@ -361,7 +361,7 @@ fn cstyle(c: char, next: Option<char>, out: &mut String) {
 /// bracketed paste early or send the pane any other control sequence.
 /// Without `sanitize` (`-S`, the caller's explicit choice, as in tmux) the
 /// lines go as they are. Errs past [`MAX_PASTE_BYTES`].
-pub fn paste_bytes(
+pub(crate) fn paste_bytes(
     data: &[u8],
     separator: &[u8],
     bracket: bool,

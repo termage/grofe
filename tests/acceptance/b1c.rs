@@ -4,9 +4,8 @@
 //! `MouseDown1Control8` zooms the pane and `MouseDown1Control9` asks to
 //! kill it. Reports are typed into the attach pty as SGR 1006.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::attach_mouse;
 
 use std::time::Duration;
 
@@ -14,7 +13,6 @@ use common::{TestServer, try_wait_until};
 
 use crate::harness::Harness;
 
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const WAIT: Duration = Duration::from_secs(10);
 
 fn start() -> TestServer {
@@ -50,12 +48,6 @@ fn start() -> TestServer {
     srv
 }
 
-fn attach(srv: &TestServer) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
-    a.wait_for_output(MOUSE_ON, 0);
-    a
-}
-
 fn click(a: &mut Harness, x: u16, y: u16) {
     a.send(format!("\x1b[<0;{x};{y}M"));
     a.send(format!("\x1b[<0;{x};{y}m"));
@@ -87,7 +79,7 @@ fn zoomed(srv: &TestServer) -> String {
 #[test]
 fn the_zoom_button_in_a_pane_title_zooms_the_pane() {
     let srv = start();
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     a.wait_for("[z]");
     assert_eq!(zoomed(&srv), "0");
     let x = col_of(&mut a, 0, "[z]");
@@ -107,7 +99,7 @@ fn the_zoom_button_in_a_pane_title_zooms_the_pane() {
 #[test]
 fn the_close_button_asks_before_killing_the_pane() {
     let srv = start();
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     a.wait_for("[x]");
     let x = col_of(&mut a, 0, "[x]");
     click(&mut a, x + 1, 1);
@@ -122,7 +114,7 @@ fn the_close_button_asks_before_killing_the_pane() {
 #[test]
 fn the_close_buttons_menu_kills_the_pane_it_was_clicked_on() {
     let srv = start();
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     a.wait_for("[x]");
     let x = col_of(&mut a, 0, "[x]");
     click(&mut a, x + 1, 1);

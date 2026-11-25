@@ -14,7 +14,7 @@ pub enum Owner {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Entry {
+pub(crate) struct Entry {
     pub value: String,
     /// Set with `--persist`: the snapshot includes it.
     pub persist: bool,
@@ -63,7 +63,7 @@ pub(super) const TMUX_COMMAND_ALIASES: &[&str] = &[
 impl Options {
     /// The built-in defaults, with the global `remain-on-exit` seeded from
     /// the server's start options.
-    pub fn new(remain_on_exit: bool) -> Options {
+    pub(crate) fn new(remain_on_exit: bool) -> Options {
         let mut global: BTreeMap<String, Entry> = BUILTINS
             .iter()
             .map(|b| {
@@ -95,7 +95,7 @@ impl Options {
     /// Makes `value` this server's built-in default for `name`: a value
     /// the config sets still wins, with this as its reload base, a runtime
     /// value is left alone, and `set -gu` restores it.
-    pub fn set_default(&mut self, name: &'static str, value: String) {
+    pub(crate) fn set_default(&mut self, name: &'static str, value: String) {
         if let Some(base) = self.config_base.get_mut(name) {
             *base = value.clone();
         } else if !self.runtime.contains(name)
@@ -112,7 +112,7 @@ impl Options {
         self.identity_defaults.insert(name, value);
     }
 
-    pub fn use_tmux_defaults(&mut self, editor: Option<&str>) {
+    pub(crate) fn use_tmux_defaults(&mut self, editor: Option<&str>) {
         let keys = match editor.and_then(|e| e.rsplit('/').next()) {
             Some(e) if e.contains("vi") => "vi",
             _ => "emacs",
@@ -149,7 +149,7 @@ impl Options {
 
     /// Whether any value, at any owner, scalar or list element, holds
     /// `needle`.
-    pub fn mentions(&self, needle: &str) -> bool {
+    pub(crate) fn mentions(&self, needle: &str) -> bool {
         let scalars = self
             .values
             .values()
@@ -176,7 +176,7 @@ impl Options {
     }
 
     /// The text sent for `name` at `owner`, while its value is `value`.
-    pub fn shown(&self, owner: Owner, name: &str, value: &str) -> Option<&str> {
+    pub(crate) fn shown(&self, owner: Owner, name: &str, value: &str) -> Option<&str> {
         self.shown
             .get(&(owner, name.to_string()))
             .filter(|(v, _)| v == value)
@@ -192,12 +192,12 @@ impl Options {
 
     /// Whether the user set global option `name`: the config sets it, or a
     /// runtime `set -g` (or `source-file`) did, even to its default value.
-    pub fn set_globally(&self, name: &str) -> bool {
+    pub(crate) fn set_globally(&self, name: &str) -> bool {
         self.config_base.contains_key(name) || self.runtime.contains(name)
     }
 
     /// Whether a runtime `set -g` holds global option `name`.
-    pub fn is_runtime(&self, name: &str) -> bool {
+    pub(crate) fn is_runtime(&self, name: &str) -> bool {
         self.runtime.contains(name)
     }
 
@@ -214,7 +214,7 @@ impl Options {
     /// config sets none: the mark goes and the default becomes the option's
     /// config base. The value stays until the reload, which announces only a
     /// real change. Whether it was marked.
-    pub fn release_runtime(&mut self, name: &str) -> bool {
+    pub(crate) fn release_runtime(&mut self, name: &str) -> bool {
         if !self.runtime.remove(name) {
             return false;
         }
@@ -227,7 +227,7 @@ impl Options {
 
     /// Undoes [`Self::release_runtime`], when the reload that was to hand
     /// the option to the config failed.
-    pub fn restore_runtime(&mut self, name: &str) {
+    pub(crate) fn restore_runtime(&mut self, name: &str) {
         self.mark_runtime(name);
     }
 
@@ -237,7 +237,7 @@ impl Options {
     /// marks the option for the snapshot either way, and the mark is
     /// sticky (spec §6): a set without it keeps it, and only
     /// [`Options::clear_persist`] (`--no-persist`) or an unset clears it.
-    pub fn set(
+    pub(crate) fn set(
         &mut self,
         owner: Owner,
         name: &str,
@@ -260,7 +260,7 @@ impl Options {
 
     /// Removes `name` at `owner`; a built-in's global value goes back to
     /// its default instead. Returns whether anything changed.
-    pub fn unset(&mut self, owner: Owner, name: &str) -> Result<bool, String> {
+    pub(crate) fn unset(&mut self, owner: Owner, name: &str) -> Result<bool, String> {
         check_name(name)?;
         if owner == Owner::Global
             && let Some(b) = builtin(name)
@@ -281,24 +281,24 @@ impl Options {
     }
 
     /// `--no-persist`: drops `name`'s sticky `--persist` mark at `owner`.
-    pub fn clear_persist(&mut self, owner: Owner, name: &str) {
+    pub(crate) fn clear_persist(&mut self, owner: Owner, name: &str) {
         if let Some(e) = self.values.get_mut(&owner).and_then(|at| at.get_mut(name)) {
             e.persist = false;
         }
     }
 
     /// The entry set at exactly `owner`.
-    pub fn get(&self, owner: Owner, name: &str) -> Option<&Entry> {
+    pub(crate) fn get(&self, owner: Owner, name: &str) -> Option<&Entry> {
         self.values.get(&owner)?.get(name)
     }
 
     /// Every entry set at exactly `owner`, by name.
-    pub fn at(&self, owner: Owner) -> impl Iterator<Item = (&String, &Entry)> {
+    pub(crate) fn at(&self, owner: Owner) -> impl Iterator<Item = (&String, &Entry)> {
         self.values.get(&owner).into_iter().flatten()
     }
 
     /// The first value found walking `chain`, then global.
-    pub fn lookup(&self, name: &str, chain: &[Owner]) -> Option<&str> {
+    pub(crate) fn lookup(&self, name: &str, chain: &[Owner]) -> Option<&str> {
         chain
             .iter()
             .chain([&Owner::GlobalWindow, &Owner::Global, &Owner::Server])
@@ -309,7 +309,7 @@ impl Options {
     /// Drops values set on sessions, windows or panes that no longer exist.
     /// Runtime ids are never reused within a server, so stale values never
     /// apply to anything; this only frees them.
-    pub fn retain_live(&mut self, model: &Model) {
+    pub(crate) fn retain_live(&mut self, model: &Model) {
         self.values.retain(|owner, _| match owner {
             Owner::Global | Owner::Server | Owner::GlobalWindow => true,
             Owner::Session(id) => model.sessions.contains_key(id),
@@ -556,7 +556,7 @@ pub(super) fn owner(
 
 /// The owners a lookup for `pane` walks before global: pane, window,
 /// session. Empty if the pane is gone.
-pub fn chain(model: &Model, pane: PaneId) -> Vec<Owner> {
+pub(crate) fn chain(model: &Model, pane: PaneId) -> Vec<Owner> {
     let Some(p) = model.panes.get(&pane) else {
         return Vec::new();
     };
@@ -570,7 +570,7 @@ pub fn chain(model: &Model, pane: PaneId) -> Vec<Owner> {
 /// Runs an option or format command routed here by `dispatch::route`:
 /// `set-option`, `show-options`, `display-message`, and `list-sessions`,
 /// `list-windows` or `list-panes` given `-F`.
-pub fn run(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, String> {
+pub(crate) fn run(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, String> {
     let model = &mut state.model;
     let mut options = std::mem::take(&mut model.options);
     options.retain_live(model);

@@ -43,7 +43,7 @@ pub(crate) fn client_named(state: &State, name: &str) -> Option<ClientId> {
 /// `attach-session` run as a command: only an attached client can (its
 /// bindings, for example); it switches that client to the target session.
 /// The CLI's `attach` is the attach client itself (spec §4.6).
-pub fn attach_session(
+pub(crate) fn attach_session(
     state: &mut State,
     ctx: &ClientCtx,
     c: AttachSession,
@@ -78,7 +78,7 @@ pub fn attach_session(
 /// `detach-client`: `-s` detaches every client on a session, `-t` one
 /// client by name, neither the current client; `-a` detaches every client
 /// but that one instead.
-pub fn detach_client(
+pub(crate) fn detach_client(
     state: &mut State,
     ctx: &ClientCtx,
     c: DetachClient,

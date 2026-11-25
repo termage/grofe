@@ -11,9 +11,7 @@
 //! The server is started through a `tmux` symlink on a private `-S`
 //! socket, in the harness's own directories.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::path::PathBuf;
 use std::process::Command;

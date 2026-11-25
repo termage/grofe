@@ -3,9 +3,8 @@
 //! pane's cwd; bracketed paste and focus reports reach a pane that asked
 //! for them; the bell sets `window_bell_flag` as tmux does (R13).
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{shell_quote, start};
 
 use std::fs;
 use std::path::Path;
@@ -17,25 +16,6 @@ use common::{TestServer, try_wait_until};
 use crate::harness::{Harness, on_path, require_tool};
 
 const WAIT: Duration = Duration::from_secs(10);
-
-/// A server with one session `main` running `cmd`, sized for an 80x24
-/// client with a status line.
-fn start(cmd: &str) -> TestServer {
-    let srv = TestServer::start();
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        cmd,
-    ])
-    .expect("new-session");
-    srv
-}
 
 /// A client attached to `main`, past its first full redraw.
 fn attach(srv: &TestServer) -> Harness {
@@ -62,10 +42,6 @@ fn wait_display(srv: &TestServer, target: &str, format: &str, want: &str) {
 
 fn count(hay: &[u8], needle: &[u8]) -> usize {
     hay.windows(needle.len()).filter(|w| *w == needle).count()
-}
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 // ---- OSC 52 ----

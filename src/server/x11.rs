@@ -585,7 +585,7 @@ const NAMES: &[(&str, u32)] = &[
 
 /// The colour tmux gives `name`: `grey`/`gray` with an optional level from 0
 /// to 100, or an X11 name, case folded.
-pub fn by_name(name: &str) -> Option<Rgb> {
+pub(crate) fn by_name(name: &str) -> Option<Rgb> {
     let lower = name.to_ascii_lowercase();
     if let Some(rest) = lower
         .strip_prefix("grey")

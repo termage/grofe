@@ -6,7 +6,7 @@ use base64::engine::general_purpose::STANDARD;
 use super::{ReportState, valid_kind};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Osc7501 {
+pub(crate) enum Osc7501 {
     Query,
     Report {
         state: ReportState,

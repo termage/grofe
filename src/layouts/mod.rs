@@ -4,8 +4,8 @@
 //! the server learns no new verb and the tmux identity is untouched. The
 //! binary supplies the [`Server`]; tests can supply a fake.
 
-pub mod save;
-pub mod schema;
+pub(crate) mod save;
+pub(crate) mod schema;
 mod up;
 
 use std::fs;
@@ -16,7 +16,7 @@ use schema::Plan;
 use crate::util::quote;
 
 use up::populate;
-pub use up::{UpOptions, UpReport, up, watch};
+pub(crate) use up::{UpOptions, UpReport, up, watch};
 
 /// What the layout commands need from the running program and server.
 pub trait Server {
@@ -86,7 +86,7 @@ impl Dirs {
     }
 
     /// The file a layout name names: inside the layouts directory only.
-    pub fn resolve_name(&self, arg: &str) -> Result<PathBuf, String> {
+    pub(crate) fn resolve_name(&self, arg: &str) -> Result<PathBuf, String> {
         let name = arg.strip_suffix(".toml").unwrap_or(arg);
         if !valid_name(name) {
             return Err(format!("invalid layout name: {arg:?}"));
@@ -96,7 +96,7 @@ impl Dirs {
 }
 
 /// `[A-Za-z0-9][A-Za-z0-9._-]*` without `..`: nothing that leaves a directory.
-pub fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
         && name
@@ -112,7 +112,7 @@ pub fn load(path: &Path, dirs: &Dirs) -> Result<Plan, String> {
 }
 
 /// The file of layout `name` in the layouts directory, if there is one.
-pub fn find(dirs: &Dirs, name: &str) -> Option<PathBuf> {
+pub(crate) fn find(dirs: &Dirs, name: &str) -> Option<PathBuf> {
     dirs.resolve_name(name).ok().filter(|p| p.is_file())
 }
 
@@ -279,14 +279,14 @@ fn split_flags(
 }
 
 /// One file in the layouts directory.
-pub struct Entry {
+pub(crate) struct Entry {
     pub name: String,
     pub file: PathBuf,
     pub sessions: Result<Vec<String>, String>,
 }
 
 /// Every `*.toml` in the layouts directory, by name; none if it is missing.
-pub fn entries(dirs: &Dirs) -> Result<Vec<Entry>, String> {
+pub(crate) fn entries(dirs: &Dirs) -> Result<Vec<Entry>, String> {
     let dir = dirs.layouts_dir()?;
     let read = match fs::read_dir(dir) {
         Ok(r) => r,

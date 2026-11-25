@@ -3,7 +3,7 @@
 const MAX_CHARS: usize = 200;
 
 /// Strip control characters, defuse format sequences, cut to 200 chars.
-pub fn sanitize(s: &str) -> String {
+pub(crate) fn sanitize(s: &str) -> String {
     let stripped: String = s.chars().filter(|c| !c.is_control()).collect();
     double_hashes_before_bracket(&stripped.replace("#(", "_("))
         .chars()
@@ -32,14 +32,14 @@ fn double_hashes_before_bracket(s: &str) -> String {
 }
 
 /// A kind name: `[A-Za-z0-9._-]{1,32}`.
-pub fn valid_kind(s: &str) -> bool {
+pub(crate) fn valid_kind(s: &str) -> bool {
     (1..=32).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 /// A session id: `[A-Za-z0-9._:-]{1,128}`.
-pub fn valid_session_id(s: &str) -> bool {
+pub(crate) fn valid_session_id(s: &str) -> bool {
     (1..=128).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))

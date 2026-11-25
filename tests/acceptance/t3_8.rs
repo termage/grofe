@@ -9,9 +9,8 @@
 //! The scripted fake program replays `tests/fixtures/graphics/`; the
 //! `kitten` case runs only where `kitten` is installed.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{new_session, shell_quote, wait_flag};
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -37,42 +36,11 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
-/// Session `main` on `srv`, running `script` under `sh`, sized for an
-/// 80x24 client with a status line.
-fn new_session(srv: &TestServer, script: &str) {
-    let cmd = format!("sh -c {}", shell_quote(script));
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        &cmd,
-    ])
-    .expect("new-session");
-}
-
 /// A client attached to `main` with `env`, past its first full redraw.
 fn attach(srv: &TestServer, env: &[(&str, &str)]) -> Harness {
     let mut a = Harness::spawn_attach_with_env(srv.command(), "main", env, 80, 24);
     a.wait_for_output(b"\x1b[2J", 0);
     a
-}
-
-/// Shell text that waits until `flag` exists.
-fn wait_flag(flag: &Path) -> String {
-    format!(
-        "while [ ! -e {} ] && [ -d {} ]; do sleep 0.05; done",
-        shell_quote(&flag.to_string_lossy()),
-        shell_quote(&flag.parent().unwrap_or(flag).to_string_lossy())
-    )
 }
 
 fn touch(path: &Path) {

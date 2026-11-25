@@ -1,9 +1,7 @@
 //! `grofe layout up` attaching, switching and picking through an attached
 //! client (docs/layouts.md).
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::fs;
 use std::time::Duration;

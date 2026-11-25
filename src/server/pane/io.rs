@@ -49,7 +49,7 @@ pub(crate) static OUTPUT_TAP: AtomicBool = AtomicBool::new(false);
 /// by the reader after unlocking.
 pub(crate) type EventBuf = Arc<Mutex<Vec<Event>>>;
 
-pub struct Listener(pub(crate) EventBuf);
+pub(crate) struct Listener(pub(crate) EventBuf);
 
 impl EventListener for Listener {
     fn send_event(&self, event: Event) {

@@ -7,9 +7,8 @@
 //! reports the pressed key's binding; an alias becomes a command. A menu
 //! belongs to the client that opened it (D15).
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{attach_status, last_row, start};
 
 use std::fs;
 use std::process::Stdio;
@@ -20,37 +19,6 @@ use common::{TestServer, try_wait_until};
 use crate::harness::Harness;
 
 const WAIT: Duration = Duration::from_secs(10);
-
-/// A server with one session `main` running `cat`, sized for an 80x24
-/// client with a status line.
-fn start() -> TestServer {
-    let srv = TestServer::start();
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        "cat",
-    ])
-    .expect("new-session");
-    srv
-}
-
-fn attach(srv: &TestServer) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
-    a.wait_until("the status row", WAIT, |text| {
-        last_row(text).starts_with("[main]")
-    });
-    a
-}
-
-fn last_row(text: &str) -> &str {
-    text.lines().last().unwrap_or_default()
-}
 
 fn wait_last_row(a: &mut Harness, want: &str) {
     a.wait_until(&format!("last row {want:?}"), WAIT, |text| {
@@ -86,7 +54,7 @@ fn bind(srv: &TestServer, args: &[&str]) {
 /// Case 1: an item's key runs its command and closes the menu.
 #[test]
 fn a_menu_items_key_runs_its_command() {
-    let srv = start();
+    let srv = start("cat");
     bind(
         &srv,
         &[
@@ -109,7 +77,7 @@ fn a_menu_items_key_runs_its_command() {
             "rename-window three",
         ],
     );
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02m");
     a.wait_for("┌─Pick");
     a.wait_for("│ Two   (b) │");
@@ -121,7 +89,7 @@ fn a_menu_items_key_runs_its_command() {
 /// Case 2: an item opens a nested menu; one Escape leaves neither.
 #[test]
 fn a_nested_menu_opens_from_an_item_and_escape_closes_both() {
-    let srv = start();
+    let srv = start("cat");
     bind(
         &srv,
         &[
@@ -138,7 +106,7 @@ fn a_nested_menu_opens_from_an_item_and_escape_closes_both() {
             "display-menu -T Inner -x 30 -y 12 Deep d 'rename-window deep'",
         ],
     );
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     let name = window_name(&srv);
     a.send("\x02m");
     a.wait_for("┌─Outer");
@@ -161,8 +129,8 @@ fn a_nested_menu_opens_from_an_item_and_escape_closes_both() {
 /// does.
 #[test]
 fn display_menu_from_the_cli_waits_for_the_menu() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     let mut cli = srv.command();
     cli.args([
         "display-menu",
@@ -191,14 +159,14 @@ fn display_menu_from_the_cli_waits_for_the_menu() {
 /// closes the overlay.
 #[test]
 fn display_panes_then_a_digit_selects_that_pane() {
-    let srv = start();
+    let srv = start("cat");
     srv.cmd(&["split-window", "-h", "-t", "main", "cat"])
         .expect("split");
     srv.cmd(&["split-window", "-v", "-t", "main", "cat"])
         .expect("split");
     srv.cmd(&["select-pane", "-t", "%0"]).expect("select");
     bind(&srv, &["q", "display-panes"]);
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02q");
     // Each pane's size shows at its top right while the overlay is up.
     a.wait_for("40x23");
@@ -218,11 +186,11 @@ fn display_panes_then_a_digit_selects_that_pane() {
 /// second), and a key that names no pane closes them too.
 #[test]
 fn display_panes_closes_after_its_time() {
-    let srv = start();
+    let srv = start("cat");
     srv.cmd(&["split-window", "-h", "-t", "main", "cat"])
         .expect("split");
     bind(&srv, &["q", "display-panes"]);
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02q");
     a.wait_for("40x23");
     a.wait_until("the labels gone", Duration::from_secs(3), |text| {
@@ -237,11 +205,11 @@ fn display_panes_closes_after_its_time() {
 /// Case 4: `confirm-before` runs its command on `y` and on nothing else.
 #[test]
 fn confirm_before_runs_its_command_only_on_y() {
-    let srv = start();
+    let srv = start("cat");
     srv.cmd(&["split-window", "-t", "main", "cat"])
         .expect("split");
     bind(&srv, &["x", "confirm-before", "-p", "kill?", "kill-pane"]);
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02x");
     wait_last_row(&mut a, "kill?");
     a.send("n");
@@ -274,11 +242,11 @@ fn confirm_before_runs_its_command_only_on_y() {
 /// the alias meant when the prompt opened, as tmux parses it then.
 #[test]
 fn confirm_before_names_and_keeps_the_command_its_alias_stood_for() {
-    let srv = start();
+    let srv = start("cat");
     srv.cmd(&["set", "-ag", "command-alias", "myren=rename-window"])
         .expect("alias");
     bind(&srv, &["X", "confirm-before", "myren confirmed"]);
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02X");
     wait_last_row(&mut a, "Confirm 'rename-window'? (y/n)");
     srv.cmd(&["set", "-g", "command-alias", "myren=rename-session"])
@@ -292,12 +260,12 @@ fn confirm_before_names_and_keeps_the_command_its_alias_stood_for() {
 /// "#{session_name}"` stores the format itself.
 #[test]
 fn a_native_confirm_before_keeps_its_formats_literal() {
-    let srv = start();
+    let srv = start("cat");
     bind(
         &srv,
         &["X", "confirm-before", "set -g @x \"#{session_name}\""],
     );
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02X");
     wait_last_row(&mut a, "Confirm 'set-option'? (y/n)");
     a.send("y");
@@ -311,7 +279,7 @@ fn a_native_confirm_before_keeps_its_formats_literal() {
 /// Case 5: a rename prompt starts with the old name.
 #[test]
 fn a_rename_prompt_shows_the_old_name_prefilled() {
-    let srv = start();
+    let srv = start("cat");
     srv.cmd(&["rename-window", "-t", "main", "old"])
         .expect("rename");
     bind(
@@ -326,7 +294,7 @@ fn a_rename_prompt_shows_the_old_name_prefilled() {
             "rename-window %%",
         ],
     );
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02r");
     wait_last_row(&mut a, "New name: old");
     a.send("er\r");
@@ -337,7 +305,7 @@ fn a_rename_prompt_shows_the_old_name_prefilled() {
 /// tmux's stock `prefix /` does; `-1` answers with the key typed.
 #[test]
 fn a_one_key_prompt_reports_the_pressed_keys_binding() {
-    let srv = start();
+    let srv = start("cat");
     bind(&srv, &["-N", "Kill the active pane", "x", "kill-pane"]);
     bind(
         &srv,
@@ -350,7 +318,7 @@ fn a_one_key_prompt_reports_the_pressed_keys_binding() {
             "list-keys -1N \"%%\"",
         ],
     );
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02/");
     wait_last_row(&mut a, "key");
     a.send("x");
@@ -378,7 +346,7 @@ fn a_one_key_prompt_reports_the_pressed_keys_binding() {
 /// runtime does too; the rest of the arguments follow the alias's own.
 #[test]
 fn an_alias_defined_in_config_becomes_a_command() {
-    let srv = start();
+    let srv = start("cat");
     let dir = srv.config_home.join("grofe");
     fs::create_dir_all(&dir).expect("config dir");
     fs::write(
@@ -403,7 +371,7 @@ fn an_alias_defined_in_config_becomes_a_command() {
     bind(&srv, &["a", "myb"]);
     srv.cmd(&["rename-window", "-t", "main", "x"])
         .expect("rename");
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02a");
     wait_window_name(&srv, "runtime");
 }
@@ -414,7 +382,7 @@ fn an_alias_defined_in_config_becomes_a_command() {
 /// `set-option -g @v -g @v one`), as tmux expands a parsed command once.
 #[test]
 fn config_hooks_and_load_commands_expand_an_alias_once() {
-    let srv = start();
+    let srv = start("cat");
     let dir = srv.config_home.join("grofe");
     fs::create_dir_all(&dir).expect("config dir");
     fs::write(
@@ -444,7 +412,7 @@ fn config_hooks_and_load_commands_expand_an_alias_once() {
 /// still reach the pane.
 #[test]
 fn a_menu_opened_by_one_client_is_invisible_to_another() {
-    let srv = start();
+    let srv = start("cat");
     bind(
         &srv,
         &[
@@ -461,8 +429,8 @@ fn a_menu_opened_by_one_client_is_invisible_to_another() {
             "rename-window one",
         ],
     );
-    let mut a = attach(&srv);
-    let mut b = attach(&srv);
+    let mut a = attach_status(&srv);
+    let mut b = attach_status(&srv);
     a.send("\x02m");
     a.wait_for("┌─Mine");
     b.send("typed-in-b\r");
@@ -479,10 +447,10 @@ fn a_menu_opened_by_one_client_is_invisible_to_another() {
 /// `-p 'ok #W?'`), and a cancelled confirmation exits 1 from the CLI.
 #[test]
 fn confirm_before_expands_its_prompt_and_a_cancel_exits_1() {
-    let srv = start();
+    let srv = start("cat");
     srv.cmd(&["rename-window", "-t", "main", "start"])
         .expect("rename");
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     let confirm = |a: &mut Harness, key: &str| {
         let mut cli = srv.command();
         cli.args(["confirm-before", "-p", "ok #W?", "set -g @ok yes"])
@@ -513,7 +481,7 @@ fn confirm_before_expands_its_prompt_and_a_cancel_exits_1() {
 /// alias meant when it was made, as tmux expands it then.
 #[test]
 fn a_sequence_alias_runs_both_commands_everywhere() {
-    let srv = start();
+    let srv = start("cat");
     let set_alias = |value: &str| {
         srv.cmd(&["set", "-g", "command-alias[0]", value])
             .expect("set alias");
@@ -555,7 +523,7 @@ fn a_sequence_alias_runs_both_commands_everywhere() {
         ],
     );
     bind(&srv, &["p", "command-prompt", "-p", "go", "two"]);
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
 
     reset();
     // The binding was made with the alias: unsetting it changes nothing.
@@ -581,7 +549,7 @@ fn a_sequence_alias_runs_both_commands_everywhere() {
 /// the menu, as tmux's overlay takes them first.
 #[test]
 fn a_menu_takes_the_keys_over_an_open_prompt() {
-    let srv = start();
+    let srv = start("cat");
     bind(
         &srv,
         &["P", "command-prompt", "rename-window 'from prompt'"],
@@ -600,7 +568,7 @@ fn a_menu_takes_the_keys_over_an_open_prompt() {
             "rename-window item",
         ],
     );
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02P");
     wait_last_row(&mut a, "(rename-window)");
     let mut cli = srv.command();
@@ -630,8 +598,8 @@ fn a_menu_takes_the_keys_over_an_open_prompt() {
 /// does nothing and returns at once; keys go on to the popup.
 #[test]
 fn a_menu_over_an_open_popup_does_nothing() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     let mut popup = srv.command();
     popup
         .args(["display-popup", "-T", "pop", "-E", "cat"])

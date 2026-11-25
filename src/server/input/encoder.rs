@@ -2,7 +2,7 @@ use super::*;
 
 /// The bytes a terminal would send for `key` to a program with `modes`.
 /// Empty when the key has no encoding there.
-pub fn encode(key: &Key, modes: &InputModes) -> Vec<u8> {
+pub(crate) fn encode(key: &Key, modes: &InputModes) -> Vec<u8> {
     let flags = modes.kitty_flags;
     if flags & (1 | 8) != 0 {
         kitty_encode(key, modes, flags)
@@ -246,7 +246,7 @@ pub(super) fn kitty_encode(key: &Key, modes: &InputModes, flags: u8) -> Vec<u8> 
 /// A piece of paste content for a pane: with the bracketed-paste start
 /// marker before the first piece and the end marker after the last when the
 /// pane asked for mode 2004, as is otherwise.
-pub fn encode_paste(data: &[u8], start: bool, end: bool, modes: &InputModes) -> Vec<u8> {
+pub(crate) fn encode_paste(data: &[u8], start: bool, end: bool, modes: &InputModes) -> Vec<u8> {
     let bracket = modes.bracketed_paste;
     let open: &[u8] = if bracket && start { PASTE_START } else { b"" };
     let close: &[u8] = if bracket && end { PASTE_END } else { b"" };

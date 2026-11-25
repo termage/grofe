@@ -81,7 +81,7 @@ impl Indicators {
 
 /// One tiled pane's content box in window coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PaneBox {
+pub(crate) struct PaneBox {
     pub id: PaneId,
     pub x: i32,
     pub y: i32,
@@ -94,7 +94,7 @@ pub struct PaneBox {
 
 /// A border in relation to a pane (tmux's `screen_redraw_border_type`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Side {
+pub(crate) enum Side {
     Outside,
     Inside,
     Left,
@@ -104,23 +104,23 @@ pub enum Side {
 }
 
 // tmux's CELL_* border cell types.
-pub const CELL_INSIDE: u8 = 0;
-pub const CELL_TOPBOTTOM: u8 = 1;
-pub const CELL_LEFTRIGHT: u8 = 2;
-pub const CELL_TOPLEFT: u8 = 3;
-pub const CELL_TOPRIGHT: u8 = 4;
-pub const CELL_BOTTOMLEFT: u8 = 5;
-pub const CELL_BOTTOMRIGHT: u8 = 6;
-pub const CELL_TOPJOIN: u8 = 7;
-pub const CELL_BOTTOMJOIN: u8 = 8;
-pub const CELL_LEFTJOIN: u8 = 9;
-pub const CELL_RIGHTJOIN: u8 = 10;
-pub const CELL_JOIN: u8 = 11;
-pub const CELL_OUTSIDE: u8 = 12;
+pub(crate) const CELL_INSIDE: u8 = 0;
+pub(crate) const CELL_TOPBOTTOM: u8 = 1;
+pub(crate) const CELL_LEFTRIGHT: u8 = 2;
+pub(crate) const CELL_TOPLEFT: u8 = 3;
+pub(crate) const CELL_TOPRIGHT: u8 = 4;
+pub(crate) const CELL_BOTTOMLEFT: u8 = 5;
+pub(crate) const CELL_BOTTOMRIGHT: u8 = 6;
+pub(crate) const CELL_TOPJOIN: u8 = 7;
+pub(crate) const CELL_BOTTOMJOIN: u8 = 8;
+pub(crate) const CELL_LEFTJOIN: u8 = 9;
+pub(crate) const CELL_RIGHTJOIN: u8 = 10;
+pub(crate) const CELL_JOIN: u8 = 11;
+pub(crate) const CELL_OUTSIDE: u8 = 12;
 
 /// The glyph for border cell type `cell` in `lines`; `pane` is the pane
 /// the cell belongs to (`number` shows its index).
-pub fn glyph(lines: PaneLines, cell: u8, pane: Option<&PaneBox>) -> char {
+pub(crate) fn glyph(lines: PaneLines, cell: u8, pane: Option<&PaneBox>) -> char {
     const SINGLE: [char; 13] = [
         ' ', '│', '─', '┌', '┐', '└', '┘', '┬', '┴', '├', '┤', '┼', '·',
     ];
@@ -153,7 +153,7 @@ pub fn glyph(lines: PaneLines, cell: u8, pane: Option<&PaneBox>) -> char {
 /// The glyph for border cell type `cell` on a pane's own frame (spec
 /// 2026-11-05-frames.md): as [`glyph`], but `rounded` rounds the corners.
 /// A frame only has corners and edges, never a junction.
-pub fn frame_glyph(lines: PaneLines, cell: u8, pane: Option<&PaneBox>) -> char {
+pub(crate) fn frame_glyph(lines: PaneLines, cell: u8, pane: Option<&PaneBox>) -> char {
     match (lines, cell) {
         (PaneLines::Rounded, CELL_TOPLEFT) => '╭',
         (PaneLines::Rounded, CELL_TOPRIGHT) => '╮',
@@ -164,7 +164,7 @@ pub fn frame_glyph(lines: PaneLines, cell: u8, pane: Option<&PaneBox>) -> char {
 }
 
 /// The window's panes and the options that decide how their borders look.
-pub struct Geometry<'a> {
+pub(crate) struct Geometry<'a> {
     pub cols: i32,
     pub rows: i32,
     pub status: PaneStatus,
@@ -180,7 +180,7 @@ pub struct Geometry<'a> {
 }
 
 impl<'a> Geometry<'a> {
-    pub fn new(
+    pub(crate) fn new(
         (cols, rows): (i32, i32),
         status: PaneStatus,
         indicators: Indicators,
@@ -210,7 +210,7 @@ impl<'a> Geometry<'a> {
     }
 
     /// tmux's `screen_redraw_pane_border`.
-    pub fn pane_border(&self, wp: &PaneBox, px: i32, py: i32) -> Side {
+    pub(crate) fn pane_border(&self, wp: &PaneBox, px: i32, py: i32) -> Side {
         let (ex, ey) = (wp.x + wp.w, wp.y + wp.h);
         if px >= wp.x && px < ex && py >= wp.y && py < ey {
             return Side::Inside;
@@ -301,7 +301,7 @@ impl<'a> Geometry<'a> {
 
     /// tmux's `screen_redraw_type_of_cell`: the border cell type from
     /// which of the four neighbours are border too.
-    pub fn type_of_cell(&self, px: i32, py: i32) -> u8 {
+    pub(crate) fn type_of_cell(&self, px: i32, py: i32) -> u8 {
         let sy = self.last_row();
         if px > self.cols || py > sy {
             return CELL_OUTSIDE;
@@ -357,13 +357,13 @@ impl<'a> Geometry<'a> {
 
     /// The width of pane `wp`'s title: nothing under 4 columns, else the
     /// pane's width less 2, cut to the window.
-    pub fn title_width(&self, wp: &PaneBox) -> i32 {
+    pub(crate) fn title_width(&self, wp: &PaneBox) -> i32 {
         let width = if wp.w < 4 { 0 } else { wp.w - 2 };
         width.min((self.cols - (wp.x + 2)).max(0))
     }
 
     /// The window row `wp`'s title is on.
-    pub fn title_row(&self, wp: &PaneBox) -> i32 {
+    pub(crate) fn title_row(&self, wp: &PaneBox) -> i32 {
         if self.status == PaneStatus::Top {
             wp.y - 1
         } else {
@@ -373,7 +373,7 @@ impl<'a> Geometry<'a> {
 
     /// tmux's `screen_redraw_check_cell`: the cell's type and the pane it
     /// belongs to. `CELL_INSIDE` is a pane's content, or its title.
-    pub fn check_cell(&self, px: i32, py: i32) -> (u8, Option<usize>) {
+    pub(crate) fn check_cell(&self, px: i32, py: i32) -> (u8, Option<usize>) {
         if px > self.cols || py > self.rows {
             return (CELL_OUTSIDE, None);
         }
@@ -421,14 +421,14 @@ impl<'a> Geometry<'a> {
 
     /// Whether the cell is on the border of pane `wp`
     /// (`screen_redraw_check_is`).
-    pub fn is_border_of(&self, wp: &PaneBox, px: i32, py: i32) -> bool {
+    pub(crate) fn is_border_of(&self, wp: &PaneBox, px: i32, py: i32) -> bool {
         !matches!(self.pane_border(wp, px, py), Side::Inside | Side::Outside)
     }
 
     /// The arrow `pane-border-indicators` puts on the cell, if any
     /// (`screen_redraw_draw_border_arrows`); `owner` is the pane the
     /// cell belongs to.
-    pub fn arrow(&self, x: i32, y: i32, cell: u8, owner: &PaneBox) -> Option<char> {
+    pub(crate) fn arrow(&self, x: i32, y: i32, cell: u8, owner: &PaneBox) -> Option<char> {
         let active = &self.panes[self.active?];
         if x != owner.x + 1 && y != owner.y + 1 {
             return None;

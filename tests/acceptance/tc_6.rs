@@ -9,9 +9,7 @@
 //! zombie; the fzf-shaped `new-pane` lands where tmux puts its floating
 //! pane, with its size and environment.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::fs;
 use std::path::{Path, PathBuf};

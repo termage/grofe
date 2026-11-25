@@ -47,11 +47,11 @@ use crate::types::{ClientId, PaneId, SessionId, WindowId};
 /// Events one subscriber's queue holds before events are dropped.
 // ponytail: 1024 events per subscriber; with `pane-output` (up to 16 KiB
 // of output per event) that bounds a stuck subscriber at ~22 MiB.
-pub const QUEUE: usize = 1024;
+pub(crate) const QUEUE: usize = 1024;
 
 /// Every event name `subscribe` accepts literally. `events-dropped` is a
 /// notice every subscriber can receive, not a subscription.
-pub const NAMES: &[&str] = &[
+pub(crate) const NAMES: &[&str] = &[
     "pane-exited",
     "pane-died",
     "pane-output",
@@ -92,7 +92,7 @@ const NAMED_ONLY: &[&str] = &[
 
 /// What a `subscribe -t` is limited to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scope {
+pub(crate) enum Scope {
     Pane(PaneId),
     Window(WindowId),
     Session(SessionId),
@@ -240,7 +240,7 @@ impl Events {
     /// Sets the subscription of the connection that owns `tx`, replacing
     /// its earlier one. An empty `names` means every event but
     /// `pane-output`.
-    pub fn subscribe(
+    pub(crate) fn subscribe(
         &mut self,
         names: Vec<String>,
         scope: Option<Scope>,
@@ -273,7 +273,7 @@ impl Events {
 
     /// Whether some subscription names event `name` (a [`NAMED_ONLY`] one):
     /// what makes `open-url` deliverable and the poller worth running.
-    pub fn named(&self, name: &str) -> bool {
+    pub(crate) fn named(&self, name: &str) -> bool {
         self.subscribers
             .iter()
             .any(|s| !s.tx.is_closed() && s.filters.iter().any(|f| f == name))
@@ -281,7 +281,7 @@ impl Events {
 
     /// Client `client` is attached to `session` now: its `subscribe -c`
     /// subscriptions follow it.
-    pub fn client_moved(&mut self, client: ClientId, session: SessionId) {
+    pub(crate) fn client_moved(&mut self, client: ClientId, session: SessionId) {
         for s in &mut self.subscribers {
             if let Some(Scope::Client { client: c, .. }) = s.scope
                 && c == client
@@ -296,7 +296,7 @@ impl Events {
     /// scope it lies in. A `subscribe -c` reaches only while its client is
     /// `attached`: a client whose link dropped keeps its event channel open
     /// until the proxy gives up on it, and nothing would open what it gets.
-    pub fn reaches(
+    pub(crate) fn reaches(
         &self,
         event: &Event,
         model: &Model,
@@ -315,20 +315,20 @@ impl Events {
     }
 
     /// Records an event, sent on the next [`Events::flush`].
-    pub fn emit(&mut self, event: Event) {
+    pub(crate) fn emit(&mut self, event: Event) {
         self.emit_at(event, Place::default());
     }
 
     /// As [`Events::emit`], for an event about a pane that is no longer in
     /// the model: `place` is where it was.
-    pub fn emit_at(&mut self, event: Event, place: Place) {
+    pub(crate) fn emit_at(&mut self, event: Event, place: Place) {
         if self.subscribers.iter().any(|s| s.wants(event.name())) {
             self.pending.push((event, place));
         }
     }
 
     /// Records `pane-exited` with a null status for panes a kill removed.
-    pub fn panes_killed(&mut self, removed: Removed) {
+    pub(crate) fn panes_killed(&mut self, removed: Removed) {
         for (pane, uid, place) in removed {
             let event = Event::PaneExited {
                 pane,
@@ -342,7 +342,7 @@ impl Events {
     /// Queues every pending event to the subscribers that want it, in
     /// order, and forgets subscribers whose connection is gone. `model` is
     /// what `subscribe -t` limits are measured against.
-    pub fn flush(&mut self, model: &Model) {
+    pub(crate) fn flush(&mut self, model: &Model) {
         let pending = std::mem::take(&mut self.pending);
         let before = self.subscribers.len();
         for (event, place) in &pending {
@@ -380,7 +380,7 @@ impl Events {
 /// gives one event per client whatever number of verbs it took. A new
 /// client counts as changed (an attach). A session with no attached client
 /// has no clients here, so it never emits.
-pub fn track_focus(state: &mut State) {
+pub(crate) fn track_focus(state: &mut State) {
     if state.clients.is_empty() {
         state.events.seen.clear();
         return;
@@ -451,7 +451,7 @@ fn mark_agents_seen(state: &mut State) {
 
 /// `agent-changed` for `pane` (spec §10): `old` and `new` are the state
 /// names, null for no record.
-pub fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agents::Change) {
+pub(crate) fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agents::Change) {
     let uid = state
         .model
         .panes

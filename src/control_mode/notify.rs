@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// One window as the server reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct WindowInfo {
+pub(crate) struct WindowInfo {
     /// The sessions the window is linked into.
     pub sessions: BTreeSet<String>,
     pub name: String,
@@ -29,7 +29,7 @@ impl WindowInfo {
 
 /// The sessions and windows of a server, as `$N` and `@N` ids.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Snapshot {
+pub(crate) struct Snapshot {
     /// Session id to its name.
     pub sessions: BTreeMap<String, String>,
     /// Session id to its current window.
@@ -47,26 +47,26 @@ pub struct Snapshot {
 }
 
 /// The `-F` of the sessions query: id and name.
-pub const SESSIONS_FORMAT: &str = "#{session_id}\t#{session_name}";
+pub(crate) const SESSIONS_FORMAT: &str = "#{session_id}\t#{session_name}";
 
 /// The `-F` of the windows query: session, window, whether the window is
 /// its session's current one, its active pane, layout, flags and name.
-pub const WINDOWS_FORMAT: &str = "#{session_id}\t#{window_id}\t#{window_active}\t#{pane_id}\t#{window_layout}\t#{window_visible_layout}\t#{window_flags}\t#{window_name}";
+pub(crate) const WINDOWS_FORMAT: &str = "#{session_id}\t#{window_id}\t#{window_active}\t#{pane_id}\t#{window_layout}\t#{window_visible_layout}\t#{window_flags}\t#{window_name}";
 
 /// The `-F` of the panes query: id and mode.
-pub const PANES_FORMAT: &str = "#{pane_id}\t#{pane_mode}";
+pub(crate) const PANES_FORMAT: &str = "#{pane_id}\t#{pane_mode}";
 
 /// The `-F` of the clients query: name, session id and name.
 // ponytail: the control client is not a server client, so this lists
 // only the others; `%client-*` never names another control bridge.
-pub const CLIENTS_FORMAT: &str = "#{client_name}\t#{session_id} #{session_name}";
+pub(crate) const CLIENTS_FORMAT: &str = "#{client_name}\t#{session_id} #{session_name}";
 
 /// The `-F` of the buffers query: name, then its content's fingerprint.
-pub const BUFFERS_FORMAT: &str =
+pub(crate) const BUFFERS_FORMAT: &str =
     "#{buffer_name}\t#{buffer_size}\t#{buffer_created}\t#{buffer_sample}";
 
 /// `key<TAB>value` lines as a map.
-pub fn pairs(text: &str) -> BTreeMap<String, String> {
+pub(crate) fn pairs(text: &str) -> BTreeMap<String, String> {
     text.lines()
         .map(|l| l.split_once('\t').unwrap_or((l, "")))
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -105,7 +105,7 @@ impl Snapshot {
     }
 
     /// The windows linked into `session`, in id order.
-    pub fn windows_of(&self, session: &str) -> Vec<&str> {
+    pub(crate) fn windows_of(&self, session: &str) -> Vec<&str> {
         self.windows
             .iter()
             .filter(|(_, w)| w.sessions.contains(session))
@@ -281,7 +281,7 @@ fn closes(old: &Snapshot, new: &Snapshot, attached: &str) -> Vec<String> {
 /// selects first.
 // ponytail: the notices of one command come in this fixed order, not the
 // order the command made them (tmux interleaves a multi-link `kill-window`).
-pub fn diff(old: &Snapshot, new: &Snapshot, attached: &str) -> Vec<String> {
+pub(crate) fn diff(old: &Snapshot, new: &Snapshot, attached: &str) -> Vec<String> {
     [
         adds(old, new, attached, true),
         current_windows(old, new),

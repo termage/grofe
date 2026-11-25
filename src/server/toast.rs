@@ -61,7 +61,7 @@ fn area(size: (u16, u16), top: u16) -> Option<Rect> {
 }
 
 /// When the toast shown to `client` expires, so the server redraws then.
-pub fn deadline(state: &State, client: ClientId) -> Option<Instant> {
+pub(crate) fn deadline(state: &State, client: ClientId) -> Option<Instant> {
     let n = shown(state, client, Instant::now())?;
     Some(n.at + state.notify.cfg.toast_time)
 }
@@ -119,7 +119,7 @@ fn put_text(screen: &mut Screen, mut x: usize, y: usize, end: usize, text: &str)
     }
 }
 
-pub struct ToastOverlay;
+pub(crate) struct ToastOverlay;
 
 impl Overlay for ToastOverlay {
     fn draw(&self, state: &State, client: ClientId, cx: &OverlayCtx, screen: &mut Screen) {
@@ -155,7 +155,7 @@ impl Overlay for ToastOverlay {
 
 /// A left click in the toast jumps to the pane and marks it read; on the
 /// `x` it dismisses.
-pub struct ToastHook;
+pub(crate) struct ToastHook;
 
 impl InputHook for ToastHook {
     fn on_input(

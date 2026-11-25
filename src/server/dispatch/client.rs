@@ -14,7 +14,7 @@ use crate::server::{Job, State, clients, dispatch, hooks, tree};
 /// `refresh-client`: the client (`-t`, else the current one) redraws, only
 /// its status line with `-S`; `-c/-L/-R/-U/-D [n]` (tmux's stock pan keys)
 /// move the visible part of a window larger than the client instead.
-pub fn refresh_client(
+pub(crate) fn refresh_client(
     state: &mut State,
     ctx: &ClientCtx,
     c: RefreshClient,
@@ -57,7 +57,7 @@ pub fn refresh_client(
 /// `#{t/p:message_time}: #{message_text}`.
 // ponytail: `-J` (the job list) and `-T` (the terminal descriptions) print
 // nothing; grofe keeps neither table.
-pub fn show_messages(
+pub(crate) fn show_messages(
     state: &mut State,
     _ctx: &ClientCtx,
     c: ShowMessages,
@@ -77,7 +77,7 @@ pub fn show_messages(
 }
 
 /// `choose-client`: the client chooser over the current pane.
-pub fn choose_client(
+pub(crate) fn choose_client(
     state: &mut State,
     ctx: &ClientCtx,
     c: ChooseClient,
@@ -86,7 +86,7 @@ pub fn choose_client(
 }
 
 /// `customize-mode`: tmux's option and key browser over the target pane.
-pub fn customize_mode(
+pub(crate) fn customize_mode(
     state: &mut State,
     ctx: &ClientCtx,
     c: CustomizeMode,
@@ -96,7 +96,7 @@ pub fn customize_mode(
 
 /// `suspend-client`: the client (`-t`, else the current one) stops itself
 /// with SIGTSTP, as tmux 3.7b's; `fg` in its shell brings it back.
-pub fn suspend_client(
+pub(crate) fn suspend_client(
     state: &mut State,
     ctx: &ClientCtx,
     c: SuspendClient,
@@ -151,7 +151,7 @@ pub fn choose_tree(state: &mut State, ctx: &ClientCtx, c: ChooseTree) -> Result<
 
 /// `wait-for`: blocks the caller until another call signals the channel;
 /// with `-S`, signals it.
-pub fn wait_for(state: &mut State, _ctx: &ClientCtx, c: WaitFor) -> Result<String, String> {
+pub(crate) fn wait_for(state: &mut State, _ctx: &ClientCtx, c: WaitFor) -> Result<String, String> {
     let Some(channel) = c.channel else {
         return Err(ParseError::TooFewArguments("wait-for".to_string(), 1).to_string());
     };

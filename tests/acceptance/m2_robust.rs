@@ -1,9 +1,7 @@
 //! M2 robustness review: hostile or unlucky client input (huge sizes,
 //! resize storms, idle connections) must not stall the actor.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;

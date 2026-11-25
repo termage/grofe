@@ -35,7 +35,7 @@ impl Window {
     /// unzoomed layout as tmux's `window_pane_find_*` do: the most recently
     /// active one across the edge, wrapping past the window's edge.
     /// ponytail: floating panes are never candidates.
-    pub fn adjacent_pane(&self, pane: PaneId, edge: Edge) -> Option<PaneId> {
+    pub(crate) fn adjacent_pane(&self, pane: PaneId, edge: Edge) -> Option<PaneId> {
         layout::find_adjacent(
             &self.tiled_rects(),
             self.area(),
@@ -51,7 +51,7 @@ impl Window {
     /// bottom border cells included (window.c `window_get_active_at`, with
     /// `window_find_string`'s cells). `{up-of}` and the other `-of` tokens
     /// are the active pane's neighbour.
-    pub fn token_pane(&self, token: PaneToken) -> Option<PaneId> {
+    pub(crate) fn token_pane(&self, token: PaneToken) -> Option<PaneId> {
         let edge = match token {
             PaneToken::UpOf => Some(Edge::Up),
             PaneToken::DownOf => Some(Edge::Down),

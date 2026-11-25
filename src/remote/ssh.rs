@@ -11,10 +11,10 @@ use crate::util::quote::sh;
 pub const SSH_ENV: &str = "GROFE_SSH";
 
 /// The exit status of the remote command when no grofe is found there.
-pub const MISSING_STATUS: i32 = 127;
+pub(crate) const MISSING_STATUS: i32 = 127;
 
 /// The line the remote command prints on stderr when no grofe is found.
-pub const MISSING_MARKER: &str = "grofe-remote: grofe not found";
+pub(crate) const MISSING_MARKER: &str = "grofe-remote: grofe not found";
 
 /// A remote host as ssh takes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +53,7 @@ impl Target {
 /// could split: empty, starting with `-`, or holding whitespace or control
 /// characters. (`--` before the destination already stops ssh reading it as
 /// an option; this keeps a hostile name out of every message too.)
-pub fn check_part(what: &str, s: &str) -> Result<(), String> {
+pub(crate) fn check_part(what: &str, s: &str) -> Result<(), String> {
     if s.is_empty() {
         return Err(format!("empty {what}"));
     }
@@ -70,7 +70,7 @@ pub fn check_part(what: &str, s: &str) -> Result<(), String> {
 }
 
 /// [`check_part`] on both halves of `user@host`.
-pub fn check_dest(dest: &str) -> Result<(), String> {
+pub(crate) fn check_dest(dest: &str) -> Result<(), String> {
     let bad = |e: String| format!("bad host {}: {e}", sanitize(dest));
     match dest.rsplit_once('@') {
         Some((user, host)) => {
@@ -166,7 +166,7 @@ pub fn parse_url(url: &str) -> Result<Target, String> {
 
 /// A [`Command`] for the ssh program whose child starts with no signal
 /// blocked (see [`unblock_signals`]).
-pub fn command() -> Command {
+pub(crate) fn command() -> Command {
     let mut cmd = Command::new(program());
     unblock_signals(&mut cmd);
     cmd
@@ -176,7 +176,7 @@ pub fn command() -> Command {
 /// blocks SIGTERM, SIGHUP, SIGINT, SIGQUIT and SIGWINCH in every thread for
 /// its `sigwait` thread, and a blocked mask survives `fork` and `exec`: an
 /// ssh started for a reconnect would otherwise ignore them.
-pub fn unblock_signals(cmd: &mut Command) -> &mut Command {
+pub(crate) fn unblock_signals(cmd: &mut Command) -> &mut Command {
     use nix::sys::signal::{SigSet, SigmaskHow, sigprocmask};
     use std::os::unix::process::CommandExt;
     // SAFETY: sigprocmask is async-signal-safe; nothing else runs between
@@ -191,7 +191,7 @@ pub fn unblock_signals(cmd: &mut Command) -> &mut Command {
 }
 
 /// The ssh program: `$GROFE_SSH`, else `ssh`.
-pub fn program() -> String {
+pub(crate) fn program() -> String {
     std::env::var(SSH_ENV)
         .ok()
         .filter(|s| !s.is_empty())
@@ -201,7 +201,7 @@ pub fn program() -> String {
 /// Which of the keepalive options grofe adds: each only when the user set
 /// no value of their own for it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Keepalive {
+pub(crate) struct Keepalive {
     /// `ServerAliveInterval=15`.
     pub interval: bool,
     /// `ServerAliveCountMax=2`.
@@ -210,7 +210,7 @@ pub struct Keepalive {
 
 impl Keepalive {
     /// Both options.
-    pub const BOTH: Keepalive = Keepalive {
+    pub(crate) const BOTH: Keepalive = Keepalive {
         interval: true,
         count: true,
     };
@@ -221,7 +221,7 @@ impl Keepalive {
 /// `serveralivecountmax 3`.
 // ponytail: a user who set ServerAliveCountMax to exactly 3 looks unset
 // and gets 2; `ssh -G` cannot tell the two apart.
-pub fn keepalive_from(ssh_g: &str) -> Keepalive {
+pub(crate) fn keepalive_from(ssh_g: &str) -> Keepalive {
     let value = |key: &str| {
         ssh_g.lines().find_map(|l| {
             let mut words = l.split_whitespace();
@@ -238,7 +238,7 @@ pub fn keepalive_from(ssh_g: &str) -> Keepalive {
 
 /// Options for one ssh run.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SshOpts {
+pub(crate) struct SshOpts {
     /// The keepalive options to add.
     pub keepalive: Keepalive,
     /// `BatchMode=yes`: never prompt (a reconnect runs with the tty raw).
@@ -247,7 +247,7 @@ pub struct SshOpts {
 
 /// `ssh -T [-p port] [-o ...] -- <dest> <remote command>`: `--` before the
 /// destination, so a destination can never be read as an option.
-pub fn argv(target: &Target, opts: SshOpts, remote: &str) -> Vec<String> {
+pub(crate) fn argv(target: &Target, opts: SshOpts, remote: &str) -> Vec<String> {
     let mut out = vec!["-T".to_string()];
     if let Some(p) = target.port {
         out.extend(["-p".to_string(), p.to_string()]);
@@ -267,7 +267,7 @@ pub fn argv(target: &Target, opts: SshOpts, remote: &str) -> Vec<String> {
 
 /// The keepalive options to add for `target` ([`keepalive_from`] on its
 /// `ssh -G`). If `ssh -G` fails, both; ssh's own run will report why.
-pub fn wants_keepalive(target: &Target) -> Keepalive {
+pub(crate) fn wants_keepalive(target: &Target) -> Keepalive {
     let mut cmd = command();
     cmd.arg("-G");
     if let Some(p) = target.port {
@@ -285,7 +285,7 @@ pub fn wants_keepalive(target: &Target) -> Keepalive {
 
 /// The directory, relative to the remote `$HOME`, a bootstrap installs
 /// grofe `version` into.
-pub fn install_dir(version: &str) -> String {
+pub(crate) fn install_dir(version: &str) -> String {
     format!(".local/share/grofe/bin/{version}")
 }
 
@@ -297,12 +297,12 @@ pub fn install_dir(version: &str) -> String {
 /// otherwise win every time after a bootstrap installed the right one.
 /// Cost: a user who upgrades the `PATH` grofe keeps using the installed
 /// one until it is removed.
-pub fn proxy_command(version: &str) -> String {
+pub(crate) fn proxy_command(version: &str) -> String {
     remote_grofe(version, "proxy")
 }
 
 /// As [`proxy_command`], running `grofe <args>` (`proxy --quic`, R7).
-pub fn remote_grofe(version: &str, args: &str) -> String {
+pub(crate) fn remote_grofe(version: &str, args: &str) -> String {
     let script = format!(
         "b=\"$HOME/{dir}/grofe\"; \
          if [ -x \"$b\" ]; then exec \"$b\" {args}; fi; \
@@ -318,7 +318,7 @@ pub fn remote_grofe(version: &str, args: &str) -> String {
 /// temporary name, promoted with `mv` only when it is `len` bytes and (where
 /// `sha256sum` or `shasum` exists there) has SHA-256 `sha256`; else the
 /// temporary file is removed and the command fails.
-pub fn install_command(version: &str, len: usize, sha256: &str) -> String {
+pub(crate) fn install_command(version: &str, len: usize, sha256: &str) -> String {
     let script = format!(
         "d=\"$HOME/{dir}\"; t=\"$d/grofe.tmp.$$\"; \
          mkdir -p \"$d\" && cat > \"$t\" && \

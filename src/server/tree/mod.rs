@@ -56,11 +56,11 @@ mod model;
 mod pointer;
 
 use self::customize_keys::*;
-pub use self::drawing::*;
+pub(crate) use self::drawing::*;
 pub(crate) use self::items::*;
-pub use self::keys::*;
-pub use self::model::*;
-pub use self::pointer::*;
+pub(crate) use self::keys::*;
+pub(crate) use self::model::*;
+pub(crate) use self::pointer::*;
 
 #[cfg(test)]
 mod tests;

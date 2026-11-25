@@ -17,7 +17,7 @@ use crate::types::ClientId;
 use super::overlay::{self, Menu};
 
 /// One edit to `settings.toml`.
-pub enum Change {
+pub(crate) enum Change {
     Set {
         key: String,
         value: toml_edit::Item,
@@ -45,7 +45,7 @@ fn apply_changes(doc: &mut DocumentMut, changes: &[Change]) -> Result<(), String
 
 /// Writes `changes` in one go, or nothing when one fails. What puts the
 /// file back as it was is returned.
-pub fn write(dir: &Path, changes: &[Change]) -> Result<Saved, String> {
+pub(crate) fn write(dir: &Path, changes: &[Change]) -> Result<Saved, String> {
     write::edit(dir, |doc| apply_changes(doc, changes).map(|()| true))
 }
 
@@ -53,7 +53,7 @@ pub fn write(dir: &Path, changes: &[Change]) -> Result<Saved, String> {
 /// which are made to the parsed text only, so the file is untouched.
 // ponytail: a line-set diff, not an LCS one; a line moved without change in
 // content shows nothing, and duplicate lines are matched by count only.
-pub fn diff(dir: &Path, changes: &[Change]) -> Result<String, String> {
+pub(crate) fn diff(dir: &Path, changes: &[Change]) -> Result<String, String> {
     let before = match fs::read_to_string(dir.join(write::FILE)) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),

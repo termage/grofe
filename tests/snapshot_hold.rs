@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::time::{Duration, Instant};
 
-use common::{Signal, TestServer};
+use common::{Signal, TestServer, uids};
 use grofe::server::snapshot::Snapshot;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
@@ -33,14 +33,6 @@ fn display(srv: &TestServer, target: &str, format: &str) -> String {
         .expect("display-message")
         .trim_end()
         .to_string()
-}
-
-fn uids(srv: &TestServer) -> BTreeSet<String> {
-    srv.cmd(&["list-panes", "-a", "-F", "#{pane_uid}"])
-        .expect("list-panes")
-        .lines()
-        .map(str::to_string)
-        .collect()
 }
 
 fn snap_uids(snap: &Snapshot) -> BTreeSet<String> {

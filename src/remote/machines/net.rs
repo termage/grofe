@@ -13,16 +13,16 @@ use crate::remote::connect::{ConnectOpts, Link, Transport, kill_child};
 use crate::remote::ssh::Target;
 
 /// How long `agent list --all-machines` waits for one machine.
-pub const LIST_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const LIST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The format the views and the last-known cache read: `agent list`'s
 /// default.
-pub const AGENT_FORMAT: &str = "#{pane_id} #{agent_kind} #{agent_state}";
+pub(crate) const AGENT_FORMAT: &str = "#{pane_id} #{agent_kind} #{agent_state}";
 
 /// A link to the local server at `socket`: `grofe -S <socket> proxy` as a
 /// child on pipes, so the local machine is reached like any other. The
 /// proxy starts the server when none runs.
-pub fn local_link(socket: &Path) -> Result<Link, String> {
+pub(crate) fn local_link(socket: &Path) -> Result<Link, String> {
     let exe = std::env::current_exe().map_err(|e| format!("finding grofe: {e}"))?;
     let mut cmd = Command::new(exe);
     // The attach client blocks signals on its threads; a proxy started
@@ -48,19 +48,19 @@ pub fn local_link(socket: &Path) -> Result<Link, String> {
 /// A control link to saved machine `m`, over ssh, that never prompts.
 /// Always ssh, also for a machine saved with `quic`: a QUIC bootstrap
 /// starts a new proxy there, which stops the one behind a running attach.
-pub fn machine_link(m: &Machine) -> Result<Link, String> {
+pub(crate) fn machine_link(m: &Machine) -> Result<Link, String> {
     Link::connect(&control_transport(m)?, ConnectOpts { batch: true }).map_err(|e| e.to_string())
 }
 
 /// How a control link reaches saved machine `m`: ssh, whatever it was
 /// saved with.
-pub fn control_transport(m: &Machine) -> Result<Transport, String> {
+pub(crate) fn control_transport(m: &Machine) -> Result<Transport, String> {
     Ok(Transport::Ssh(Target::parse_host(&m.target)?))
 }
 
 /// The agents in `agent list` output in [`AGENT_FORMAT`]: the kind, or the
 /// pane id when the agent reported none, and the state.
-pub fn parse_agents(text: &str) -> Vec<AgentView> {
+pub(crate) fn parse_agents(text: &str) -> Vec<AgentView> {
     text.lines()
         .filter_map(|l| {
             let words: Vec<&str> = l.split_whitespace().collect();
@@ -81,7 +81,7 @@ pub fn parse_agents(text: &str) -> Vec<AgentView> {
 
 /// Remote-controlled text made safe to print, line by line
 /// ([`crate::remote::ssh::sanitize`]).
-pub fn sanitize_lines(text: &str) -> String {
+pub(crate) fn sanitize_lines(text: &str) -> String {
     text.lines()
         .map(|l| crate::remote::ssh::sanitize(l) + "\n")
         .collect()
@@ -126,7 +126,7 @@ enum Asked {
 /// marked offline. A machine that answered with an error is left out of the
 /// table and its error reported. With no local server the local part is
 /// empty.
-pub fn all_agents(
+pub(crate) fn all_agents(
     socket: &Path,
     machines: &[Machine],
     hello: &str,

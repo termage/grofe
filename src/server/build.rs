@@ -8,7 +8,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 
 /// What the warning on attach says.
-pub const STALE: &str =
+pub(crate) const STALE: &str =
     "this server runs an old grofe build; restart it (kill-server) to use the new one";
 
 /// The binary's path and what identified the file there at start.
@@ -27,7 +27,7 @@ fn stamp(path: &std::path::Path) -> Option<Stamp> {
 
 impl Binary {
     /// This process's binary now; `None` when it cannot be found.
-    pub fn at_start() -> Option<Binary> {
+    pub(crate) fn at_start() -> Option<Binary> {
         let path = std::env::current_exe().ok()?;
         Binary::at(path)
     }
@@ -39,7 +39,7 @@ impl Binary {
 
     /// Whether the file at the start path is no longer the one that was
     /// there. A binary removed without a replacement is not an upgrade.
-    pub fn replaced(&self) -> bool {
+    pub(crate) fn replaced(&self) -> bool {
         stamp(&self.path).is_some_and(|now| now != self.stamp)
     }
 }

@@ -15,7 +15,7 @@ use crate::server::layout::{MainSize, Preset, parse_tmux_layout};
 /// One mistake in a layout file; `Display` is `<file>:<line>: <message>`
 /// (the line left out when it is 0).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LayoutError {
+pub(crate) struct LayoutError {
     pub file: PathBuf,
     pub line: usize,
     pub message: String,
@@ -196,10 +196,10 @@ const BORDERS: [&str; 7] = [
 ];
 
 /// The default wait timeout, in seconds.
-pub const DEFAULT_WAIT_SECS: u64 = 30;
+pub(crate) const DEFAULT_WAIT_SECS: u64 = 30;
 
 /// The longest wait timeout: a day, far below what would overflow a deadline.
-pub const MAX_WAIT_SECS: u64 = 86_400;
+pub(crate) const MAX_WAIT_SECS: u64 = 86_400;
 
 struct Ctx<'a> {
     text: &'a str,
@@ -361,7 +361,7 @@ fn empty_window() -> RawWindow {
 }
 
 /// The name rules shared with `--session`: tmux cannot hold `:` or `.`.
-pub fn session_name_problem(name: &str) -> Option<&'static str> {
+pub(crate) fn session_name_problem(name: &str) -> Option<&'static str> {
     if name.is_empty() {
         Some("a session name cannot be empty")
     } else if name.contains([':', '.', '\n']) {

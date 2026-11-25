@@ -43,7 +43,7 @@ const LIVE_SEP: &str = "|~|";
 /// The sessions of the tmux server `tmux` (from `PATH`) reaches with no
 /// `$TMUX`: its default socket under `$TMUX_TMPDIR`. `Err` when none
 /// runs, it has no session, or `tmux` is grofe.
-pub fn from_live_tmux() -> Result<Snapshot, String> {
+pub(crate) fn from_live_tmux() -> Result<Snapshot, String> {
     from_tmux_program("tmux", LIVE_TIMEOUT)
 }
 
@@ -321,7 +321,7 @@ fn snapshot(sessions: Vec<SessionSnap>) -> Snapshot {
 /// tmux-resurrect's newest save in `dir`, else its default directories
 /// under `home` (`~/.local/share/tmux/resurrect`, `~/.tmux/resurrect`):
 /// the file its `last` link names.
-pub fn resurrect_last(dir: Option<&Path>, home: &Path) -> Option<PathBuf> {
+pub(crate) fn resurrect_last(dir: Option<&Path>, home: &Path) -> Option<PathBuf> {
     let dirs: Vec<PathBuf> = match dir {
         Some(d) => vec![d.to_path_buf()],
         None => vec![
@@ -336,7 +336,7 @@ pub fn resurrect_last(dir: Option<&Path>, home: &Path) -> Option<PathBuf> {
 
 /// The sessions in a resurrect save's text: `pane` and `window` lines,
 /// tab-separated, a `:` in front of fields that may be empty.
-pub fn from_resurrect(text: &str) -> Result<Snapshot, String> {
+pub(crate) fn from_resurrect(text: &str) -> Result<Snapshot, String> {
     struct SavedPane {
         index: u32,
         active: bool,

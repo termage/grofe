@@ -8,11 +8,11 @@ use regex::Regex;
 use super::Grid;
 
 /// The label letters: the home row.
-pub const ALPHABET: &str = "asdfghjkl";
+pub(crate) const ALPHABET: &str = "asdfghjkl";
 
 /// One match on the screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Hit {
+pub(crate) struct Hit {
     pub label: String,
     pub text: String,
     /// The row of the copy, and the first column and width of the match.
@@ -23,7 +23,7 @@ pub struct Hit {
 
 /// A running hint mode: the labelled matches and the letters typed so far.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Hints {
+pub(crate) struct Hints {
     pub hits: Vec<Hit>,
     pub typed: String,
     /// An uppercase letter was typed: paste as well as copy.
@@ -35,7 +35,7 @@ pub struct Hints {
 
 /// What one typed letter did.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Step {
+pub(crate) enum Step {
     /// A prefix of a longer label.
     Pending,
     /// Not a label: the hints end.
@@ -48,7 +48,7 @@ impl Hints {
     /// The labelled matches of rows `top..top + rows` of `grid`, nearest
     /// the cursor (`cursor`, a column and a row of the copy) first. `None`
     /// when nothing matches.
-    pub fn scan(
+    pub(crate) fn scan(
         grid: &Grid,
         top: usize,
         rows: usize,
@@ -87,7 +87,7 @@ impl Hints {
     }
 
     /// Takes one typed character.
-    pub fn press(&mut self, c: char) -> Step {
+    pub(crate) fn press(&mut self, c: char) -> Step {
         let lower = c.to_ascii_lowercase();
         if !ALPHABET.contains(lower) {
             return Step::Cancel;
@@ -157,7 +157,7 @@ fn scan_row(grid: &Grid, row: usize, patterns: &[Regex]) -> Vec<Hit> {
 /// `n` labels, shortest first: single letters while they suffice, else the
 /// last letters of the alphabet become prefixes of two-letter labels, as
 /// few as it takes. At most `ALPHABET.len()` squared come back.
-pub fn labels(n: usize) -> Vec<String> {
+pub(crate) fn labels(n: usize) -> Vec<String> {
     let letters: Vec<char> = ALPHABET.chars().collect();
     let k = letters.len();
     let prefixes = (0..=k).find(|p| k - p + p * k >= n).unwrap_or(k);

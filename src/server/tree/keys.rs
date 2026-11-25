@@ -5,7 +5,7 @@ use super::*;
 /// Takes a client's keys while its chooser is open, as tmux gives a pane
 /// mode the keys the client's key table does not bind: after the prefix, the
 /// prefix key itself, and a key bound in `root` still go to the tables.
-pub struct TreeHook;
+pub(crate) struct TreeHook;
 
 impl InputHook for TreeHook {
     fn on_input(

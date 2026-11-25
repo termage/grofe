@@ -3,9 +3,8 @@
 //! handles the content as if sent bare, within the §4.9 set, and drops
 //! anything else.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{new_session, shell_quote};
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -17,10 +16,6 @@ use crate::harness::Harness;
 const WAIT: Duration = Duration::from_secs(10);
 const KITTY: &[(&str, &str)] = &[("GROFE_TEST_CAPS", "kitty_graphics,cell_px=10x20")];
 const PLACEHOLDER: char = '\u{10EEEE}';
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
 
 /// `inner` wrapped as apps wrap it under `$TMUX`.
 fn wrap(inner: &[u8]) -> Vec<u8> {
@@ -68,23 +63,6 @@ fn cat_parts(srv: &TestServer, parts: &[&[u8]]) -> String {
     }
     script.push_str("echo DONE; exec sleep 600");
     script
-}
-
-/// Session `main` running `script`, sized for an 80x24 client.
-fn new_session(srv: &TestServer, script: &str) {
-    let cmd = format!("sh -c {}", shell_quote(script));
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        &cmd,
-    ])
-    .expect("new-session");
 }
 
 /// A client attached to `main`, past its first full redraw, that has let

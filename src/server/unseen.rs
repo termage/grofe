@@ -16,7 +16,7 @@ fn in_mode(state: &State, pane: PaneId) -> bool {
 
 /// Forgets the panes that left their modes: before a command, which may
 /// enter one again, and with new output.
-pub fn sweep(state: &mut State) {
+pub(crate) fn sweep(state: &mut State) {
     let kept: BTreeSet<PaneId> = state
         .unseen
         .iter()
@@ -27,7 +27,7 @@ pub fn sweep(state: &mut State) {
 }
 
 /// The panes in `dirty` had output: those in a mode have unseen changes.
-pub fn output(state: &mut State, dirty: &BTreeSet<PaneId>) {
+pub(crate) fn output(state: &mut State, dirty: &BTreeSet<PaneId>) {
     sweep(state);
     let seen: Vec<PaneId> = dirty
         .iter()
@@ -38,7 +38,7 @@ pub fn output(state: &mut State, dirty: &BTreeSet<PaneId>) {
 }
 
 /// `#{pane_unseen_changes}` for `pane`.
-pub fn format_var(state: &State, pane: PaneId) -> String {
+pub(crate) fn format_var(state: &State, pane: PaneId) -> String {
     let unseen = state.unseen.contains(&pane) && in_mode(state, pane);
     u8::from(unseen).to_string()
 }

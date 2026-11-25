@@ -9,17 +9,10 @@ mod common;
 use std::fs;
 use std::time::Duration;
 
-use common::TestServer;
+use common::{TestServer, display};
 
 const WAIT: Duration = Duration::from_secs(5);
 const GEOMETRY: &str = "#{pane_index} #{pane_left},#{pane_top} #{pane_width}x#{pane_height}";
-
-fn display(srv: &TestServer, target: &str, fmt: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, fmt])
-        .unwrap_or_else(|e| panic!("display-message {fmt}: {e}"))
-        .trim_end()
-        .to_string()
-}
 
 fn panes(srv: &TestServer, target: &str) -> Vec<String> {
     srv.cmd(&["list-panes", "-t", target, "-F", GEOMETRY])

@@ -27,7 +27,7 @@ fn persisted(model: &Model, owner: Owner) -> Vec<OptionSnap> {
 /// The snapshot of `model` now, `written_at` left empty (set at write).
 /// `cwds` holds each pane's last sampled cwd; a pane not sampled yet has
 /// the cwd it was spawned in.
-pub fn build(model: &Model, cwds: &HashMap<PaneId, PathBuf>) -> Snapshot {
+pub(crate) fn build(model: &Model, cwds: &HashMap<PaneId, PathBuf>) -> Snapshot {
     // Least recently used first: the restore makes them in this order, each
     // more recent than the one before, so the session used last is the one
     // a bare `grofe` attaches to again.

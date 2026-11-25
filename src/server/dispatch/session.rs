@@ -212,7 +212,7 @@ pub fn new_session(state: &mut State, ctx: &ClientCtx, c: NewSession) -> Result<
 /// folder itself; `home` for `home`, so `~` and a repository at `~` give
 /// it. `.`, `:` and spaces, which a target cannot hold, become `_`. `None`
 /// for the root folder, which keeps tmux's number.
-pub fn place_name(cwd: &std::path::Path, home: Option<&std::path::Path>) -> Option<String> {
+pub(crate) fn place_name(cwd: &std::path::Path, home: Option<&std::path::Path>) -> Option<String> {
     let repo = cwd
         .ancestors()
         .find(|d| d.join(".git").exists())
@@ -351,7 +351,7 @@ pub fn has_session(state: &mut State, ctx: &ClientCtx, c: HasSession) -> Result<
 
 /// `list-sessions` in the default format; `-F` is routed to `options`.
 /// tmux sorts sessions by name, not by id.
-pub fn list_sessions(state: &State, c: ListSessions) -> Result<String, String> {
+pub(crate) fn list_sessions(state: &State, c: ListSessions) -> Result<String, String> {
     let model = &state.model;
     Ok(
         crate::server::dispatch::options::listed_sessions(state, &c)?
@@ -426,7 +426,7 @@ pub fn rename_session(state: &mut State, ctx: &ClientCtx, c: Rename) -> Result<S
 /// picks): `-T` sets its key table for its next key; `-l` goes to its last
 /// session, `-n` / `-p` to the next or previous session by name
 /// (wrapping), otherwise to `-t`.
-pub fn switch_client(
+pub(crate) fn switch_client(
     state: &mut State,
     ctx: &ClientCtx,
     c: SwitchClient,

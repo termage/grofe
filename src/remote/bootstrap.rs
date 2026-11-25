@@ -13,7 +13,7 @@ use super::connect::{ConnectError, ConnectOpts, Link, Transport};
 use super::ssh::{self, SshOpts, Target};
 
 /// Overrides the `remote-release-url` option (tests, mirrors).
-pub const RELEASE_URL_ENV: &str = "GROFE_REMOTE_RELEASE_URL";
+pub(crate) const RELEASE_URL_ENV: &str = "GROFE_REMOTE_RELEASE_URL";
 
 /// What to do when the remote needs grofe installed.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -30,7 +30,7 @@ pub enum Install {
 }
 
 /// The release target triple for `uname -sm` output (`Linux x86_64`).
-pub fn release_target(uname: &str) -> Result<&'static str, String> {
+pub(crate) fn release_target(uname: &str) -> Result<&'static str, String> {
     let mut words = uname.split_whitespace();
     let (os, arch) = (words.next().unwrap_or(""), words.next().unwrap_or(""));
     match (os, arch) {
@@ -50,13 +50,13 @@ pub fn archive_name(version: &str, target: &str) -> String {
 
 /// Where a release file is: `<base>/v<version>/<file>`. The base is an
 /// `http(s)://` or `file://` URL or a plain directory.
-pub fn release_file_url(base: &str, version: &str, file: &str) -> String {
+pub(crate) fn release_file_url(base: &str, version: &str, file: &str) -> String {
     format!("{}/v{version}/{file}", base.trim_end_matches('/'))
 }
 
 /// Whether `url` is `http://` to a loopback literal (`127.0.0.0/8`,
 /// `[::1]`, `localhost`), the one place plain http is taken.
-pub fn loopback_http(url: &str) -> bool {
+pub(crate) fn loopback_http(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("http://") else {
         return false;
     };
@@ -83,7 +83,7 @@ pub fn loopback_http(url: &str) -> bool {
 /// refused, since the archive and its sums would both come over it
 /// unchecked, except to a loopback address (the container e2e serves its
 /// release dir there), and then without following redirects.
-pub fn fetch(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn fetch(url: &str) -> Result<Vec<u8>, String> {
     let curl: &[&str] = if url.starts_with("https://") {
         &[
             "--proto",
@@ -126,7 +126,7 @@ pub fn fetch(url: &str) -> Result<Vec<u8>, String> {
 
 /// The SHA-256 `SHA256SUMS` lists for `file` (`<hex>  <name>`, the name
 /// maybe with a leading `./` or `*`).
-pub fn listed_sum<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
+pub(crate) fn listed_sum<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
     sums.lines().find_map(|l| {
         let (hash, name) = l.split_once(char::is_whitespace)?;
         let name = name.trim().trim_start_matches('*').trim_start_matches("./");
@@ -135,7 +135,7 @@ pub fn listed_sum<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
 }
 
 /// Checks `data` against the sum `sums` lists for `file`.
-pub fn verify(data: &[u8], sums: &str, file: &str) -> Result<(), String> {
+pub(crate) fn verify(data: &[u8], sums: &str, file: &str) -> Result<(), String> {
     let want = listed_sum(sums, file).ok_or_else(|| format!("SHA256SUMS does not list {file}"))?;
     let got = hex(&sha256(data));
     if !got.eq_ignore_ascii_case(want) {
@@ -147,7 +147,7 @@ pub fn verify(data: &[u8], sums: &str, file: &str) -> Result<(), String> {
 }
 
 /// `uname -sm` on the remote.
-pub fn remote_uname(target: &Target) -> Result<String, String> {
+pub(crate) fn remote_uname(target: &Target) -> Result<String, String> {
     let out = ssh::command()
         .args(ssh::argv(target, SshOpts::default(), "uname -sm"))
         .stdin(Stdio::null())
@@ -164,7 +164,7 @@ pub fn remote_uname(target: &Target) -> Result<String, String> {
 }
 
 /// The question asked before an install.
-pub fn question(host: &str, uname: &str, version: &str) -> String {
+pub(crate) fn question(host: &str, uname: &str, version: &str) -> String {
     format!(
         "grofe is not installed on {host} ({}). Install v{version} to ~/{}/? [y/N] ",
         uname.to_lowercase(),
@@ -353,7 +353,7 @@ pub fn release_url(option: Option<String>) -> String {
 }
 
 /// `remote-release-url`'s default: grofe's GitHub release downloads.
-pub const DEFAULT_RELEASE_URL: &str = "https://github.com/termage/grofe/releases/download";
+pub(crate) const DEFAULT_RELEASE_URL: &str = "https://github.com/termage/grofe/releases/download";
 
 #[cfg(test)]
 mod tests {

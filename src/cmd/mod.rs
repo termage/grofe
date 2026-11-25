@@ -7,8 +7,8 @@
 //! [`parse::parse`]: the CLI, key bindings, control mode and
 //! plugins all produce argv shaped like a shell command line.
 
-pub mod format;
-pub mod keys;
+pub(crate) mod format;
+pub(crate) mod keys;
 pub mod parse;
 #[cfg(test)]
 mod parse_pin;
@@ -883,7 +883,7 @@ pub struct JoinPane {
 }
 
 /// `move-pane` (TC.8, M36-R6): tmux's twin of `join-pane`, same flags.
-pub type MovePane = JoinPane;
+pub(crate) type MovePane = JoinPane;
 
 /// `swap-pane` (TC.8): swap `-s` (default: the current pane) with `-t`,
 /// or with `-U`/`-D` the target with the previous or next pane.

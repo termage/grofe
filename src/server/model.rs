@@ -31,16 +31,16 @@ use crate::types::{ClientId, PaneId, Rect, SessionId, WindowId};
 /// `history-limit` (spec §5.3). The live values are the options, read
 /// through [`Model::base_index`], [`Model::pane_base_index`] and
 /// [`Model::history_limit`].
-pub const BASE_INDEX: u32 = 1;
-pub const PANE_BASE_INDEX: u32 = 1;
-pub const HISTORY_LIMIT: usize = 2_000;
+pub(crate) const BASE_INDEX: u32 = 1;
+pub(crate) const PANE_BASE_INDEX: u32 = 1;
+pub(crate) const HISTORY_LIMIT: usize = 2_000;
 /// Size of a session created with no `-x`/`-y` and no client (tmux's
 /// `default-size`).
-pub const DEFAULT_SIZE: (u16, u16) = (80, 24);
+pub(crate) const DEFAULT_SIZE: (u16, u16) = (80, 24);
 
 /// Panes a removal took out whose exit was not reported yet, as
 /// `(id, uid)`: the caller emits `pane-exited` for each.
-pub type Removed = Vec<(PaneId, String, Place)>;
+pub(crate) type Removed = Vec<(PaneId, String, Place)>;
 
 pub struct Session {
     pub id: SessionId,
@@ -134,7 +134,7 @@ impl ActivePoints {
         self.0.insert(pane, point);
     }
 
-    pub fn get(&self, pane: PaneId) -> u64 {
+    pub(crate) fn get(&self, pane: PaneId) -> u64 {
         self.0.get(&pane).copied().unwrap_or(0)
     }
 }
@@ -164,11 +164,11 @@ pub struct Stashed {
 /// Stands in a window's layout once its last tiled pane has gone while
 /// floating panes remain (tmux 3.7b keeps such a window, recorded): no
 /// pane has this id, so nothing is drawn or listed for it.
-pub const HOLE: PaneId = PaneId(u32::MAX);
+pub(crate) const HOLE: PaneId = PaneId(u32::MAX);
 
 /// Which edge of its windows a session's status line sits on, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StatusEdge {
+pub(crate) enum StatusEdge {
     None,
     Top,
     Bottom,
@@ -187,7 +187,7 @@ fn edge_trim(gap: u16, edge: StatusEdge) -> (u16, u16) {
 impl Window {
     /// Makes `pane` the active pane; the one it replaces becomes the most
     /// recent last pane, as tmux's `window_set_active_pane` does.
-    pub fn set_active(&mut self, pane: PaneId) {
+    pub(crate) fn set_active(&mut self, pane: PaneId) {
         // A floating pane that becomes active comes to the top, as in
         // tmux 3.7b (recorded: select-pane raises it).
         let top = self.floating.iter().map(|f| f.z).max().unwrap_or(0);
@@ -207,7 +207,7 @@ impl Window {
     }
 
     /// The pane `last-pane` goes back to.
-    pub fn last_pane(&self) -> Option<PaneId> {
+    pub(crate) fn last_pane(&self) -> Option<PaneId> {
         self.last_panes.last().copied()
     }
 
@@ -215,7 +215,7 @@ impl Window {
     /// leaves the last-pane stack, and if it was active the last pane
     /// takes over, else the one before it, else the one after (tmux's
     /// `window_lost_pane`).
-    pub fn lose_pane(&mut self, order: &[PaneId], pane: PaneId) {
+    pub(crate) fn lose_pane(&mut self, order: &[PaneId], pane: PaneId) {
         self.last_panes.retain(|p| *p != pane);
         if self.active != pane {
             return;
@@ -235,7 +235,7 @@ impl Window {
     /// around them, less the outer gap on the `edge` the status line sits
     /// on: the contract fields and the layout's pad together. The caller
     /// lays the window out again ([`Model::relayout`]).
-    pub fn set_frames(&mut self, frames: bool, gap: u16, edge: StatusEdge) {
+    pub(crate) fn set_frames(&mut self, frames: bool, gap: u16, edge: StatusEdge) {
         self.frames = frames;
         self.pane_gap = gap;
         self.layout.set_pad(if frames { 1 + gap } else { 0 });
@@ -259,7 +259,7 @@ impl Window {
     /// Whether the window's panes are framed on this redraw: `pane-frames`
     /// on and the window big enough to frame them all. Otherwise they have
     /// tmux's shared borders ([`LayoutTree::borders`]).
-    pub fn framed(&self) -> bool {
+    pub(crate) fn framed(&self) -> bool {
         if self.zoomed {
             self.zoom_pad() > 0
         } else {
@@ -270,7 +270,7 @@ impl Window {
     /// Each visible tiled pane's frame rect, in pane order: its content
     /// rect grown by the frame's one cell on every side (the zoomed pane's
     /// alone when zoomed). Empty when the window is not [`Self::framed`].
-    pub fn frame_rects(&self) -> Vec<(PaneId, Rect)> {
+    pub(crate) fn frame_rects(&self) -> Vec<(PaneId, Rect)> {
         if !self.framed() {
             return Vec::new();
         }
@@ -310,7 +310,7 @@ impl Window {
     /// The tiled panes and their content rects in the layout.
     /// With frames on, `pane-border-status` has no effect: the title is
     /// drawn in the frame.
-    pub fn tiled_rects(&self) -> Vec<(PaneId, Rect)> {
+    pub(crate) fn tiled_rects(&self) -> Vec<(PaneId, Rect)> {
         let area = self.area();
         let framed = self.layout.pad_on(area) > 0;
         self.layout
@@ -322,7 +322,7 @@ impl Window {
 
     /// The rect the zoomed pane fills: the window, or framed, the window
     /// inset by the frame and the gap on every side.
-    pub fn zoom_rect(&self) -> Rect {
+    pub(crate) fn zoom_rect(&self) -> Rect {
         let pad = self.zoom_pad();
         if pad == 0 {
             return self.edge_adjusted(self.area());
@@ -340,7 +340,7 @@ impl Window {
 
     /// The panes on show and their content rects: the layout's, or only
     /// the active pane over the whole window when zoomed.
-    pub fn pane_rects(&self) -> Vec<(PaneId, Rect)> {
+    pub(crate) fn pane_rects(&self) -> Vec<(PaneId, Rect)> {
         if self.zoomed {
             vec![(self.active, self.zoom_rect())]
         } else {
@@ -349,7 +349,7 @@ impl Window {
     }
 
     /// The area the layout is computed against.
-    pub fn area(&self) -> Rect {
+    pub(crate) fn area(&self) -> Rect {
         Rect {
             x: 0,
             y: 0,
@@ -361,7 +361,7 @@ impl Window {
     /// Pane ids in layout order, then the floating panes in creation
     /// order, as tmux 3.7b indexes them: position `i` is pane index
     /// `i + pane-base-index`.
-    pub fn pane_ids(&self) -> Vec<PaneId> {
+    pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
         let mut ids = self.tiled_ids();
         ids.extend(self.floating.iter().map(|f| f.pane));
         ids
@@ -369,7 +369,7 @@ impl Window {
 
     /// The panes in the layout, in layout order: the only ones a layout
     /// operation (presets, rotation, splits) may touch.
-    pub fn tiled_ids(&self) -> Vec<PaneId> {
+    pub(crate) fn tiled_ids(&self) -> Vec<PaneId> {
         self.layout
             .compute(self.area())
             .into_iter()
@@ -379,7 +379,7 @@ impl Window {
     }
 
     /// `pane`'s place if it is a floating pane of this window.
-    pub fn floating(&self, pane: PaneId) -> Option<&Floating> {
+    pub(crate) fn floating(&self, pane: PaneId) -> Option<&Floating> {
         self.floating.iter().find(|f| f.pane == pane)
     }
 }
@@ -475,7 +475,7 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn new(remain_on_exit: bool) -> Model {
+    pub(crate) fn new(remain_on_exit: bool) -> Model {
         Model {
             options: Options::new(remain_on_exit),
             started: Some(std::time::SystemTime::now()),
@@ -490,28 +490,28 @@ impl Model {
     /// session it was made in, and holds only while that session still has
     /// the window (a winlink in tmux): unlinking the window from it clears it
     /// even if another session keeps the window.
-    pub fn marked_pane(&self) -> Option<PaneId> {
+    pub(crate) fn marked_pane(&self) -> Option<PaneId> {
         let (session, window, pane) = self.marked?;
         let p = self.panes.get(&pane)?;
         (p.window == window && self.has_link(session, window)).then_some(pane)
     }
 
-    pub fn alloc_session_id(&mut self) -> SessionId {
+    pub(crate) fn alloc_session_id(&mut self) -> SessionId {
         self.next_session += 1;
         SessionId(self.next_session - 1)
     }
 
     /// The id the next session gets (tmux's `next_session_id`).
-    pub fn next_session_id(&self) -> SessionId {
+    pub(crate) fn next_session_id(&self) -> SessionId {
         SessionId(self.next_session)
     }
 
-    pub fn alloc_window_id(&mut self) -> WindowId {
+    pub(crate) fn alloc_window_id(&mut self) -> WindowId {
         self.next_window += 1;
         WindowId(self.next_window - 1)
     }
 
-    pub fn alloc_pane_id(&mut self) -> PaneId {
+    pub(crate) fn alloc_pane_id(&mut self) -> PaneId {
         self.next_pane += 1;
         PaneId(self.next_pane - 1)
     }
@@ -519,14 +519,14 @@ impl Model {
     /// Inserts a new session with an empty window list. `new_session`
     /// calls this before `insert_window` for the session's first window;
     /// `insert_window` is what adds it to `session.windows`.
-    pub fn insert_session(&mut self, session: Session) {
+    pub(crate) fn insert_session(&mut self, session: Session) {
         self.had_session = true;
         self.sessions.insert(session.id, session);
     }
 
     /// Inserts a window and adds it to its session's ordered window list
     /// (and, in a session group, to its peers').
-    pub fn insert_window(&mut self, mut window: Window) {
+    pub(crate) fn insert_window(&mut self, mut window: Window) {
         let (id, session, index) = (window.id, window.session, window.index);
         window.links.clear();
         let (frames, gap, edge) = self.frame_options(&[Owner::Window(id), Owner::Session(session)]);
@@ -560,7 +560,7 @@ impl Model {
     // ponytail: only then and when a window is made; a window moved to a
     // session that sets them differently keeps its own until the next
     // change of either.
-    pub fn sync_frames(&mut self) {
+    pub(crate) fn sync_frames(&mut self) {
         let wanted: Vec<(WindowId, (bool, u16, StatusEdge))> = self
             .windows
             .values()
@@ -602,7 +602,8 @@ impl Model {
     /// goes on top of the session's last-window stack, as in tmux. A window
     /// that becomes current loses its alert flags (tmux's
     /// `winlink_clear_flags`); reselecting the current one changes nothing.
-    pub fn select_window(&mut self, window: WindowId) {
+    #[cfg(test)]
+    pub(crate) fn select_window(&mut self, window: WindowId) {
         let Some(session) = self.windows.get(&window).map(|w| w.session) else {
             return;
         };
@@ -610,7 +611,7 @@ impl Model {
     }
 
     /// [`Model::select_window`] in `session`, which holds `window`.
-    pub fn select_window_in(&mut self, session: SessionId, window: WindowId) {
+    pub(crate) fn select_window_in(&mut self, session: SessionId, window: WindowId) {
         if !self.has_link(session, window) {
             return;
         }
@@ -631,7 +632,7 @@ impl Model {
 
     /// True once every session is gone, after at least one existed: the
     /// server should exit, unless `exit-empty` is off.
-    pub fn closed(&self) -> bool {
+    pub(crate) fn closed(&self) -> bool {
         self.had_session
             && self.sessions.is_empty()
             && self.options.lookup("exit-empty", &[]) != Some("off")
@@ -641,7 +642,7 @@ impl Model {
     /// exit code, `None` when a signal ended it): `remain-on-exit` looked
     /// up pane over window over session over global. `failed` keeps it
     /// unless it exited 0, as tmux 3.7b (recorded: a signal keeps it too).
-    pub fn remain_on_exit(&self, pane: PaneId, status: Option<i32>) -> bool {
+    pub(crate) fn remain_on_exit(&self, pane: PaneId, status: Option<i32>) -> bool {
         match self
             .options
             .lookup(REMAIN_ON_EXIT, &options::chain(self, pane))
@@ -653,7 +654,7 @@ impl Model {
     }
 
     /// The text of a dead pane: its `remain-on-exit-format` expanded.
-    pub fn dead_pane_text(&self, pane: PaneId) -> String {
+    pub(crate) fn dead_pane_text(&self, pane: PaneId) -> String {
         let chain = options::chain(self, pane);
         let format = self
             .options
@@ -662,7 +663,7 @@ impl Model {
         crate::cmd::expand(format, &options::FormatCtx::new(self, pane))
     }
 
-    pub fn session_by_name(&self, name: &str) -> Option<SessionId> {
+    pub(crate) fn session_by_name(&self, name: &str) -> Option<SessionId> {
         self.sessions
             .values()
             .find(|s| s.name == name)
@@ -670,7 +671,7 @@ impl Model {
     }
 
     /// The lowest free window index at or above `base-index` in `session`.
-    pub fn free_window_index(&self, session: SessionId) -> u32 {
+    pub(crate) fn free_window_index(&self, session: SessionId) -> u32 {
         let used: Vec<u32> = self
             .sessions
             .get(&session)
@@ -696,7 +697,7 @@ impl Model {
     /// `default-shell` for `session`: the shell a new pane starts, as tmux
     /// starts it. Its default is the server's own shell, picked at start
     /// as tmux's `getshell` picks it (`compat::server_started`).
-    pub fn default_shell(&self, session: SessionId) -> Option<String> {
+    pub(crate) fn default_shell(&self, session: SessionId) -> Option<String> {
         self.options
             .lookup("default-shell", &[options::Owner::Session(session)])
             .filter(|v| !v.is_empty())
@@ -705,7 +706,7 @@ impl Model {
 
     /// `default-command` for `session`: what a new pane runs when it is
     /// given no command, through its shell.
-    pub fn default_command(&self, session: SessionId) -> Option<String> {
+    pub(crate) fn default_command(&self, session: SessionId) -> Option<String> {
         self.options
             .lookup("default-command", &[options::Owner::Session(session)])
             .filter(|v| !v.is_empty())
@@ -713,7 +714,7 @@ impl Model {
     }
 
     /// `base-index` for `session`: where new windows start numbering.
-    pub fn base_index(&self, session: SessionId) -> u32 {
+    pub(crate) fn base_index(&self, session: SessionId) -> u32 {
         self.number_option(
             "base-index",
             &[options::Owner::Session(session)],
@@ -722,7 +723,7 @@ impl Model {
     }
 
     /// `pane-base-index` for `window`: the index of its first pane.
-    pub fn pane_base_index(&self, window: WindowId) -> u32 {
+    pub(crate) fn pane_base_index(&self, window: WindowId) -> u32 {
         let mut chain = vec![options::Owner::Window(window)];
         if let Some(w) = self.windows.get(&window) {
             chain.push(options::Owner::Session(w.session));
@@ -731,12 +732,12 @@ impl Model {
     }
 
     /// `history-limit` for `session`: the scrollback a new pane gets.
-    pub fn history_limit(&self, session: SessionId) -> usize {
+    pub(crate) fn history_limit(&self, session: SessionId) -> usize {
         let chain = [options::Owner::Session(session)];
         self.number_option("history-limit", &chain, HISTORY_LIMIT as u32) as usize
     }
 
-    pub fn window_at_index(&self, session: SessionId, index: u32) -> Option<WindowId> {
+    pub(crate) fn window_at_index(&self, session: SessionId, index: u32) -> Option<WindowId> {
         let s = self.sessions.get(&session)?;
         s.windows
             .iter()
@@ -746,7 +747,7 @@ impl Model {
 
     /// Records that `pane`'s child exited and the master drained. Removes
     /// the pane (with the cascade) unless `remain-on-exit` keeps it.
-    pub fn pane_exited(&mut self, pane: PaneId, status: Option<i32>) {
+    pub(crate) fn pane_exited(&mut self, pane: PaneId, status: Option<i32>) {
         if !self.panes.contains_key(&pane) {
             return;
         }
@@ -764,7 +765,7 @@ impl Model {
     /// otherwise the window is unzoomed (as tmux 3.7b does whenever a pane
     /// leaves) and the remaining panes are laid out again. Returns the
     /// removed panes still live, for `pane-exited`.
-    pub fn remove_pane(&mut self, pane: PaneId) -> Removed {
+    pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Removed {
         let Some(window_id) = self.panes.get(&pane).map(|p| p.window) else {
             return Vec::new();
         };
@@ -799,7 +800,7 @@ impl Model {
     /// it if it was the last pane) and the pane map, and heads the history.
     /// Entries past `scratchpad-history` are dropped, their processes hung
     /// up; those returned were still live.
-    pub fn stash_pane(&mut self, pane: PaneId) -> Result<Removed, String> {
+    pub(crate) fn stash_pane(&mut self, pane: PaneId) -> Result<Removed, String> {
         let window_id = self
             .panes
             .get(&pane)
@@ -858,7 +859,7 @@ impl Model {
 
     /// Shows the hidden scratchpad `pane` in `window`: on top at its last
     /// size, held inside the window, and active.
-    pub fn unstash_pane(&mut self, pane: PaneId, window: WindowId) -> Result<(), String> {
+    pub(crate) fn unstash_pane(&mut self, pane: PaneId, window: WindowId) -> Result<(), String> {
         let Some(at) = self.scratch.iter().position(|s| s.pane.id == pane) else {
             return Err(format!("no such scratchpad: {pane}"));
         };
@@ -890,7 +891,7 @@ impl Model {
     /// A hidden scratchpad's process exited: it leaves the history, unless
     /// `generation` is not its process's (a respawn's event).
     // ponytail: no `pane-exited` is emitted for a hidden pane that exits.
-    pub fn drop_stashed(&mut self, pane: PaneId, generation: u64) -> bool {
+    pub(crate) fn drop_stashed(&mut self, pane: PaneId, generation: u64) -> bool {
         let Some(at) = self
             .scratch
             .iter()
@@ -905,20 +906,20 @@ impl Model {
     /// Removes a window and its panes, from every session it is linked
     /// into. A session closes if this was its last window. Returns the
     /// removed panes still live.
-    pub fn remove_window(&mut self, window: WindowId) -> Removed {
+    pub(crate) fn remove_window(&mut self, window: WindowId) -> Removed {
         self.kill_window_everywhere(window, true)
     }
 
     /// Removes a session. Its windows go with it unless another session (a
     /// link elsewhere, a group member) holds them. Returns the removed panes
     /// still live.
-    pub fn remove_session(&mut self, session: SessionId) -> Removed {
+    pub(crate) fn remove_session(&mut self, session: SessionId) -> Removed {
         let orphans = self.destroy_session(session);
         self.close_orphans(&orphans)
     }
 
     /// The live panes, as removing them all (server exit) would return.
-    pub fn live_panes(&self) -> Removed {
+    pub(crate) fn live_panes(&self) -> Removed {
         self.panes
             .values()
             .filter(|p| p.dead.is_none())
@@ -927,7 +928,7 @@ impl Model {
     }
 
     /// Where `pane` is now.
-    pub fn place_of(&self, pane: &Pane) -> Place {
+    pub(crate) fn place_of(&self, pane: &Pane) -> Place {
         Place {
             window: Some(pane.window),
             session: self.windows.get(&pane.window).map(|w| w.session),
@@ -962,14 +963,14 @@ impl Model {
     /// size changed. A window too small for its panes squeezes some to
     /// nothing in the layout; the pane itself keeps at least one cell each
     /// way (tmux's `PANE_MINIMUM`).
-    pub fn relayout(&mut self, window: WindowId) {
+    pub(crate) fn relayout(&mut self, window: WindowId) {
         self.relayout_with(window, false);
     }
 
     /// [`Model::relayout`] for a mouse drag's report: each pty learns its
     /// new size at most every 250 ms, as in tmux
     /// ([`crate::server::pane::PaneHandle::resize_held`]).
-    pub fn relayout_held(&mut self, window: WindowId) {
+    pub(crate) fn relayout_held(&mut self, window: WindowId) {
         self.relayout_with(window, true);
     }
 
@@ -1319,7 +1320,7 @@ impl Model {
     /// (`b:3` and `a:1` can be one window): the session the target names,
     /// else the current one if it holds the window, else the most recently
     /// active session that does.
-    pub fn resolve_winlink(
+    pub(crate) fn resolve_winlink(
         &self,
         target: &Target,
         ctx: &ClientCtx,
@@ -1357,7 +1358,7 @@ impl Model {
     /// a pane in tmux but whose grofe handler resolves it as a window or a
     /// session (`set-option`, `set-hook`, `select-layout`): a bare word
     /// becomes the pane it names. Every other target is returned as is.
-    pub fn pane_type(&self, target: &Target, ctx: &ClientCtx) -> Result<Target, String> {
+    pub(crate) fn pane_type(&self, target: &Target, ctx: &ClientCtx) -> Result<Target, String> {
         match target {
             Target::Session(SessionRef::Bare(word)) => Ok(Target::Pane(PaneRef {
                 session: SessionRef::Current,

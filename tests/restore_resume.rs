@@ -15,7 +15,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use common::{PROMPT, TestServer, try_wait_until};
+use common::{PROMPT, TestServer, cell, try_wait_until};
 use grofe::server::START_MARKER;
 use grofe::server::layout::{GeometryCell, LayoutGeometry};
 use grofe::server::restore::stagger_delay;
@@ -163,16 +163,6 @@ fn saved_resumes(srv: &TestServer) -> BTreeMap<String, Option<Vec<String>>> {
 }
 
 // ---- snapshots written by hand ----
-
-fn cell(x: u16, y: u16, cols: u16, rows: u16, uid: &str) -> LayoutGeometry<String> {
-    LayoutGeometry {
-        x,
-        y,
-        cols,
-        rows,
-        cell: GeometryCell::Pane(uid.to_string()),
-    }
-}
 
 fn pane(uid: &str, cwd: &Path, resume: Option<Vec<String>>) -> PaneSnap {
     PaneSnap {

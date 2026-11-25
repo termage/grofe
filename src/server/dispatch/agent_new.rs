@@ -27,7 +27,7 @@ enum Policy {
 
 /// Branch names: no whitespace, no `..`, no leading `-`, no control
 /// characters, at most 100 chars.
-pub fn valid_branch(b: &str) -> bool {
+pub(crate) fn valid_branch(b: &str) -> bool {
     !b.is_empty()
         && b.chars().count() <= 100
         && !b.starts_with('-')
@@ -36,7 +36,7 @@ pub fn valid_branch(b: &str) -> bool {
 }
 
 /// `<repo root>/../worktrees/<branch, / as ->`.
-pub fn worktree_path(repo_root: &Path, branch: &str) -> PathBuf {
+pub(crate) fn worktree_path(repo_root: &Path, branch: &str) -> PathBuf {
     let parent = repo_root.parent().unwrap_or(repo_root);
     parent.join("worktrees").join(branch.replace('/', "-"))
 }
@@ -61,7 +61,7 @@ fn policy(word: &str) -> Policy {
 }
 
 /// `agent new`: opens the window or split now, or once the worktree exists.
-pub fn run(state: &mut State, ctx: &ClientCtx, c: AgentNew) -> Result<String, String> {
+pub(crate) fn run(state: &mut State, ctx: &ClientCtx, c: AgentNew) -> Result<String, String> {
     let kind = state
         .agent_kinds
         .iter()

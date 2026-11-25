@@ -29,7 +29,7 @@ use crate::server::input::{Decoder, Input as Decoded, Key, KeyCode, parse_prefix
 use crate::types::PaneId;
 
 /// Events forwarding subscribes to.
-pub const EVENTS: [&str; 4] = [
+pub(crate) const EVENTS: [&str; 4] = [
     "open-url",
     "ports-changed",
     "pane-exited",

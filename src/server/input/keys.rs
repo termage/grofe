@@ -149,17 +149,17 @@ impl Keypad {
     }
 
     /// tmux's name for the key.
-    pub fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         self.row().1
     }
 
     /// Where the key sorts among tmux's key codes, from 0.
-    pub fn order(self) -> u32 {
+    pub(crate) fn order(self) -> u32 {
         KEYPAD.iter().position(|r| r.0 == self).unwrap_or(0) as u32
     }
 
     /// The key the `ESC O <final>` sequence of an application keypad is.
-    pub fn from_ss3(final_byte: u8) -> Option<Keypad> {
+    pub(crate) fn from_ss3(final_byte: u8) -> Option<Keypad> {
         KEYPAD.iter().find(|r| r.3 == final_byte).map(|r| r.0)
     }
 }
@@ -173,7 +173,7 @@ pub(super) const C0_NAMES: [&str; 32] = [
 ];
 
 /// The most `UserN` tmux numbers (`KEYC_NUSER`).
-pub const MAX_USER_KEY: u16 = 1000;
+pub(crate) const MAX_USER_KEY: u16 = 1000;
 
 /// The key C0 code `code` is: `Tab`, `Enter` and `Escape` are keys of
 /// their own.
@@ -351,7 +351,7 @@ pub struct Mouse {
 impl Mouse {
     /// tmux's `m->b`: the button (0 to 2, 3 for a release), 32 for motion,
     /// 64 for the wheel, and 4, 8, 16 for Shift, Meta and Ctrl.
-    pub fn code(&self) -> u32 {
+    pub(crate) fn code(&self) -> u32 {
         let button = |b: MouseButton| match b {
             MouseButton::Left => 0,
             MouseButton::Middle => 1,
@@ -397,12 +397,12 @@ pub enum MouseButton {
 }
 
 impl Key {
-    pub fn new(code: KeyCode, mods: Mods) -> Key {
+    pub(crate) fn new(code: KeyCode, mods: Mods) -> Key {
         Key { code, mods }
     }
 
     /// A key with no modifiers.
-    pub fn plain(code: KeyCode) -> Key {
+    pub(crate) fn plain(code: KeyCode) -> Key {
         Key::new(code, Mods::default())
     }
 
@@ -410,7 +410,7 @@ impl Key {
     /// (`S-a` and `A` fold alike, as do `C-S-a` and `C-A`), and `S-Tab`
     /// folded into `BTab`.
     // ponytail: ASCII letters only; other scripts keep an explicit shift.
-    pub fn folded(mut self) -> Key {
+    pub(crate) fn folded(mut self) -> Key {
         match self.code {
             KeyCode::Char(c) if c.is_ascii_lowercase() && self.mods.shift => {
                 self.code = KeyCode::Char(c.to_ascii_uppercase());
@@ -427,7 +427,7 @@ impl Key {
     }
 
     /// Whether `self` and `other` are the same key once folded.
-    pub fn matches(&self, other: &Key) -> bool {
+    pub(crate) fn matches(&self, other: &Key) -> bool {
         self == other || self.folded() == other.folded()
     }
 }
@@ -555,7 +555,7 @@ pub(super) fn function_key_number(s: &str) -> Option<u8> {
 }
 
 /// Parse the `prefix` option: a key name or `None` (no prefix key).
-pub fn parse_prefix(value: &str) -> Result<Option<Key>, String> {
+pub(crate) fn parse_prefix(value: &str) -> Result<Option<Key>, String> {
     if value.eq_ignore_ascii_case("None") {
         Ok(None)
     } else {

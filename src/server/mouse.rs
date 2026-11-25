@@ -97,11 +97,11 @@ use crate::types::{
 };
 
 /// How long a click waits for the next one (tmux's `KEYC_CLICK_TIMEOUT`).
-pub const CLICK_TIMEOUT: Duration = Duration::from_millis(300);
+pub(crate) const CLICK_TIMEOUT: Duration = Duration::from_millis(300);
 
 /// How often a copy-mode drag held on a pane's top or bottom row scrolls
 /// (tmux's `WINDOW_COPY_DRAG_REPEAT_TIME`).
-pub const DRAG_REPEAT: Duration = Duration::from_millis(50);
+pub(crate) const DRAG_REPEAT: Duration = Duration::from_millis(50);
 
 /// Each client's place in the click and drag sequence, and the mouse event
 /// a bound command is running for.
@@ -183,7 +183,7 @@ struct Click {
 /// The mouse event a bound command runs for (M36-R3's "the pane or status
 /// range under the current mouse event").
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MouseTarget {
+pub(crate) struct MouseTarget {
     pub client: ClientId,
     /// The client cell of the event.
     pub cell: (u16, u16),
@@ -216,13 +216,13 @@ pub struct MouseTarget {
 
 impl MouseState {
     /// The mouse event the running command was bound to, if any.
-    pub fn current(&self) -> Option<&MouseTarget> {
+    pub(crate) fn current(&self) -> Option<&MouseTarget> {
         self.current.as_ref()
     }
 
     /// Runs `f` with `target` as the current mouse event (a shell-form
     /// conditional's branch, later), then restores the one before.
-    pub fn with_current<R>(
+    pub(crate) fn with_current<R>(
         state: &mut State,
         target: Option<MouseTarget>,
         f: impl FnOnce(&mut State) -> R,
@@ -236,7 +236,7 @@ impl MouseState {
 
 /// Routes mouse input (mouse keys, the built-in model, copy-mode drags,
 /// forwarding).
-pub struct MouseHook;
+pub(crate) struct MouseHook;
 
 impl InputHook for MouseHook {
     fn on_input(
@@ -947,7 +947,7 @@ fn title_under(state: &State, client: ClientId, cell: (u16, u16)) -> Option<Pane
 /// moving with the pointer, as a framed tile dragged by its title does.
 /// Outside a mouse key's commands it is tmux's own failure, as
 /// `send-keys -M`'s.
-pub fn drag_pane(state: &mut State) -> Result<String, String> {
+pub(crate) fn drag_pane(state: &mut State) -> Result<String, String> {
     let Some(t) = state.mouse.current.clone() else {
         return Err(crate::cmd::target::NO_MOUSE_TARGET.to_string());
     };
@@ -1095,7 +1095,7 @@ fn abandon_move(state: &mut State, client: ClientId) {
 /// The pane a client is moving in window `window`, and where its top-left
 /// content cell is drawn: above everything, its own place left empty
 /// (`clients::compose_client`).
-pub fn lifted(state: &State, window: WindowId) -> Option<(PaneId, (i32, i32))> {
+pub(crate) fn lifted(state: &State, window: WindowId) -> Option<(PaneId, (i32, i32))> {
     state
         .mouse
         .pointers
@@ -1149,7 +1149,7 @@ fn drop_move(state: &mut State, client: ClientId, mv: PaneMove, cell: (u16, u16)
 /// `send-keys -M`: the mouse event the running command is for goes to its
 /// pane, as the pane's mouse mode asks (tmux's `window_pane_key`). Outside
 /// a mouse key's commands it is tmux's own failure.
-pub fn send_current(state: &mut State) -> Result<String, String> {
+pub(crate) fn send_current(state: &mut State) -> Result<String, String> {
     let Some(t) = state.mouse.current.clone() else {
         return Err(crate::cmd::target::NO_MOUSE_TARGET.to_string());
     };
@@ -1331,7 +1331,7 @@ fn drag_float(state: &mut State, client: ClientId, pane: PaneId, from: (u16, u16
 /// the current mouse event, and a bare `=` resolved to the pointer's
 /// target (M36-R3). The first error stops the rest and shows on the
 /// client's status row.
-pub fn run_mouse_binding(
+pub(crate) fn run_mouse_binding(
     state: &mut State,
     target: &MouseTarget,
     cmds: &[Vec<String>],
@@ -1353,7 +1353,7 @@ pub fn run_mouse_binding(
 /// replaced by the current mouse event's target (M36-R3). Outside a mouse
 /// key's commands a bare `=` is left as it is, the literal session name it
 /// is natively, which no session can have.
-pub fn resolve_targets(state: &State, argv: &[String]) -> Vec<String> {
+pub(crate) fn resolve_targets(state: &State, argv: &[String]) -> Vec<String> {
     let Some(m) = &state.mouse.current else {
         return argv.to_vec();
     };
@@ -1384,7 +1384,7 @@ pub fn resolve_targets(state: &State, argv: &[String]) -> Vec<String> {
 /// status line or outside a range), `mouse_pane`, and `mouse_x`/`mouse_y`
 /// ([`MouseTarget::pane_cell`]). `None` lets the caller's own variables
 /// answer.
-pub fn format_var(state: &State, name: &str) -> Option<String> {
+pub(crate) fn format_var(state: &State, name: &str) -> Option<String> {
     let m = state.mouse.current.as_ref()?;
     match name {
         "mouse_status_range" => Some(match &m.range {
@@ -1406,7 +1406,7 @@ pub fn format_var(state: &State, name: &str) -> Option<String> {
 /// The client cell of the mouse event client `client`'s running command
 /// was bound to: where a menu a mouse key opens goes (spec §4.5, TC.7's
 /// `menu::open` takes it as its position).
-pub fn pointer(state: &State, client: ClientId) -> Option<(u16, u16)> {
+pub(crate) fn pointer(state: &State, client: ClientId) -> Option<(u16, u16)> {
     state
         .mouse
         .current
@@ -1420,7 +1420,7 @@ pub fn pointer(state: &State, client: ClientId) -> Option<(u16, u16)> {
 /// report this kind of event, or the encoding cannot carry it. X10 clamps
 /// a position past its reach to 255 and drops only a button byte that
 /// overflows; UTF-8 drops a value past U+07FF.
-pub fn encode(m: &Mouse, x: u16, y: u16, modes: &InputModes) -> Option<Vec<u8>> {
+pub(crate) fn encode(m: &Mouse, x: u16, y: u16, modes: &InputModes) -> Option<Vec<u8>> {
     let reported = match m.kind {
         MouseKind::Drag(_) => matches!(modes.mouse, MouseMode::Drag | MouseMode::Motion),
         MouseKind::Move => modes.mouse == MouseMode::Motion,
@@ -1504,7 +1504,7 @@ fn copy_pane_at(
 
 /// The pane the running mouse key is for, if it is over a pane or a
 /// border (tmux's `cmd_mouse_pane`): `copy-mode -M`'s pane.
-pub fn event_pane(state: &State) -> Option<PaneId> {
+pub(crate) fn event_pane(state: &State) -> Option<PaneId> {
     let m = state.mouse.current.as_ref()?;
     m.range.is_none().then_some(m.pane)
 }
@@ -1514,7 +1514,7 @@ pub fn event_pane(state: &State) -> Option<PaneId> {
 /// copy mode under the pointer moves to it (`window_copy_move_mouse`);
 /// and `begin-selection` for any mouse event starts a drag instead of a
 /// plain selection ([`start_drag`]). Whether that was the whole command.
-pub fn copy_command(state: &mut State, pane: PaneId, args: &[String]) -> bool {
+pub(crate) fn copy_command(state: &mut State, pane: PaneId, args: &[String]) -> bool {
     let Some(m) = state.mouse.current.clone() else {
         return false;
     };
@@ -1537,7 +1537,7 @@ pub fn copy_command(state: &mut State, pane: PaneId, args: &[String]) -> bool {
 /// at (a drag's press), the selection starts there (or a word or line
 /// selection the press is inside keeps its first word or line), and until
 /// the release each report moves its end ([`drag_update`]).
-pub fn start_drag(state: &mut State) {
+pub(crate) fn start_drag(state: &mut State) {
     let Some(m) = state.mouse.current.clone() else {
         return;
     };
@@ -1658,7 +1658,7 @@ fn cancel_move(state: &mut State, client: ClientId) {
 
 /// Client `id` is gone: its pointer, and with it any drag and its timer,
 /// goes too (the client's removal calls this).
-pub fn client_gone(state: &mut State, id: ClientId) {
+pub(crate) fn client_gone(state: &mut State, id: ClientId) {
     // A move it had going is cancelled, its preview with it.
     cancel_move(state, id);
     state.mouse.pointers.remove(&id);

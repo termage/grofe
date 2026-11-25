@@ -21,7 +21,7 @@ use crate::server::buffers;
 
 /// Which end of the selection follows the cursor (tmux's `cursordrag`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Drag {
+pub(crate) enum Drag {
     #[default]
     None,
     /// The end (`CURSORDRAG_ENDSEL`).
@@ -32,7 +32,7 @@ pub enum Drag {
 
 /// What a selection extends by as the cursor moves (tmux's `selflag`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Unit {
+pub(crate) enum Unit {
     #[default]
     Char,
     Word,
@@ -58,7 +58,7 @@ pub struct Copied {
 /// The selection state beyond [`Mode`]'s own fields (tmux's
 /// `window_copy_mode_data`).
 #[derive(Debug, Default)]
-pub struct Sel {
+pub(crate) struct Sel {
     pub drag: Drag,
     pub unit: Unit,
     /// Where a word or line selection started (`dx`, `dy`).
@@ -85,7 +85,7 @@ pub struct Sel {
 
 /// tmux's `window_copy_update_selection`: the selection's moving end
 /// follows the cursor.
-pub fn update_selection(mode: &mut Mode) {
+pub(crate) fn update_selection(mode: &mut Mode) {
     if !mode.selecting && mode.line_sel == LineSel::None {
         return;
     }
@@ -200,7 +200,7 @@ fn start_selection(mode: &mut Mode) {
 // ---- The mouse (TM.6) --------------------------------------------------------
 
 /// tmux's `window_copy_move_mouse`: the cursor to view cell `(x, y)`.
-pub fn move_to(mode: &mut Mode, x: usize, y: usize) {
+pub(crate) fn move_to(mode: &mut Mode, x: usize, y: usize) {
     mode.update_cursor(x, y);
 }
 
@@ -208,7 +208,7 @@ pub fn move_to(mode: &mut Mode, x: usize, y: usize) {
 /// first update: a press outside the first word or line of a word or line
 /// selection starts a character selection there; inside it, the cursor
 /// goes to its word's start or its line's, and the selection keeps it.
-pub fn start_drag(mode: &mut Mode, x: usize, y: usize) {
+pub(crate) fn start_drag(mode: &mut Mode, x: usize, y: usize) {
     if y >= mode.sy() {
         return;
     }
@@ -236,7 +236,7 @@ pub fn start_drag(mode: &mut Mode, x: usize, y: usize) {
 /// tmux's `window_copy_drag_update` at view cell `(x, y)`: the cursor and
 /// the selection's moving end go there, and on the view's top or bottom
 /// row the view scrolls a line. Whether it did (the drag timer starts).
-pub fn drag_update(mode: &mut Mode, x: usize, y: usize) -> bool {
+pub(crate) fn drag_update(mode: &mut Mode, x: usize, y: usize) -> bool {
     let (old_cx, old_cy) = (mode.cx, mode.cy);
     mode.update_cursor(x, y);
     update_selection(mode);
@@ -249,7 +249,7 @@ pub fn drag_update(mode: &mut Mode, x: usize, y: usize) -> bool {
 /// tmux's `window_copy_scroll_timer`: another line while the cursor is on
 /// the view's top or bottom row. Whether it is there (the timer goes on),
 /// and whether anything moved (at the history's end nothing does).
-pub fn drag_scroll(mode: &mut Mode) -> (bool, bool) {
+pub(crate) fn drag_scroll(mode: &mut Mode) -> (bool, bool) {
     drag_scroll_at(mode, mode.cy)
 }
 
@@ -269,7 +269,7 @@ fn drag_scroll_at(mode: &mut Mode, y: usize) -> (bool, bool) {
 }
 
 /// tmux's `window_copy_other_end`.
-pub fn other_end(mode: &mut Mode) {
+pub(crate) fn other_end(mode: &mut Mode) {
     if !mode.selecting && mode.line_sel == LineSel::None {
         return;
     }
@@ -308,7 +308,7 @@ pub fn other_end(mode: &mut Mode) {
 }
 
 /// tmux's `window_copy_clear_selection`.
-pub fn clear_selection(mode: &mut Mode) {
+pub(crate) fn clear_selection(mode: &mut Mode) {
     mode.selecting = false;
     mode.sel.drag = Drag::None;
     mode.line_sel = LineSel::None;
@@ -335,7 +335,7 @@ fn rectangle_set(mode: &mut Mode, rect: bool) {
 /// selection the search match at the cursor (TM.3); `None` when there is
 /// neither or it is empty, `Err` when it is larger than a buffer may be
 /// ([`buffers::MAX_BUFFER_BYTES`]).
-pub fn get_selection(mode: &Mode) -> Result<Option<Vec<u8>>, String> {
+pub(crate) fn get_selection(mode: &Mode) -> Result<Option<Vec<u8>>, String> {
     extract(mode, buffers::MAX_BUFFER_BYTES)
 }
 
@@ -450,7 +450,7 @@ fn copy_line(mode: &Mode, buf: &mut Vec<u8>, y: usize, mut sx: usize, mut ex: us
 
 /// Whether copy row `y`, column `x` is drawn selected (tmux's
 /// `screen_check_selection`, in the copy's rows).
-pub fn highlighted(mode: &Mode, x: usize, y: usize) -> bool {
+pub(crate) fn highlighted(mode: &Mode, x: usize, y: usize) -> bool {
     if !mode.selecting {
         return false;
     }
@@ -710,7 +710,7 @@ pub fn command(mode: &mut Mode, name: &str, args: &[String], ctx: &Ctx<'_>) -> O
 /// Stores the copies a command made: a new automatic buffer, or appended
 /// to the newest automatic one, which tmux then stores by its name
 /// (making it a named buffer). `Err` with the first that failed.
-pub fn store(state: &mut State, copied: Vec<Copied>) -> Result<(), String> {
+pub(crate) fn store(state: &mut State, copied: Vec<Copied>) -> Result<(), String> {
     let mut result = Ok(());
     for c in copied {
         let stored = if c.append
@@ -737,7 +737,7 @@ pub fn store(state: &mut State, copied: Vec<Copied>) -> Result<(), String> {
 /// The selection's format variables (tmux's `window_copy_formats`);
 /// `resized` when the pane has a resize the mode has not yet applied,
 /// which clears the selection.
-pub fn format_var(mode: &Mode, name: &str, resized: bool) -> Option<String> {
+pub(crate) fn format_var(mode: &Mode, name: &str, resized: bool) -> Option<String> {
     let flag = |b: bool| if b { "1" } else { "0" }.to_string();
     let sel = mode.selecting && !resized;
     Some(match name {

@@ -1,11 +1,11 @@
 use super::*;
 
-pub const ROOT_TABLE: &str = "root";
-pub const PREFIX_TABLE: &str = "prefix";
+pub(crate) const ROOT_TABLE: &str = "root";
+pub(crate) const PREFIX_TABLE: &str = "prefix";
 
 /// Where a binding came from (spec §5.4, key provenance).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BindingSource {
+pub(crate) enum BindingSource {
     /// The built-in default table.
     Default,
     /// A config file layer (spec §5.1), at the key's line.
@@ -19,7 +19,7 @@ pub enum BindingSource {
 impl BindingSource {
     /// Whether the binding came from the config table (defaults or a
     /// file), which `reload` replaces (R10).
-    pub fn is_config(&self) -> bool {
+    pub(crate) fn is_config(&self) -> bool {
         matches!(self, BindingSource::Default | BindingSource::File { .. })
     }
 }
@@ -27,7 +27,7 @@ impl BindingSource {
 /// A key binding: the commands to run, in order, whether it repeats
 /// (`bind -r`), and where it came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Binding {
+pub(crate) struct Binding {
     /// Each command's argv (R12: a binding may be a sequence), run as
     /// already split, so a literal `;` argument stays literal.
     pub cmds: Vec<Vec<String>>,
@@ -50,7 +50,7 @@ pub struct Binding {
 
 impl Binding {
     /// A default-table binding: no description or name, grofe's dialect.
-    pub fn new(cmds: Vec<Vec<String>>, repeat: bool, source: BindingSource) -> Binding {
+    pub(crate) fn new(cmds: Vec<Vec<String>>, repeat: bool, source: BindingSource) -> Binding {
         Binding {
             cmds,
             repeat,
@@ -83,12 +83,14 @@ pub struct KeyTables {
 
 impl KeyTables {
     /// Binds one command.
-    pub fn bind(&mut self, table: &str, key: Key, argv: Vec<String>, repeat: bool) {
+    #[cfg(test)]
+    pub(crate) fn bind(&mut self, table: &str, key: Key, argv: Vec<String>, repeat: bool) {
         self.bind_seq(table, key, vec![argv], repeat);
     }
 
     /// Binds a command sequence, run in order, as a default binding.
-    pub fn bind_seq(&mut self, table: &str, key: Key, cmds: Vec<Vec<String>>, repeat: bool) {
+    #[cfg(test)]
+    pub(crate) fn bind_seq(&mut self, table: &str, key: Key, cmds: Vec<Vec<String>>, repeat: bool) {
         self.insert(
             table,
             key,
@@ -98,7 +100,7 @@ impl KeyTables {
 
     /// Binds `b` as it is. A runtime binding ends a runtime unbind of
     /// the same key.
-    pub fn insert(&mut self, table: &str, key: Key, b: Binding) {
+    pub(crate) fn insert(&mut self, table: &str, key: Key, b: Binding) {
         if !b.source.is_config() {
             self.runtime_unbound
                 .retain(|(t, k)| !(t == table && *k == key));
@@ -111,7 +113,7 @@ impl KeyTables {
 
     /// Remove the binding of exactly `key` (as spelled); whether one was
     /// there.
-    pub fn unbind(&mut self, table: &str, key: &Key) -> bool {
+    pub(crate) fn unbind(&mut self, table: &str, key: &Key) -> bool {
         self.tables
             .get_mut(table)
             .is_some_and(|t| t.remove(key).is_some())
@@ -120,7 +122,7 @@ impl KeyTables {
     /// `unbind-key` at runtime: removed now and kept removed by `reload`.
     /// A key that was not bound is not recorded, so a later config
     /// binding of it still applies.
-    pub fn unbind_runtime(&mut self, table: &str, key: &Key) {
+    pub(crate) fn unbind_runtime(&mut self, table: &str, key: &Key) {
         if self.unbind(table, key)
             && !self
                 .runtime_unbound
@@ -132,7 +134,7 @@ impl KeyTables {
     }
 
     /// Whether a runtime `unbind-key` holds `key` unbound over a `reload`.
-    pub fn is_runtime_unbound(&self, table: &str, key: &Key) -> bool {
+    pub(crate) fn is_runtime_unbound(&self, table: &str, key: &Key) -> bool {
         self.runtime_unbound
             .iter()
             .any(|(t, k)| t == table && k == key)
@@ -142,7 +144,7 @@ impl KeyTables {
     /// it from the config: a runtime binding of it and a runtime unbind go,
     /// and an unbound key gets its default binding until then (a reload that
     /// rebuilds no table keeps that).
-    pub fn release_runtime(&mut self, table: &str, key: &Key) {
+    pub(crate) fn release_runtime(&mut self, table: &str, key: &Key) {
         if self
             .exact(table, key)
             .is_some_and(|b| !b.source.is_config())
@@ -160,7 +162,7 @@ impl KeyTables {
 
     /// The binding `key` has in `table` on a fresh server: grofe's default
     /// tables, made tmux's stock ones as this server's are.
-    pub fn default_of(&self, table: &str, key: &Key) -> Option<Binding> {
+    pub(crate) fn default_of(&self, table: &str, key: &Key) -> Option<Binding> {
         let mut stock = default_bindings();
         if self.tmux_stock {
             stock.use_tmux_stock();
@@ -169,7 +171,7 @@ impl KeyTables {
     }
 
     /// Every key bound in `table`, sorted by name (stable output).
-    pub fn keys(&self, table: &str) -> Vec<Key> {
+    pub(crate) fn keys(&self, table: &str) -> Vec<Key> {
         let mut keys: Vec<Key> = self
             .tables
             .get(table)
@@ -180,24 +182,24 @@ impl KeyTables {
     }
 
     /// Whether a config binding (or unbinding) shaped these tables.
-    pub fn is_configured(&self) -> bool {
+    pub(crate) fn is_configured(&self) -> bool {
         self.configured
     }
 
     /// Every table's name, sorted.
-    pub fn table_names(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn table_names(&self) -> impl Iterator<Item = &str> {
         self.tables.keys().map(String::as_str)
     }
 
     /// The binding of exactly `key`, with no folding.
-    pub fn exact(&self, table: &str, key: &Key) -> Option<&Binding> {
+    pub(crate) fn exact(&self, table: &str, key: &Key) -> Option<&Binding> {
         self.tables.get(table)?.get(key)
     }
 
     /// The default table with the config's bindings over it (spec §5.1):
     /// each binding from `keys` replaces the default one, and one with no
     /// commands unbinds the key (R11).
-    pub fn from_config(keys: &[crate::config::KeyBinding]) -> KeyTables {
+    pub(crate) fn from_config(keys: &[crate::config::KeyBinding]) -> KeyTables {
         let mut t = default_bindings();
         t.configured = !keys.is_empty();
         for k in keys {
@@ -224,7 +226,7 @@ impl KeyTables {
 
     /// `self`'s config bindings replaced by `fresh`'s (R10): runtime and
     /// plugin bindings, and runtime unbinds, carry over.
-    pub fn with_config_from(&self, fresh: KeyTables) -> KeyTables {
+    pub(crate) fn with_config_from(&self, fresh: KeyTables) -> KeyTables {
         let mut t = fresh;
         if self.tmux_stock {
             t.use_tmux_stock();
@@ -263,7 +265,7 @@ impl KeyTables {
     /// tmux's binding, in tmux's dialect, with its note ([`TMUX_STOCK`]).
     /// A stock command grofe lacks (copy mode, buffers, marking, the clock)
     /// fails with the front end's reason when pressed.
-    pub fn use_tmux_stock(&mut self) {
+    pub(crate) fn use_tmux_stock(&mut self) {
         self.tmux_stock = true;
         if let Some(t) = self.tables.get_mut(PREFIX_TABLE) {
             t.retain(|_, b| b.source != BindingSource::Default);
@@ -341,14 +343,14 @@ impl KeyTables {
     /// Whether `table` exists: `root` always does, as in tmux; any other
     /// while something is bound in it (tmux drops a table whose last
     /// binding goes).
-    pub fn exists(&self, table: &str) -> bool {
+    pub(crate) fn exists(&self, table: &str) -> bool {
         table == ROOT_TABLE || self.tables.get(table).is_some_and(|t| !t.is_empty())
     }
 
     /// The binding for `key`: the one spelled exactly as `key`, else the
     /// one spelled as its folded form, else any whose folded form matches
     /// (the first by name, so the choice is stable).
-    pub fn get(&self, table: &str, key: &Key) -> Option<&Binding> {
+    pub(crate) fn get(&self, table: &str, key: &Key) -> Option<&Binding> {
         let t = self.tables.get(table)?;
         if let Some(b) = t.get(key) {
             return Some(b);
@@ -366,7 +368,7 @@ impl KeyTables {
     /// it: [`KeyTables::get`], else the table's `Any` binding (recorded:
     /// `Any` takes keys and mouse events alike, the prefix key still wins,
     /// and an exact binding wins over it).
-    pub fn lookup(&self, table: &str, key: &Key) -> Option<&Binding> {
+    pub(crate) fn lookup(&self, table: &str, key: &Key) -> Option<&Binding> {
         self.get(table, key)
             .or_else(|| self.exact(table, &Key::new(KeyCode::Any, Mods::default())))
     }

@@ -39,12 +39,12 @@ fn default_marked(model: &Model, src: Option<&Target>) -> Target {
 }
 
 /// `join-pane`.
-pub fn join_pane(state: &mut State, ctx: &ClientCtx, c: JoinPane) -> Result<String, String> {
+pub(crate) fn join_pane(state: &mut State, ctx: &ClientCtx, c: JoinPane) -> Result<String, String> {
     join(state, ctx, c)
 }
 
 /// `move-pane`: tmux's other name for `join-pane`.
-pub fn move_pane(state: &mut State, ctx: &ClientCtx, c: MovePane) -> Result<String, String> {
+pub(crate) fn move_pane(state: &mut State, ctx: &ClientCtx, c: MovePane) -> Result<String, String> {
     join(state, ctx, c)
 }
 
@@ -174,7 +174,7 @@ fn finish_leaving(model: &mut Model, from: WindowId, to: WindowId) {
 /// active in the window both are in; across windows, each window's
 /// incoming pane becomes its active one. `-d` leaves the active panes in
 /// their cells; a zoomed window unzooms unless `-Z`.
-pub fn swap_pane(state: &mut State, ctx: &ClientCtx, c: SwapPane) -> Result<String, String> {
+pub(crate) fn swap_pane(state: &mut State, ctx: &ClientCtx, c: SwapPane) -> Result<String, String> {
     let model = &mut state.model;
     let dst = model.resolve_pane(&c.dst, ctx)?;
     let dst_w = model.panes[&dst].window;
@@ -625,7 +625,7 @@ pub fn link_window(state: &mut State, ctx: &ClientCtx, c: LinkWindow) -> Result<
 
 /// `unlink-window`: the window leaves `-t`'s session (and its group). A
 /// window with no other link needs `-k`, which closes it.
-pub fn unlink_window(
+pub(crate) fn unlink_window(
     state: &mut State,
     ctx: &ClientCtx,
     c: UnlinkWindow,
@@ -715,7 +715,7 @@ pub(crate) fn next_index(index: u32) -> Result<u32, String> {
 /// session's size with none), and its panes are laid out again. As tmux
 /// 3.7b, it sets the window's `window-size` to `manual`, `-A`/`-a`
 /// included, so clients no longer resize it.
-pub fn resize_window(
+pub(crate) fn resize_window(
     state: &mut State,
     ctx: &ClientCtx,
     c: ResizeWindow,
@@ -777,7 +777,7 @@ pub fn resize_window(
 
 /// `last-pane`: the window's previously active pane becomes active again
 /// (leaving zoom), as tmux does ([`select_last`]).
-pub fn last_pane(state: &mut State, ctx: &ClientCtx, c: LastPane) -> Result<String, String> {
+pub(crate) fn last_pane(state: &mut State, ctx: &ClientCtx, c: LastPane) -> Result<String, String> {
     let model = &mut state.model;
     let window = model.resolve_window(&c.target, ctx)?;
     select_last(model, window, c.keep_zoom, c.input)?;
@@ -787,7 +787,7 @@ pub fn last_pane(state: &mut State, ctx: &ClientCtx, c: LastPane) -> Result<Stri
 /// `rotate-window`: every pane moves one index position up (`-U`, the
 /// default) or down (`-D`), taking over that position's cell. The active
 /// pane changes so that the same cell stays active, as in tmux 3.7b.
-pub fn rotate_window(
+pub(crate) fn rotate_window(
     state: &mut State,
     ctx: &ClientCtx,
     c: RotateWindow,
@@ -851,7 +851,7 @@ pub fn next_layout(state: &mut State, ctx: &ClientCtx, c: NextLayout) -> Result<
 
 /// `previous-layout`: the preset before the last one applied (the last,
 /// `tiled`, if none was).
-pub fn previous_layout(
+pub(crate) fn previous_layout(
     state: &mut State,
     ctx: &ClientCtx,
     c: NextLayout,
@@ -878,7 +878,7 @@ fn step_layout(
 /// `respawn-window`: the window keeps its first pane only (the others are
 /// killed) and starts it again with the given command or its own, as tmux
 /// does. A window with a live pane needs `-k`.
-pub fn respawn_window(
+pub(crate) fn respawn_window(
     state: &mut State,
     ctx: &ClientCtx,
     c: RespawnPane,

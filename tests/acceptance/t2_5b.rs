@@ -5,12 +5,10 @@
 
 // t2_5a loads the same file; each scenario module keeps its own copy so
 // neither depends on the other.
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{attach_command, display, hex_reader};
 
 use std::fs;
-use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -22,14 +20,6 @@ const PREFIX: &str = "\x02";
 
 /// A pane that prints a marker and then just waits.
 const IDLE: &str = "printf 'idle-pane'; exec sleep 600";
-
-fn attach(srv: &TestServer, target: &str) -> Command {
-    let mut cmd = srv.command();
-    cmd.args(["attach", "-t", target])
-        .env("TERM", "xterm-256color")
-        .env_remove("COLORTERM");
-    cmd
-}
 
 fn new_session(srv: &TestServer, name: &str, command: &str) {
     srv.cmd(&[
@@ -44,13 +34,6 @@ fn new_session(srv: &TestServer, name: &str, command: &str) {
         command,
     ])
     .unwrap_or_else(|e| panic!("new-session {name}: {e}"));
-}
-
-fn display(srv: &TestServer, target: &str, format: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, format])
-        .unwrap_or_default()
-        .trim_end()
-        .to_string()
 }
 
 fn wait_display(srv: &TestServer, target: &str, format: &str, want: &str) {
@@ -111,7 +94,7 @@ fn prefix_splits_arrows_move_and_prefix_d_detaches() {
     // Long enough that polling the CLI below never outlasts a repeat.
     srv.cmd(&["set-option", "-t", "main", "repeat-time", "2000"])
         .expect("repeat-time");
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("idle-pane");
 
     a.send(format!("{PREFIX}%"));
@@ -144,7 +127,7 @@ fn prefix_bindings_walk_windows_and_sessions() {
     let srv = TestServer::start();
     new_session(&srv, "main", IDLE);
     new_session(&srv, "other", IDLE);
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("[main]");
 
     a.send(format!("{PREFIX}c"));
@@ -183,7 +166,7 @@ fn prefix_c_opens_the_window_in_the_active_panes_cwd() {
         IDLE,
     ])
     .expect("new-session");
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("idle-pane");
     a.send(format!("{PREFIX}c"));
     wait_display(&srv, "main:", "#{window_index}", "2");
@@ -195,21 +178,11 @@ fn prefix_c_opens_the_window_in_the_active_panes_cwd() {
     );
 }
 
-/// Reads `n` raw bytes and prints them as hex, so a test sees exactly what
-/// reached the pane.
-fn hex_reader(push: &str, n: usize) -> String {
-    format!(
-        "printf '{push}ready\\n'; stty raw -echo; \
-         b=$(dd bs=1 count={n} 2>/dev/null | od -An -tx1 | tr -d ' \\n'); \
-         stty sane; printf 'got:%s:end' \"$b\"; exec sleep 600"
-    )
-}
-
 #[test]
 fn prefix_prefix_sends_the_prefix_to_the_pane() {
     let srv = TestServer::start();
     new_session(&srv, "main", &hex_reader("", 1));
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("ready");
     a.send(format!("{PREFIX}{PREFIX}"));
     a.wait_for("got:02:end");
@@ -219,7 +192,7 @@ fn prefix_prefix_sends_the_prefix_to_the_pane() {
 fn a_failing_binding_shows_its_error_in_the_status_line() {
     let srv = TestServer::start();
     new_session(&srv, "main", IDLE);
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("[main] 1:");
     // One window: there is no last window.
     a.send(format!("{PREFIX}l"));
@@ -248,7 +221,7 @@ fn neovim_edits_and_writes_a_file() {
         "main",
         &format!("exec nvim --clean '{}'", file.display()),
     );
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("note.txt");
     a.send("ihello from grofe");
     a.wait_for("hello from grofe");
@@ -281,7 +254,7 @@ fn fzf_picks_an_entry() {
             out.display()
         ),
     );
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("2/2");
     a.send("b");
     a.wait_for("1/2");
@@ -301,7 +274,7 @@ fn less_jumps_to_the_end_and_quits() {
         "main",
         "seq 1 500 | LESS= less; printf 'less-done'; exec sleep 600",
     );
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_until("less shows the start", Duration::from_secs(10), |t| {
         t.lines().next().is_some_and(|l| l.trim_end() == "1")
     });
@@ -319,7 +292,7 @@ fn less_jumps_to_the_end_and_quits() {
 fn a_kitty_pane_gets_escape_as_csi_u() {
     let srv = TestServer::start();
     new_session(&srv, "main", &hex_reader("\\033[>1u", 5));
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("ready");
     a.send("\x1b");
     a.wait_for("got:1b5b323775:end");
@@ -336,7 +309,7 @@ fn a_kitty_tui_quits_on_a_bare_q() {
                if [ \"$b\" = 1b5b31313375 ]; then printf 'tui-quit'; else printf 'bad:%s' \"$b\"; fi; \
                exec sleep 600";
     new_session(&srv, "main", tui);
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("ready");
     a.send("q");
     a.wait_for("tui-quit");
@@ -350,7 +323,7 @@ fn a_kitty_tui_quits_on_a_bare_q() {
 fn cd_renames_the_window_even_after_an_osc_title() {
     let srv = TestServer::start();
     new_session(&srv, "main", "exec sh");
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("[main] 1:");
     a.send("cd /tmp\r");
     a.wait_for("1:tmp*");
@@ -531,7 +504,7 @@ fn switch_client_moves_the_current_client_between_sessions() {
         srv.cmd(&["switch-client", "-n"]),
         Err("no current client\n".to_string())
     );
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("[main]");
     // A client with no history yet (a new attach, or the first after a
     // restart) goes back to the session used most recently before its own,
@@ -647,7 +620,7 @@ fn capture_pane_e_with_a_coloured_cell_in_the_last_column() {
 fn list_clients_matches_tmux_and_client_vars_reach_formats() {
     let srv = TestServer::start();
     new_session(&srv, "main", IDLE);
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("[main]");
     // tmux 3.7b's default list-clients line, flags included.
     assert_eq!(

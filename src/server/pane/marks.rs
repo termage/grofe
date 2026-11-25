@@ -39,24 +39,24 @@ use super::written;
 use super::{CellFlags, SnapCell};
 
 /// `GRID_LINE_START_PROMPT`: `OSC 133 ; A`.
-pub const PROMPT: u8 = 1;
+pub(crate) const PROMPT: u8 = 1;
 /// `GRID_LINE_START_OUTPUT`: `OSC 133 ; C`.
-pub const OUTPUT: u8 = 2;
+pub(crate) const OUTPUT: u8 = 2;
 
 /// The private modes the reader sets, in-band, to put a mark in the emulator's
 /// stream (`CSI ? 65533 h` for a prompt, `65534` for output). No program
 /// uses them.
-pub const MARK_PROMPT: u16 = 65533;
-pub const MARK_OUTPUT: u16 = 65534;
+pub(crate) const MARK_PROMPT: u16 = 65533;
+pub(crate) const MARK_OUTPUT: u16 = 65534;
 
 /// Rows of history the emulator keeps beyond `history-limit` between two
 /// calls to [`Marks::sync`]. More than one operation can push (a scroll of
 /// the whole screen, `ED 2`), so it exceeds any screen's height.
-pub const HISTORY_SLACK: usize = 4096;
+pub(crate) const HISTORY_SLACK: usize = 4096;
 
 /// The marks of one pane's normal screen.
 #[derive(Debug)]
-pub struct Marks {
+pub(crate) struct Marks {
     /// The scrollback, spilled out of the emulator's history at every
     /// [`Marks::sync`]; the emulator's own history stays empty between two.
     cold: Cold,
@@ -68,7 +68,7 @@ pub struct Marks {
 
 /// A grid row as a reflow sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RowShape {
+pub(crate) struct RowShape {
     /// The cells it holds: all of them when it wraps, else its used width.
     pub len: usize,
     /// It runs on into the next row.
@@ -111,7 +111,7 @@ fn alt<L: EventListener>(term: &Term<L>) -> bool {
 }
 
 impl Marks {
-    pub fn new(limit: usize) -> Marks {
+    pub(crate) fn new(limit: usize) -> Marks {
         Marks {
             cold: Cold::new(limit),
             origin: 0,
@@ -119,42 +119,42 @@ impl Marks {
         }
     }
 
-    pub fn cold(&self) -> &Cold {
+    pub(crate) fn cold(&self) -> &Cold {
         &self.cold
     }
 
-    pub fn cold_mut(&mut self) -> &mut Cold {
+    pub(crate) fn cold_mut(&mut self) -> &mut Cold {
         &mut self.cold
     }
 
     /// Rows of history: the cold ones and the emulator's own.
-    pub fn history_len<L: EventListener>(&self, term: &Term<L>) -> usize {
+    pub(crate) fn history_len<L: EventListener>(&self, term: &Term<L>) -> usize {
         self.cold.len() + term.grid().history_size()
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
 
     /// The mark bits of the row `top` rows below the history's start.
-    pub fn get(&self, top: usize) -> u8 {
+    pub(crate) fn get(&self, top: usize) -> u8 {
         self.map
             .get(&(self.origin + top as u64))
             .copied()
             .unwrap_or(0)
     }
 
-    pub fn set(&mut self, top: usize, bits: u8) {
+    pub(crate) fn set(&mut self, top: usize, bits: u8) {
         *self.map.entry(self.origin + top as u64).or_default() |= bits;
     }
 
     /// Resets the row's marks, as tmux's `grid_clear_lines` resets its flags.
-    pub fn erase(&mut self, top: usize) {
+    pub(crate) fn erase(&mut self, top: usize) {
         self.map.remove(&(self.origin + top as u64));
     }
 
     /// [`Self::erase`] for the rows `from..to`.
-    pub fn erase_range(&mut self, from: usize, to: usize) {
+    pub(crate) fn erase_range(&mut self, from: usize, to: usize) {
         if from >= to || self.map.is_empty() {
             return;
         }
@@ -166,12 +166,12 @@ impl Marks {
     }
 
     /// [`Self::erase`] for the rows `from` and after.
-    pub fn erase_from(&mut self, from: usize) {
+    pub(crate) fn erase_from(&mut self, from: usize) {
         self.map.split_off(&(self.origin + from as u64));
     }
 
     /// The `n` oldest rows are gone.
-    pub fn trim(&mut self, n: usize) {
+    pub(crate) fn trim(&mut self, n: usize) {
         if n == 0 {
             return;
         }
@@ -180,7 +180,7 @@ impl Marks {
         self.map = keep;
     }
 
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.map.clear();
     }
 
@@ -191,7 +191,7 @@ impl Marks {
 
     /// Records `bits` for the cursor's line (`input_osc_133`). The alternate
     /// screen has its own grid in tmux, which nothing reads.
-    pub fn record<L: EventListener>(&mut self, term: &Term<L>, bits: u8) {
+    pub(crate) fn record<L: EventListener>(&mut self, term: &Term<L>, bits: u8) {
         if !alt(term) {
             self.set(self.cursor_top(term), bits);
         }
@@ -221,7 +221,7 @@ impl Marks {
     /// runs after every operation, most of which push nothing, so that
     /// check is inlined into the caller.
     #[inline]
-    pub fn sync<L: EventListener>(&mut self, term: &mut Term<L>) {
+    pub(crate) fn sync<L: EventListener>(&mut self, term: &mut Term<L>) {
         if term.grid().history_size() == 0 || alt(term) {
             return;
         }
@@ -239,7 +239,7 @@ impl Marks {
     /// onto the screen is rejoined, and a screen that loses rows to joins
     /// takes rows from above. The older rows reflow in the store; logical
     /// lines reflow independently, so the two parts join up.
-    pub fn resize<L: EventListener>(&mut self, term: &mut Term<L>, size: impl Dimensions) {
+    pub(crate) fn resize<L: EventListener>(&mut self, term: &mut Term<L>, size: impl Dimensions) {
         let cols = size.columns();
         let widens = cols != term.columns();
         if alt(term) {
@@ -526,7 +526,7 @@ mod tests {
         use super::super::super::written::Written;
         use super::*;
 
-        pub struct Size(pub usize, pub usize);
+        pub(crate) struct Size(pub usize, pub usize);
 
         impl Dimensions for Size {
             fn total_lines(&self) -> usize {
@@ -540,14 +540,14 @@ mod tests {
             }
         }
 
-        pub struct Emu {
+        pub(crate) struct Emu {
             pub term: Term<Listener>,
             parser: Processor,
             pub marks: Marks,
         }
 
         impl Emu {
-            pub fn new(rows: usize, cols: usize, limit: usize) -> Emu {
+            pub(crate) fn new(rows: usize, cols: usize, limit: usize) -> Emu {
                 let config = Config {
                     scrolling_history: limit + HISTORY_SLACK,
                     ..Config::default()
@@ -561,7 +561,7 @@ mod tests {
 
             /// `text` with `\x01` standing for `OSC 133 ; A` and `\x02` for
             /// `OSC 133 ; C`.
-            pub fn feed(&mut self, text: &str) {
+            pub(crate) fn feed(&mut self, text: &str) {
                 let mut rest = text;
                 while let Some(at) = rest.find(['\x01', '\x02']) {
                     let (head, tail) = rest.split_at(at);
@@ -584,17 +584,17 @@ mod tests {
             }
 
             /// Bytes as they come from the pty, in-band marks included.
-            pub fn raw(&mut self, bytes: &[u8]) {
+            pub(crate) fn raw(&mut self, bytes: &[u8]) {
                 self.parser
                     .advance(&mut Written(&mut self.term, &mut self.marks, None), bytes);
             }
 
-            pub fn history(&self) -> usize {
+            pub(crate) fn history(&self) -> usize {
                 self.marks.history_len(&self.term)
             }
 
             /// Row `top` of the history and screen as text.
-            pub fn text(&self, top: usize) -> String {
+            pub(crate) fn text(&self, top: usize) -> String {
                 let grid = self.term.grid();
                 let cold = self.marks.cold();
                 let mut cells = Vec::new();
@@ -611,7 +611,7 @@ mod tests {
 
             /// The text of each marked row, oldest first, with `*` for a
             /// prompt start and `+` for an output start before it.
-            pub fn marked(&self) -> Vec<String> {
+            pub(crate) fn marked(&self) -> Vec<String> {
                 let rows = self.history() + self.term.screen_lines();
                 (0..rows)
                     .filter_map(|top| {

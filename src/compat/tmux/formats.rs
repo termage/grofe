@@ -58,7 +58,7 @@ use crate::cmd::{Command, RegisterSource};
 
 /// What a `#(cmd)` becomes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Jobs {
+pub(crate) enum Jobs {
     /// A status source's option, registered first: an option value the
     /// status line reads.
     Sources,
@@ -74,7 +74,7 @@ const NATIVE_MODIFIERS: &[&str] = &[
 
 /// `fmt`, a tmux format, in grofe's format language, with the status
 /// sources its `#(cmd)`s need registered first ([`Rewritten::before`]).
-pub fn to_native(fmt: &str, jobs: Jobs) -> Rewritten {
+pub(crate) fn to_native(fmt: &str, jobs: Jobs) -> Rewritten {
     let mut r = Rewriter {
         jobs,
         before: Vec::new(),
@@ -699,7 +699,7 @@ pub(crate) fn tmux_hook_names(window: bool) -> &'static [&'static str] {
 
 /// The grofe event a tmux hook name fires on (TC.5's `EVENTS`, each of
 /// which names its tmux hook, or tmux's error for a name that is no hook.
-pub fn hook_event(tmux: &str) -> Result<&'static str, TmuxError> {
+pub(crate) fn hook_event(tmux: &str) -> Result<&'static str, TmuxError> {
     crate::server::hooks::EVENTS
         .iter()
         .find(|e| !e.tmux.is_empty() && e.tmux == tmux)
@@ -797,7 +797,7 @@ const TMUX_TABLES: &str = include_str!("data/tmux-options.txt");
 
 /// One of tmux's three option tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Table {
+pub(crate) enum Table {
     /// `show -g`.
     Session,
     /// `show -gw`.
@@ -808,7 +808,7 @@ pub enum Table {
 
 /// `table`'s lines as tmux prints them, each split into its name (with
 /// `[N]` for an element) and its quoted value text.
-pub fn tmux_table(table: Table) -> Vec<(&'static str, &'static str)> {
+pub(crate) fn tmux_table(table: Table) -> Vec<(&'static str, &'static str)> {
     let section = match table {
         Table::Session => "[session]",
         Table::Window => "[window]",
@@ -825,7 +825,7 @@ pub fn tmux_table(table: Table) -> Vec<(&'static str, &'static str)> {
 
 /// tmux's default for `name` (`status-format[0]` for an element), as the
 /// text a `show -v` prints: from the first table that holds it.
-pub fn tmux_default(name: &str) -> Option<String> {
+pub(crate) fn tmux_default(name: &str) -> Option<String> {
     [Table::Session, Table::Window, Table::Server]
         .into_iter()
         .flat_map(tmux_table)
@@ -835,7 +835,7 @@ pub fn tmux_default(name: &str) -> Option<String> {
 
 /// A value as `show` quoted it, unquoted: `''` is empty; `"..."` keeps
 /// what a backslash escapes; `'...'` is literal; a lone `\c` is `c`.
-pub fn unquote(text: &str) -> String {
+pub(crate) fn unquote(text: &str) -> String {
     if text == "''" {
         return String::new();
     }

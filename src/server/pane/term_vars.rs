@@ -4,7 +4,7 @@ impl PaneHandle {
     /// tmux's screen-state format variables (`cursor_x`, `wrap_flag`,
     /// `mouse_sgr_flag`, ...), read from the emulator; `None` for a name
     /// that is not one of them.
-    pub fn term_var(&self, name: &str) -> Option<String> {
+    pub(crate) fn term_var(&self, name: &str) -> Option<String> {
         let emu = lock(&self.emu);
         let mode = *emu.term.mode();
         let flag = |m: TermMode| Some(u8::from(mode.contains(m)).to_string());
@@ -85,7 +85,7 @@ impl PaneHandle {
 
     /// One cell's size in pixels as the pane was last given it
     /// ([`PaneHandle::set_cell_px`]); `None` until a client said.
-    pub fn cell_px(&self) -> Option<(u16, u16)> {
+    pub(crate) fn cell_px(&self) -> Option<(u16, u16)> {
         *lock(&self.cell_px)
     }
 }

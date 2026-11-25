@@ -40,7 +40,7 @@ pub fn matches(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
 
 /// Indices of `texts` matching `query`, best score first, ties in the
 /// caller's order.
-pub fn filter(texts: &[String], query: &str) -> Vec<usize> {
+pub(crate) fn filter(texts: &[String], query: &str) -> Vec<usize> {
     let mut hits: Vec<(usize, i32)> = texts
         .iter()
         .enumerate()
@@ -52,7 +52,7 @@ pub fn filter(texts: &[String], query: &str) -> Vec<usize> {
 
 /// Per-client list state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ListState {
+pub(crate) struct ListState {
     pub query: String,
     pub selected: usize,
     pub top: usize,
@@ -64,7 +64,7 @@ pub struct ListState {
 
 /// What a key did to the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ListAction {
+pub(crate) enum ListAction {
     None,
     Moved,
     QueryChanged,
@@ -76,7 +76,7 @@ pub enum ListAction {
 impl ListState {
     /// Apply `key` to a list of `rows` visible rows. `typing` says printable
     /// keys go to the query; when false they do nothing until `C-f`.
-    pub fn on_key(&mut self, key: &Key, rows: usize, typing: bool) -> ListAction {
+    pub(crate) fn on_key(&mut self, key: &Key, rows: usize, typing: bool) -> ListAction {
         let last = rows.saturating_sub(1);
         let page = if self.page == 0 {
             DEFAULT_PAGE
@@ -123,7 +123,7 @@ impl ListState {
     }
 
     /// Keep `selected` inside `rows` and scrolled into a window of `height`.
-    pub fn clamp(&mut self, rows: usize, height: usize) {
+    pub(crate) fn clamp(&mut self, rows: usize, height: usize) {
         self.page = height;
         self.selected = self.selected.min(rows.saturating_sub(1));
         if height == 0 {

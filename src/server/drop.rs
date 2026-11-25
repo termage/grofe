@@ -29,7 +29,7 @@ use crate::types::{Dir, PaneId, Rect, SplitSize, WindowId};
 
 /// A side of the pane dropped onto.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Side {
+pub(crate) enum Side {
     Left,
     Right,
     Top,
@@ -38,7 +38,7 @@ pub enum Side {
 
 /// What part of a pane the pointer is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Zone {
+pub(crate) enum Zone {
     Middle,
     Edge(Side),
 }
@@ -64,7 +64,7 @@ fn band(len: u32) -> u32 {
 /// The zone of rect `r` that window cell `(x, y)`, inside it, is in: the
 /// thin band along a side is that edge, the closest one (relative to the
 /// rect's size) in a corner; the rest is the middle.
-pub fn zone(r: Rect, (x, y): (u32, u32)) -> Zone {
+pub(crate) fn zone(r: Rect, (x, y): (u32, u32)) -> Zone {
     let (cols, rows) = (u32::from(r.cols).max(1), u32::from(r.rows).max(1));
     let (dx, dy) = (
         x.saturating_sub(u32::from(r.x)).min(cols - 1),
@@ -108,7 +108,7 @@ fn contains(r: Rect, (x, y): (u32, u32)) -> bool {
 /// Where `dragged`, a pane of `w` (tiled or floating), lands if released at
 /// window cell `at`, or `None` when that changes nothing. A zoomed window
 /// moves nothing, nor a pane no longer in `w`.
-pub fn plan(w: &Window, dragged: PaneId, at: (u32, u32)) -> Option<Drop> {
+pub(crate) fn plan(w: &Window, dragged: PaneId, at: (u32, u32)) -> Option<Drop> {
     if w.zoomed || !w.pane_ids().contains(&dragged) {
         return None;
     }
@@ -253,7 +253,7 @@ fn same_shape(a: &LayoutGeometry, b: &LayoutGeometry) -> bool {
 /// nothing. Off every tile (a gap, or off the window) the pane floats
 /// where it is dropped ([`float_at`]). Without frames the tiles and their
 /// borders fill the window, so only a drop off it floats.
-pub fn over_tile(w: &Window, at: (u32, u32)) -> bool {
+pub(crate) fn over_tile(w: &Window, at: (u32, u32)) -> bool {
     let framed = w.framed();
     if !framed {
         return contains(w.area(), at);
@@ -268,7 +268,7 @@ pub fn over_tile(w: &Window, at: (u32, u32)) -> bool {
 /// top, and becomes the active pane: a tiled pane leaves the layout, as
 /// `float-pane` takes it out, and a floating one moves there. A window's
 /// last tiled pane, or a zoomed window, stays as it is.
-pub fn float_at(model: &mut Model, window: WindowId, pane: PaneId, (x, y): (i32, i32)) {
+pub(crate) fn float_at(model: &mut Model, window: WindowId, pane: PaneId, (x, y): (i32, i32)) {
     let Some((cols, rows)) = model.panes.get(&pane).map(|p| (p.cols, p.rows)) else {
         return;
     };
@@ -303,7 +303,7 @@ pub fn float_at(model: &mut Model, window: WindowId, pane: PaneId, (x, y): (i32,
 /// a zoom ends, and `pane` becomes the active pane. Each moved pane learns
 /// its new size now, once. The panes are the same panes: process, history
 /// and uid stay.
-pub fn apply(model: &mut Model, window: WindowId, pane: PaneId, layout: LayoutTree) {
+pub(crate) fn apply(model: &mut Model, window: WindowId, pane: PaneId, layout: LayoutTree) {
     let Some(w) = model.windows.get_mut(&window) else {
         return;
     };

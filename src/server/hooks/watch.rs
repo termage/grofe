@@ -152,7 +152,7 @@ pub(super) fn start(state: &mut State) {
 }
 
 /// Fires the hooks for what changed since the last look.
-pub fn track(state: &mut State) {
+pub(crate) fn track(state: &mut State) {
     if !watched(state) {
         state.hooks.watch.last = None;
         return;
@@ -229,7 +229,7 @@ pub(super) fn window_event(state: &mut State, event: &'static str, window: Windo
 /// Fires only the focus hooks, for the moments where tmux orders them
 /// ahead of the client's own (an attach, a switch, a detach): whatever
 /// else changed is left for the next [`track`].
-pub fn track_focus(state: &mut State) {
+pub(crate) fn track_focus(state: &mut State) {
     if !watched(state) {
         return;
     }

@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use grofe::compat::tmux;
 
 use super::{Checkouts, tc13_cli};
-use crate::normalize::fixtures_dir;
+use crate::normalize::{concrete, fixtures_dir};
 use crate::replay::{Cli, split_words};
 
 /// How long a request may take before it counts as accepted and waiting.
@@ -105,28 +105,6 @@ const KNOWN_FAILING: &[(&str, &str)] = &[];
 
 /// Words in a reply that mean the front end does not know a form.
 const FORBIDDEN: &[&str] = &["unknown command", "not implemented"];
-
-/// `line` with its placeholders made concrete, as FE.1's replay does.
-fn concrete(line: &str) -> String {
-    let mut out = String::new();
-    let mut rest = line;
-    while let Some(start) = rest.find('<') {
-        let end = rest[start..].find('>').map(|e| start + e);
-        match end {
-            Some(end) if !rest[start + 1..end].contains([' ', '<']) && end > start + 1 => {
-                out.push_str(&rest[..start]);
-                out.push('1');
-                rest = &rest[end + 1..];
-            }
-            _ => {
-                out.push_str(&rest[..=start]);
-                rest = &rest[start + 1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out.replace("%N", "%1").replace("@N", "@1")
-}
 
 /// A config command as CLI argv: a `;` word stays one argument, as `\;`.
 fn as_cli(cmd: Vec<String>) -> Vec<String> {

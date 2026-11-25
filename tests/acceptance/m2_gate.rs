@@ -1,11 +1,9 @@
 //! M2 gate fixes: the format variables and current-client rules an
 //! attached client exposes, checked against tmux 3.7b's answers.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::attach_command;
 
-use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use common::{TestServer, try_wait_until};
@@ -13,14 +11,6 @@ use common::{TestServer, try_wait_until};
 use crate::harness::Harness;
 
 const IDLE: &str = "printf 'idle-pane'; exec sleep 600";
-
-fn attach(srv: &TestServer, target: &str) -> Command {
-    let mut cmd = srv.command();
-    cmd.args(["attach", "-t", target])
-        .env("TERM", "xterm-256color")
-        .env_remove("COLORTERM");
-    cmd
-}
 
 fn new_session(srv: &TestServer, name: &str) {
     srv.cmd(&[
@@ -77,7 +67,7 @@ fn a_command_outside_any_pane_uses_the_best_client_and_session() {
     let srv = TestServer::start();
     new_session(&srv, "alpha");
     new_session(&srv, "beta");
-    let mut a = Harness::spawn(attach(&srv, "alpha"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "alpha"), 80, 24);
     a.wait_for("[alpha]");
 
     assert_eq!(
@@ -124,7 +114,7 @@ fn window_session_and_client_variables_have_tmux_values() {
     srv.cmd(&["new-window", "-d", "-t", "alpha", IDLE])
         .expect("new-window");
     let before = now();
-    let mut a = Harness::spawn(attach(&srv, "alpha"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "alpha"), 80, 24);
     a.wait_for("[alpha]");
 
     assert_eq!(

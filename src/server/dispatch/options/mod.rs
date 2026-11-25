@@ -46,14 +46,14 @@ mod source_file;
 mod store;
 mod table;
 
-pub use self::bindings::*;
-pub use self::formats::*;
-pub use self::lists::*;
+pub(crate) use self::bindings::*;
+pub(crate) use self::formats::*;
+pub(crate) use self::lists::*;
 pub use self::reference::*;
-pub use self::reload::*;
-pub use self::source_file::*;
+pub(crate) use self::reload::*;
+pub(crate) use self::source_file::*;
 pub use self::store::*;
-pub use self::table::*;
+pub(crate) use self::table::*;
 
 #[cfg(test)]
 mod tests;

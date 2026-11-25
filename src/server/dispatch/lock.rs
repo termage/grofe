@@ -18,7 +18,7 @@ use crate::server::{State, clients, hooks, prompt};
 use crate::types::ClientId;
 
 /// `lock-server`, `lock-session`, `lock-client`.
-pub fn lock(state: &mut State, ctx: &ClientCtx, c: Lock) -> Result<String, String> {
+pub(crate) fn lock(state: &mut State, ctx: &ClientCtx, c: Lock) -> Result<String, String> {
     let ids: Vec<ClientId> = match c.scope {
         LockScope::Server => state.clients.keys().copied().collect(),
         LockScope::Session(target) => {
@@ -110,7 +110,7 @@ fn popup_spawn(
 
 /// The next time a client is due to lock: `lock-after-time` seconds after
 /// the last input of its session's clients.
-pub fn deadline(state: &State) -> Option<Instant> {
+pub(crate) fn deadline(state: &State) -> Option<Instant> {
     state
         .clients
         .iter()
@@ -150,7 +150,7 @@ fn last_activity(state: &State, session: crate::types::SessionId) -> Option<Inst
 
 /// Locks the clients of the sessions whose time is up, and notes the
 /// clients whose lock command has exited: they count as active again.
-pub fn tick(state: &mut State, now: Instant) {
+pub(crate) fn tick(state: &mut State, now: Instant) {
     let unlocked: Vec<ClientId> = state
         .registry
         .locked
@@ -182,7 +182,7 @@ pub fn tick(state: &mut State, now: Instant) {
 
 /// `server-access`: who else may use the server. The list starts with the
 /// server's own user (and root), as tmux's `server_acl_init`.
-pub fn server_access(
+pub(crate) fn server_access(
     state: &mut State,
     ctx: &ClientCtx,
     c: ServerAccess,
@@ -254,7 +254,7 @@ pub fn server_access(
 
 /// `show-prompt-history` and `clear-prompt-history`, for one prompt type
 /// (`-T`) or every type.
-pub fn prompt_history(
+pub(crate) fn prompt_history(
     state: &mut State,
     _ctx: &ClientCtx,
     c: PromptHistory,

@@ -6,7 +6,7 @@ use super::*;
 /// `inner` for the rest.
 /// Built where dispatch holds `&State`, the way `ClientVars` layers the
 /// client's variables.
-pub struct ServerVars<'a> {
+pub(crate) struct ServerVars<'a> {
     pub(in crate::server::dispatch::options) state: &'a State,
     pub(in crate::server::dispatch::options) pane: PaneId,
     pub(in crate::server::dispatch::options) inner: Inner<'a>,
@@ -22,7 +22,7 @@ pub struct ServerVars<'a> {
 impl<'a> ServerVars<'a> {
     /// The status line's and hooks' form: the foreground process comes
     /// from the pane's 1 s sample, so a redraw costs no syscalls for it.
-    pub fn new(state: &'a State, pane: PaneId, inner: &'a dyn FormatVars) -> ServerVars<'a> {
+    pub(crate) fn new(state: &'a State, pane: PaneId, inner: &'a dyn FormatVars) -> ServerVars<'a> {
         ServerVars {
             state,
             pane,

@@ -1,7 +1,7 @@
 use super::*;
 
 /// Format variables (spec §4.5) for one pane, its window and its session.
-pub struct FormatCtx<'a> {
+pub(crate) struct FormatCtx<'a> {
     pub(in crate::server::dispatch::options) model: &'a Model,
     pub(in crate::server::dispatch::options) pane: PaneId,
     pub(in crate::server::dispatch::options) level: Level,
@@ -16,18 +16,18 @@ pub struct FormatCtx<'a> {
 /// (a `list-windows -F` is for windows, even though its variables read the
 /// window's active pane).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Level {
+pub(crate) enum Level {
     Session,
     Window,
     Pane,
 }
 
 impl<'a> FormatCtx<'a> {
-    pub fn new(model: &'a Model, pane: PaneId) -> FormatCtx<'a> {
+    pub(crate) fn new(model: &'a Model, pane: PaneId) -> FormatCtx<'a> {
         FormatCtx::at(model, pane, Level::Pane)
     }
 
-    pub fn at(model: &'a Model, pane: PaneId, level: Level) -> FormatCtx<'a> {
+    pub(crate) fn at(model: &'a Model, pane: PaneId, level: Level) -> FormatCtx<'a> {
         FormatCtx {
             model,
             pane,
@@ -37,7 +37,7 @@ impl<'a> FormatCtx<'a> {
     }
 
     /// These variables for the window as `session` sees it.
-    pub fn in_session(mut self, session: SessionId) -> FormatCtx<'a> {
+    pub(crate) fn in_session(mut self, session: SessionId) -> FormatCtx<'a> {
         self.session = Some(session);
         self
     }
@@ -63,7 +63,7 @@ impl<'a> FormatCtx<'a> {
     }
 
     /// These variables for `session`, unless one is set already.
-    pub fn or_session(mut self, session: SessionId) -> FormatCtx<'a> {
+    pub(crate) fn or_session(mut self, session: SessionId) -> FormatCtx<'a> {
         self.session = self.session.or(Some(session));
         self
     }
@@ -78,7 +78,7 @@ impl<'a> FormatCtx<'a> {
             .unwrap_or(w.session)
     }
 
-    pub fn pane_id(&self) -> PaneId {
+    pub(crate) fn pane_id(&self) -> PaneId {
         self.pane
     }
 

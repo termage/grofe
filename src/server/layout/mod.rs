@@ -68,7 +68,7 @@ mod string;
 mod tree;
 
 pub use self::presets::*;
-pub use self::string::*;
+pub(crate) use self::string::*;
 pub use self::tree::*;
 
 #[cfg(test)]

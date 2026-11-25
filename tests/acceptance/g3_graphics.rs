@@ -7,9 +7,8 @@
 //! the 4x4 PNG fixture is placed `c=8,r=2`, so one source pixel is two
 //! columns wide and half a row tall.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{shell_quote, wait_flag};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,10 +26,6 @@ const SIXEL: &[(&str, &str)] = &[("GROFE_TEST_CAPS", "sixel,cell_px=10x20")];
 /// Cells of 16x32 pixels, what tmux's own sixel fixtures were recorded with.
 const SIXEL_16: &[(&str, &str)] = &[("GROFE_TEST_CAPS", "sixel,cell_px=16x32")];
 const BOTH: &[(&str, &str)] = &[("GROFE_TEST_CAPS", "kitty_graphics,sixel,cell_px=10x20")];
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
 
 fn png() -> String {
     let bytes = std::fs::read(
@@ -81,14 +76,6 @@ fn attach(srv: &TestServer, env: &[(&str, &str)]) -> Harness {
     let mut a = Harness::spawn_attach_with_env(srv.command(), "main", env, 80, 24);
     a.wait_for_output(b"\x1b[2J", 0);
     a
-}
-
-fn wait_flag(flag: &Path) -> String {
-    format!(
-        "while [ ! -e {} ] && [ -d {} ]; do sleep 0.05; done",
-        shell_quote(&flag.to_string_lossy()),
-        shell_quote(&flag.parent().unwrap_or(flag).to_string_lossy())
-    )
 }
 
 fn touch(path: &Path) {

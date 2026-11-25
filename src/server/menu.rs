@@ -96,7 +96,7 @@ pub struct Menus {
 
 impl Menus {
     /// Whether client `id` has a menu or pane labels open.
-    pub fn is_open(&self, id: ClientId) -> bool {
+    pub(crate) fn is_open(&self, id: ClientId) -> bool {
         self.open.contains_key(&id)
     }
 
@@ -129,7 +129,7 @@ struct PanesOpen {
 /// A menu as a caller describes it: labels, title and commands are
 /// formats, expanded when it opens (tmux's `menu_add_item`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Menu {
+pub(crate) struct Menu {
     pub title: Option<String>,
     pub items: Vec<MenuItem>,
     pub x: Position,
@@ -139,7 +139,7 @@ pub struct Menu {
 
 /// How a menu looks and what it takes, as `display-menu`'s flags say.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Look {
+pub(crate) struct Look {
     /// `-b`, checked: `None` reads `menu-border-lines`, `Some(None)` is
     /// `none`.
     pub lines: Option<Option<Lines>>,
@@ -163,7 +163,7 @@ pub struct Look {
 
 /// Who handles the rows of a menu the server opened itself.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Internal {
+pub(crate) enum Internal {
     /// `display-menu`: rows are commands.
     #[default]
     No,
@@ -178,7 +178,7 @@ pub enum Internal {
 /// The row a menu starts on when it takes no mouse (tmux's
 /// `starting_choice`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Start {
+pub(crate) enum Start {
     /// Row 0, or the next row that can be chosen.
     #[default]
     First,
@@ -189,7 +189,7 @@ pub enum Start {
 
 /// One menu row.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MenuItem {
+pub(crate) enum MenuItem {
     /// Runs `command` (a command string) when chosen.
     Command {
         label: String,
@@ -204,7 +204,7 @@ pub enum MenuItem {
 /// row just below the menu (tmux's convention: the menu sits above it).
 /// Either is then moved inside the client.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Position {
+pub(crate) enum Position {
     Cells(i64),
     /// `C`: the centre of the client.
     Centre,
@@ -643,7 +643,7 @@ fn place(
 /// Opens `menu` on client `id`, formats expanded against `ctx`, unless the
 /// client has a menu open already (tmux does nothing then) or the menu
 /// does not fit. Returns whether it opened.
-pub fn open(state: &mut State, ctx: &ClientCtx, id: ClientId, menu: Menu) -> bool {
+pub(crate) fn open(state: &mut State, ctx: &ClientCtx, id: ClientId, menu: Menu) -> bool {
     if state.menus.is_open(id) {
         return false;
     }
@@ -714,7 +714,7 @@ pub fn open(state: &mut State, ctx: &ClientCtx, id: ClientId, menu: Menu) -> boo
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Axis {
+pub(crate) enum Axis {
     X,
     Y,
 }
@@ -887,7 +887,7 @@ pub(crate) fn resolve_spec(
 }
 
 /// C's `strtol(s, NULL, 10)`: blanks, a sign, then digits; 0 without any.
-pub fn strtol(s: &str) -> i64 {
+pub(crate) fn strtol(s: &str) -> i64 {
     let s = s.trim_start();
     let (sign, digits) = match s.strip_prefix('-') {
         Some(rest) => (-1, rest),
@@ -908,7 +908,7 @@ fn current_pane_rect(state: &State, ctx: &ClientCtx, cx: &OverlayCtx) -> Option<
 }
 
 /// How `display-panes` was asked for.
-pub struct PanesArgs {
+pub(crate) struct PanesArgs {
     /// `-d`; the `display-panes-time` option without it. Zero keeps the
     /// labels up until a key.
     pub duration: Option<Duration>,
@@ -922,7 +922,7 @@ pub struct PanesArgs {
 
 /// Opens `display-panes` on client `id`, unless something is open there
 /// already. The labels close after `args.duration`.
-pub fn open_panes(state: &mut State, id: ClientId, args: PanesArgs) -> bool {
+pub(crate) fn open_panes(state: &mut State, id: ClientId, args: PanesArgs) -> bool {
     if state.menus.is_open(id) {
         return false;
     }
@@ -963,14 +963,14 @@ pub fn open_panes(state: &mut State, id: ClientId, args: PanesArgs) -> bool {
 /// Whether client `id` has a menu open that takes the mouse, which
 /// asks the terminal for every motion even with `mouse` off (tmux's menu
 /// screen mode), and for the client's mouse reports.
-pub fn wants_mouse(state: &State, id: ClientId) -> bool {
+pub(crate) fn wants_mouse(state: &State, id: ClientId) -> bool {
     matches!(state.menus.open.get(&id), Some(Open::Menu(m)) if !m.no_mouse)
 }
 
 /// The caller waits for client `id`'s menu to close, as tmux's
 /// `display-menu` and `display-panes` do: a CLI request's reply, and a
 /// binding's later commands and its client's input (`tm_6/waits`).
-pub fn wait_for_close(state: &mut State, id: ClientId) {
+pub(crate) fn wait_for_close(state: &mut State, id: ClientId) {
     if state.menus.is_open(id) {
         let reply = dispatch::defer_reply(state);
         state.menus.waiting.insert(id, reply);
@@ -978,7 +978,7 @@ pub fn wait_for_close(state: &mut State, id: ClientId) {
 }
 
 /// Takes a client's keys while its menu or pane labels are open.
-pub struct MenuHook;
+pub(crate) struct MenuHook;
 
 impl InputHook for MenuHook {
     fn on_input(
@@ -1154,7 +1154,7 @@ fn pane_at_index(state: &State, id: ClientId, index: u32) -> Option<PaneId> {
 }
 
 /// Draws a client's open menu or pane labels.
-pub struct MenuOverlay;
+pub(crate) struct MenuOverlay;
 
 impl Overlay for MenuOverlay {
     fn draw(&self, state: &State, client: ClientId, cx: &OverlayCtx, screen: &mut Screen) {
@@ -1508,11 +1508,11 @@ fn draw_panes(labels: &[PaneLabel], screen: &mut Screen, style: &str, active: &s
 /// Applies the config at start and on each `reload` (TC.7). grofe's
 /// aliases are the `command-alias` list option, which the option store
 /// already takes from the config, so there is nothing more to apply.
-pub fn configure(_state: &mut State, _config: &Resolved) {}
+pub(crate) fn configure(_state: &mut State, _config: &Resolved) {}
 
 /// Closes whatever menu or pane labels client `id` has open (tmux's
 /// `server_client_clear_overlay`, for the menus).
-pub fn clear(state: &mut State, id: ClientId) {
+pub(crate) fn clear(state: &mut State, id: ClientId) {
     if state.menus.close(id).is_some() {
         clients::mark_dirty(state, id);
         clients::sync_mouse_modes(state);
@@ -1521,7 +1521,7 @@ pub fn clear(state: &mut State, id: ClientId) {
 
 /// Client `id` went away: its menu closes, and a CLI waiting on it gets
 /// an empty success.
-pub fn client_gone(state: &mut State, id: ClientId) {
+pub(crate) fn client_gone(state: &mut State, id: ClientId) {
     state.menus.close(id);
 }
 

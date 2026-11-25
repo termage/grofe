@@ -136,7 +136,7 @@ pub(super) fn list_builtin(name: &str) -> Option<&'static ListBuiltin> {
 }
 
 /// Every built-in list option tmux knows, in table order.
-pub fn list_names() -> impl Iterator<Item = &'static str> {
+pub(crate) fn list_names() -> impl Iterator<Item = &'static str> {
     LISTS
         .iter()
         .map(|l| l.name)
@@ -144,7 +144,8 @@ pub fn list_names() -> impl Iterator<Item = &'static str> {
 }
 
 /// The list options only grofe's own CLI and config know ([`GROFE_ONLY_LISTS`]).
-pub fn grofe_only_list_names() -> impl Iterator<Item = &'static str> {
+#[cfg(test)]
+pub(crate) fn grofe_only_list_names() -> impl Iterator<Item = &'static str> {
     GROFE_ONLY_LISTS.iter().copied()
 }
 
@@ -190,13 +191,13 @@ pub(super) const NO_EFFECT: &[&str] = &[
 ];
 
 /// Whether grofe stores `name` without ever acting on it.
-pub fn has_no_effect(name: &str) -> bool {
+pub(crate) fn has_no_effect(name: &str) -> bool {
     NO_EFFECT.contains(&name)
 }
 
 /// One list option's elements at one owner.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ListEntry {
+pub(crate) struct ListEntry {
     pub items: BTreeMap<u32, String>,
     /// Set with `--persist`, as [`Entry::persist`].
     pub persist: bool,
@@ -218,7 +219,7 @@ pub(super) fn default_lists() -> BTreeMap<String, ListEntry> {
 
 /// One change to a list option.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ListOp {
+pub(crate) enum ListOp {
     /// Element `index` becomes the text, or gains it at its end.
     Set {
         index: u32,
@@ -239,12 +240,12 @@ pub enum ListOp {
 
 impl Options {
     /// The list `name` set at exactly `owner`.
-    pub fn list(&self, owner: Owner, name: &str) -> Option<&ListEntry> {
+    pub(crate) fn list(&self, owner: Owner, name: &str) -> Option<&ListEntry> {
         self.lists.get(&owner)?.get(name)
     }
 
     /// Every list set at exactly `owner`, by name.
-    pub fn lists_at(&self, owner: Owner) -> impl Iterator<Item = (&String, &ListEntry)> {
+    pub(crate) fn lists_at(&self, owner: Owner) -> impl Iterator<Item = (&String, &ListEntry)> {
         self.lists.get(&owner).into_iter().flatten()
     }
 
@@ -260,7 +261,7 @@ impl Options {
 
     /// Applies `op` to the list `name` at `owner`. Returns whether the
     /// list changed; an unknown list name is an error.
-    pub fn edit_list(
+    pub(crate) fn edit_list(
         &mut self,
         owner: Owner,
         name: &str,
@@ -333,7 +334,7 @@ impl Options {
 
 /// `name` split into its base and `[N]` index, as tmux 3.7b's
 /// `options_parse` reads it.
-pub fn split_index(name: &str) -> Result<(&str, Option<u32>), String> {
+pub(crate) fn split_index(name: &str) -> Result<(&str, Option<u32>), String> {
     let Some(open) = name.find('[') else {
         return Ok((name, None));
     };

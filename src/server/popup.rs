@@ -54,7 +54,7 @@ use crate::types::{ClientId, Rect};
 
 /// How long a closed popup's process group has to exit after its hangup
 /// before it is killed.
-pub const KILL_GRACE: Duration = Duration::from_secs(1);
+pub(crate) const KILL_GRACE: Duration = Duration::from_secs(1);
 
 /// The status a CLI gets for a popup closed while its command ran, which
 /// the hangup ended: 128 + SIGHUP, as tmux 3.7b reports it.
@@ -73,14 +73,14 @@ pub struct Popups {
 
 impl Popups {
     /// Whether client `id` has a popup open.
-    pub fn is_open(&self, id: ClientId) -> bool {
+    pub(crate) fn is_open(&self, id: ClientId) -> bool {
         self.open.contains_key(&id)
     }
 }
 
 /// The border lines of a popup (tmux's `popup-border-lines`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Lines {
+pub(crate) enum Lines {
     Single,
     Rounded,
     Double,
@@ -135,7 +135,7 @@ impl Lines {
 /// Where a popup goes on one axis, as tmux's `-x`/`-y` read it: for `x` a
 /// number is the left column, for `y` the row just below the box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Position {
+pub(crate) enum Position {
     Cells(i64),
     /// `C`: the centre of the client.
     Centre,
@@ -151,7 +151,7 @@ pub enum Position {
 /// 3.7b's `cmd_display_menu_get_pos` places a popup (recorded: `C`, `P`,
 /// `R`, numbers, and numbers past the edge). The caller has checked that
 /// the box fits.
-pub fn place(
+pub(crate) fn place(
     (x, y): (Position, Position),
     (w, h): (u16, u16),
     client: (u16, u16),
@@ -185,7 +185,7 @@ pub fn place(
 
 /// What a popup looks like and how it behaves, as its command asked.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Frame {
+pub(crate) struct Frame {
     /// The box's top-left cell on the client, border included.
     pub at: (i32, i32),
     /// The box's size, border included.
@@ -309,7 +309,7 @@ fn answer(waiting: Option<oneshot::Sender<Result<String, Failure>>>, status: i32
 /// the size of its inside, unless the client has one open already (tmux
 /// then does nothing) or the box is too small for its border. Must run
 /// within a tokio runtime. Returns whether it opened.
-pub fn open(
+pub(crate) fn open(
     state: &mut State,
     id: ClientId,
     frame: Frame,
@@ -358,7 +358,7 @@ pub fn open(
 /// The caller of `display-popup` waits for client `id`'s popup to close:
 /// a CLI request gets its command's exit status, a binding's later
 /// commands and its client's input wait (`tm_6/waits`).
-pub fn wait_for_close(state: &mut State, id: ClientId) {
+pub(crate) fn wait_for_close(state: &mut State, id: ClientId) {
     if !state.popups.is_open(id) {
         return;
     }
@@ -462,7 +462,7 @@ fn exited(state: &mut State, id: ClientId, generation: u64, status: Option<i32>)
 /// Closes client `id`'s popup. A command still running is hung up and kept
 /// until it exits (see [`KILL_GRACE`]); the CLI waiting on the popup is
 /// answered then, with the command's status.
-pub fn close(state: &mut State, id: ClientId) {
+pub(crate) fn close(state: &mut State, id: ClientId) {
     let Some(popup) = state.popups.open.remove(&id) else {
         return;
     };
@@ -500,7 +500,7 @@ pub fn close(state: &mut State, id: ClientId) {
 /// [`KILL_GRACE`] to go after its hangup before its group is killed. The
 /// actor is stopping, so this waits here instead of on a timer job, and
 /// reaps each command itself.
-pub fn shutdown(state: &mut State) {
+pub(crate) fn shutdown(state: &mut State) {
     use nix::sys::wait::{WaitPidFlag, waitpid};
     let ids: Vec<ClientId> = state.popups.open.keys().copied().collect();
     for id in ids {
@@ -531,7 +531,7 @@ pub fn shutdown(state: &mut State) {
 /// What `display-popup` changes in a popup that is open already (tmux's
 /// `popup_modify`); `None` leaves a part as it is.
 #[derive(Default)]
-pub struct Change {
+pub(crate) struct Change {
     pub title: Option<String>,
     pub style: Option<String>,
     pub border_style: Option<String>,
@@ -542,7 +542,7 @@ pub struct Change {
 
 /// Changes client `id`'s open popup as `change` says. Taking the border
 /// away (or giving it back) resizes the command's pty to the new inside.
-pub fn modify(state: &mut State, id: ClientId, change: Change) {
+pub(crate) fn modify(state: &mut State, id: ClientId, change: Change) {
     let size = state.clients.get(&id).map(|c| c.size);
     let Some(popup) = state.popups.open.get_mut(&id) else {
         return;
@@ -578,7 +578,7 @@ pub fn modify(state: &mut State, id: ClientId, change: Change) {
 /// Clients were resized: each popup's pty takes the size of its box as
 /// fitted to its client now ([`Frame::fitted`]), so its command gets the
 /// SIGWINCH; the overlay then draws the fitted box.
-pub fn clients_resized(state: &mut State) {
+pub(crate) fn clients_resized(state: &mut State) {
     let State {
         popups, clients, ..
     } = state;
@@ -595,7 +595,7 @@ pub fn clients_resized(state: &mut State) {
 }
 
 /// Client `id` went away: its popup closes.
-pub fn client_gone(state: &mut State, id: ClientId) {
+pub(crate) fn client_gone(state: &mut State, id: ClientId) {
     close(state, id);
 }
 
@@ -612,7 +612,7 @@ fn closes(key: &Key) -> bool {
 /// Takes a client's input while its popup is open: keys and pastes go to
 /// the popup's command, encoded for its terminal modes; Escape and C-c
 /// close a popup that has no `-E` or whose command has exited.
-pub struct PopupHook;
+pub(crate) struct PopupHook;
 
 impl InputHook for PopupHook {
     fn on_input(
@@ -871,7 +871,7 @@ fn open_menu(state: &mut State, id: ClientId, m: &input::Mouse) {
 }
 
 /// Row `key` of the popup's menu was chosen (`popup_menu_done`).
-pub fn menu_done(state: &mut State, id: ClientId, key: &str) {
+pub(crate) fn menu_done(state: &mut State, id: ClientId, key: &str) {
     let Some(size) = state.clients.get(&id).map(|c| c.size) else {
         return;
     };
@@ -938,7 +938,7 @@ fn mouse_bytes(
 
 /// Draws a client's popup: its box, its title, the command's screen inside
 /// it, and its cursor.
-pub struct PopupOverlay;
+pub(crate) struct PopupOverlay;
 
 impl Overlay for PopupOverlay {
     fn draw(&self, state: &State, client: ClientId, _: &OverlayCtx, screen: &mut Screen) {

@@ -11,7 +11,7 @@ mod harness;
 
 use std::time::Duration;
 
-use common::TestServer;
+use common::{TestServer, display};
 use grofe::server::layout::{Insert, LayoutTree, Preset};
 use grofe::types::{Dir, PaneId, Rect, SplitSize};
 
@@ -37,13 +37,6 @@ fn windows(srv: &TestServer, session: &str) -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect()
-}
-
-fn display(srv: &TestServer, target: &str, fmt: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, fmt])
-        .unwrap_or_else(|e| panic!("display-message {fmt}: {e}"))
-        .trim_end()
-        .to_string()
 }
 
 fn ok(srv: &TestServer, args: &[&str]) {

@@ -48,13 +48,13 @@ use crate::protocol::{
 
 /// How long the probe waits for DA1's reply . A terminal
 /// that answers nothing costs this much once, at attach.
-pub const PROBE_TIMEOUT: Duration = Duration::from_millis(300);
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_millis(300);
 
 /// How long the client waits for the server's one reply line.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The probe, in the order sent. DA1 goes last: its reply ends the probe.
-pub const PROBE_QUERY: &[u8] = concat!(
+pub(crate) const PROBE_QUERY: &[u8] = concat!(
     "\x1b[>0q",                                   // XTVERSION
     "\x1b[?2026$p",                               // DECRQM synchronized output
     "\x1b[?u",                                    // kitty keyboard flags
@@ -94,14 +94,14 @@ const RESET_TAIL: &[u8] = concat!(
 
 /// Set to `stdin` to make the stdin thread panic on its first read: the
 /// test hook for "a panic in any thread restores the tty".
-pub const TEST_PANIC_ENV: &str = "GROFE_TEST_CLIENT_PANIC";
+pub(crate) const TEST_PANIC_ENV: &str = "GROFE_TEST_CLIENT_PANIC";
 
 /// A comma list of capabilities (`truecolor`, `styled_underline`, `sync`,
 /// `kitty_keys`, `kitty_graphics`, `sixel`, `cell_px=<w>x<h>`) to claim on top of
 /// what the probe found: the test hook for an outer terminal the test
 /// harness cannot be (T3.8's kitty graphics, pane pixel sizes). Unknown
 /// names are ignored.
-pub const TEST_CAPS_ENV: &str = "GROFE_TEST_CAPS";
+pub(crate) const TEST_CAPS_ENV: &str = "GROFE_TEST_CAPS";
 
 /// `caps` with every capability `list` names turned on.
 fn with_test_caps(mut caps: Caps, list: &str) -> Caps {
@@ -163,7 +163,7 @@ const MAX_REPLY_LEN: usize = 512;
 
 /// Accumulates what the terminal sends while the probe runs.
 #[derive(Debug, Default)]
-pub struct ProbeParser {
+pub(crate) struct ProbeParser {
     pending: Vec<u8>,
     typeahead: Vec<u8>,
     xtversion: Option<String>,
@@ -179,7 +179,7 @@ pub struct ProbeParser {
 
 impl ProbeParser {
     /// Feeds bytes read from the terminal.
-    pub fn feed(&mut self, bytes: &[u8]) {
+    pub(crate) fn feed(&mut self, bytes: &[u8]) {
         if self.done {
             self.typeahead.extend_from_slice(bytes);
             return;
@@ -234,7 +234,7 @@ impl ProbeParser {
     }
 
     /// Whether DA1's reply arrived (the probe is over).
-    pub fn done(&self) -> bool {
+    pub(crate) fn done(&self) -> bool {
         self.done
     }
 
@@ -243,7 +243,7 @@ impl ProbeParser {
     /// WezTerm (neither needs `$COLORTERM` to render 24-bit colour, and over
     /// ssh it is usually not forwarded); styled underlines only from that
     /// XTVERSION match, since no query reports them.
-    pub fn caps(&self, colorterm: Option<&str>) -> Caps {
+    pub(crate) fn caps(&self, colorterm: Option<&str>) -> Caps {
         let known = self.xtversion.as_deref().is_some_and(|v| {
             let v = v.to_ascii_lowercase();
             v.starts_with("ghostty") || v.starts_with("wezterm")
@@ -264,23 +264,24 @@ impl ProbeParser {
 
     /// The non-reply bytes so far, in arrival order; an unfinished reply
     /// stays pending.
-    pub fn take_typeahead(&mut self) -> Vec<u8> {
+    pub(crate) fn take_typeahead(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.typeahead)
     }
 
     /// Whether an unfinished reply (or a lone ESC) is held back.
-    pub fn has_pending(&self) -> bool {
+    pub(crate) fn has_pending(&self) -> bool {
         !self.pending.is_empty()
     }
 
     /// Gives up on the held-back bytes: they become typeahead.
-    pub fn flush_pending(&mut self) {
+    pub(crate) fn flush_pending(&mut self) {
         self.typeahead.append(&mut self.pending);
     }
 
     /// Ends the probe: everything that was not a reply, including an
     /// unfinished one, in arrival order.
-    pub fn into_typeahead(mut self) -> Vec<u8> {
+    #[cfg(test)]
+    pub(crate) fn into_typeahead(mut self) -> Vec<u8> {
         self.flush_pending();
         self.typeahead
     }
@@ -483,7 +484,7 @@ pub struct AttachOptions {
 /// underlines, `sync` synchronised output. A name tmux does not know ends
 /// the list, as in tmux; the other known ones (`256`, `clipboard`, `title`,
 /// `hyperlinks`, ...) change nothing grofe draws differently.
-pub fn apply_features(caps: &mut Caps, features: &[String]) {
+pub(crate) fn apply_features(caps: &mut Caps, features: &[String]) {
     const KNOWN: &[&str] = &[
         "256",
         "bpaste",
@@ -614,7 +615,7 @@ fn undo(deadline: Option<Instant>) {
 
 /// Restores the tty once; later calls do nothing. Waits for a tty write in
 /// progress, so it is for the client's own exit paths.
-pub fn restore_tty() {
+pub(crate) fn restore_tty() {
     let mut active = lock(&ACTIVE);
     if *active {
         *active = false;

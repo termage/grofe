@@ -11,7 +11,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use common::{Signal, TestServer};
+use common::{Signal, TestServer, uids};
 use grofe::server::snapshot::{PaneSnap, SNAPSHOT_VERSION, Snapshot};
 
 /// How long a change may take to reach the file: the debounce (1 s) plus
@@ -66,14 +66,6 @@ fn display(srv: &TestServer, target: &str, format: &str) -> String {
         .expect("display-message")
         .trim_end()
         .to_string()
-}
-
-fn uids(srv: &TestServer) -> BTreeSet<String> {
-    srv.cmd(&["list-panes", "-a", "-F", "#{pane_uid}"])
-        .expect("list-panes")
-        .lines()
-        .map(str::to_string)
-        .collect()
 }
 
 fn snap_uids(snap: &Snapshot) -> BTreeSet<String> {

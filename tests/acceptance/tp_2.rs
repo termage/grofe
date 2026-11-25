@@ -19,9 +19,8 @@
 //! log, and with every XDG directory in the test's temp dir. The `tmux` it
 //! calls is a symlink to grofe.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::attach_mouse;
 
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
@@ -37,7 +36,6 @@ use crate::harness::{Harness, require_tool};
 /// that `check-canopy-port.sh` keeps current.
 const NAV: &str = include_str!("../fixtures/canopy-port/conf.d/40-canopy-nav.toml");
 
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const WAIT: Duration = Duration::from_secs(10);
 
 /// The pane shell, with a prompt of its own: `sh` as root prompts `# `.
@@ -88,12 +86,6 @@ fn start(left: &str, right: &str) -> (TestServer, String, String) {
         .trim()
         .to_string();
     (srv, left, right)
-}
-
-fn attach(srv: &TestServer) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
-    a.wait_for_output(MOUSE_ON, 0);
-    a
 }
 
 fn var(srv: &TestServer, target: &str, name: &str) -> String {
@@ -354,7 +346,7 @@ fn the_match_is_the_plugins_pattern_on_argv0() {
 #[test]
 fn case_1_from_a_shell_the_keys_move_focus() {
     let (srv, left, right) = start(SH, SH);
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     a.wait_for(PROMPT);
     assert_eq!(var(&srv, &right, "#{pane_active}"), "1");
     a.send(C_H);
@@ -373,7 +365,7 @@ fn case_2_in_nvim_the_key_reaches_nvim_which_calls_tmux_at_its_edge() {
     }
     let nvim = Nvim::new(true, true);
     let (srv, left, right) = start(SH, &nvim.command());
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     nvim.wait_ready(&srv, &right);
 
     a.send(C_H);
@@ -396,7 +388,7 @@ fn case_3_nvim_under_a_wrapper_whose_process_name_differs_still_gets_the_key() {
     }
     let nvim = Nvim::new(false, false);
     let (srv, left, right) = start(SH, &nvim.wrapped_command());
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     nvim.wait_ready(&srv, &right);
     assert_eq!(var(&srv, &right, "#{pane_current_command}"), "editor-bin");
     assert_eq!(
@@ -427,7 +419,7 @@ fn case_4_nvim_at_its_left_edge_moves_focus_through_its_own_tmux_call() {
     let nvim = Nvim::new(true, false);
     let (srv, left, right) = start(&nvim.command(), SH);
     srv.cmd(&["select-pane", "-t", &left]).expect("select");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     nvim.wait_ready(&srv, &left);
 
     a.send(C_H);
@@ -445,7 +437,7 @@ fn case_4_nvim_at_its_left_edge_moves_focus_through_its_own_tmux_call() {
 #[test]
 fn case_5_zoomed_c_h_moves_by_default_and_not_when_the_plugin_says_so() {
     let (srv, left, right) = start(SH, SH);
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     a.wait_for(PROMPT);
 
     srv.cmd(&["resize-pane", "-Z", "-t", &right]).expect("zoom");
@@ -485,7 +477,7 @@ fn a_key_right_after_nvim_starts_or_quits_sees_the_process_in_front() {
     }
     let nvim = Nvim::new(false, false);
     let (srv, left, right) = start(SH, SH);
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     a.wait_for(PROMPT);
 
     // The quoted `''` keeps the typed line from reading `nvim-gone`.
@@ -531,7 +523,7 @@ fn a_pipeline_matches_on_a_member_that_is_not_the_leader() {
         bin.path().display()
     );
     let (srv, left, right) = start(SH, &pipeline);
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     let up = try_wait_until(
         || {
             var(&srv, &right, "#{pane_foreground_argv}")
@@ -617,7 +609,7 @@ fn case_6_the_keys_spawn_no_process() {
     ])
     .expect("bind C-g");
     let pid: i32 = var(&srv, &left, "#{pid}").parse().expect("server pid");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     a.wait_for(PROMPT);
 
     let before = reaped_children(pid);

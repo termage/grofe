@@ -20,7 +20,7 @@ pub(crate) const AUTOMATIC_RENAME: &str = "automatic-rename";
 
 /// A new window's name when `-n` is not given: the basename of its cwd,
 /// until [`automatic_rename`] names it from its pane.
-pub fn default_name(cwd: &Path) -> String {
+pub(crate) fn default_name(cwd: &Path) -> String {
     cwd.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| cwd.display().to_string())
@@ -199,7 +199,7 @@ fn stop_automatic_rename(model: &mut Model, window: WindowId) -> Result<(), Stri
 /// titles play no part, so an OSC title never freezes the name; only
 /// `rename-window` (or `new-window -n`) turns the option off. An empty
 /// expansion leaves the name alone. Returns whether any name changed.
-pub fn automatic_rename(model: &mut Model) -> bool {
+pub(crate) fn automatic_rename(model: &mut Model) -> bool {
     let names: Vec<(WindowId, String)> = model
         .windows
         .values()
@@ -283,7 +283,7 @@ pub(super) fn clean_name(noun: &str, name: &str) -> Result<String, String> {
 
 /// Which way `next-window` / `previous-window` steps.
 #[derive(Clone, Copy)]
-pub enum Step {
+pub(crate) enum Step {
     Next,
     Previous,
 }
@@ -292,7 +292,7 @@ pub enum Step {
 /// previous window by index, wrapping around as tmux does. With `-a`, the
 /// next or previous one with an alert (a bell, activity or silence flag,
 /// `server::alerts`); none is an error, as in tmux 3.7b.
-pub fn step_window(
+pub(crate) fn step_window(
     state: &mut State,
     ctx: &ClientCtx,
     c: WindowStep,
@@ -380,7 +380,7 @@ pub fn kill_window(state: &mut State, ctx: &ClientCtx, c: KillWindow) -> Result<
     Ok(String::new())
 }
 
-pub fn select_window(
+pub(crate) fn select_window(
     state: &mut State,
     ctx: &ClientCtx,
     c: SelectWindow,
@@ -429,7 +429,7 @@ pub fn list_windows(state: &State, ctx: &ClientCtx, c: ListWindows) -> Result<St
 }
 
 /// `list-panes` in the default format; `-F` is routed to `options`.
-pub fn list_panes(state: &State, ctx: &ClientCtx, c: ListPanes) -> Result<String, String> {
+pub(crate) fn list_panes(state: &State, ctx: &ClientCtx, c: ListPanes) -> Result<String, String> {
     let model = &state.model;
     let listed = options::listed_panes(state, ctx, &c)?;
     Ok(listed
@@ -468,7 +468,7 @@ pub fn list_panes(state: &State, ctx: &ClientCtx, c: ListPanes) -> Result<String
 /// spreads the target pane's cells out evenly instead. A zoomed window is
 /// unzoomed first, even for an unknown name, and the active pane stays, as
 /// tmux 3.7b does.
-pub fn select_layout(
+pub(crate) fn select_layout(
     state: &mut State,
     ctx: &ClientCtx,
     c: SelectLayout,

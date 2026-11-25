@@ -4,7 +4,7 @@ use crate::cmd::{ListPlugins, PluginRestart};
 use crate::protocol::ClientCtx;
 use crate::server::{State, plugins};
 
-pub fn list_plugins(
+pub(crate) fn list_plugins(
     state: &mut State,
     _ctx: &ClientCtx,
     _c: ListPlugins,
@@ -12,7 +12,7 @@ pub fn list_plugins(
     Ok(plugins::list(state))
 }
 
-pub fn plugin_restart(
+pub(crate) fn plugin_restart(
     state: &mut State,
     _ctx: &ClientCtx,
     c: PluginRestart,
