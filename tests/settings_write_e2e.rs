@@ -471,6 +471,9 @@ fn save_history_limit(srv: &TestServer, h: &mut Harness) {
         fs::read_to_string(settings_file(srv)),
         h.text()
     );
+    // The file lands before `P`'s reload runs; a user.toml written in
+    // between fails that reload, whose rollback then removes settings.toml.
+    h.wait_until("save reported", WAIT, |t| t.contains("Saved history-limit"));
 }
 
 /// After `P`, the config owns the option and has recorded its base: with the
