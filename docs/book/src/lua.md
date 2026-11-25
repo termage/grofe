@@ -33,7 +33,8 @@ require("keymaps")                  -- runs keymaps.luau
 
 - A module runs once per load. Requiring it again returns the same value without running it.
   Every `reload` starts with an empty cache, so edited modules run again.
-- `require` also works in callbacks that run later, such as a key binding or a timer.
+- `require` also works in callbacks that run later, such as a key binding or a timer, and in
+  the `lua` command, even when the folder has no `init.luau`.
 - A required module shares the call's 50 ms budget and memory limit.
 - Symlinks are followed. A module linked into the folder from elsewhere (stow, chezmoi) loads.
 
@@ -45,7 +46,8 @@ Each of these is a Lua error, logged like any other:
 - a cycle, where a module requires itself through other modules
 - an error inside the module, which `require` passes on
 
-Packs load before your `init.luau`, and their own code keeps the `require` it had before.
+Packs load before your `init.luau`. Their own code, and the callbacks it registers, keep the
+`require` they had before, so a pack never loads modules from your folder.
 
 ## The no-freeze contract
 

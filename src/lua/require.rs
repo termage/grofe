@@ -14,6 +14,8 @@ const CACHE: &str = "grofe_require_cache";
 const LOADING: &str = "grofe_require_loading";
 /// mlua's own `require`, used while no folder is set (plugin and pack code).
 const FALLBACK: &str = "grofe_require_fallback";
+/// `false` while pack code (or a pack's callback) runs: it keeps mlua's `require`.
+const CONFIG_CODE: &str = "grofe_require_config_code";
 
 fn err(e: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(e.to_string())
@@ -25,7 +27,9 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     lua.set_named_registry_value(FALLBACK, original)?;
     let f = lua.create_function(|lua, name: Value| {
         let dir = match lua.named_registry_value::<Value>(DIR)? {
-            Value::String(s) => PathBuf::from(OsStr::from_bytes(&s.as_bytes())),
+            Value::String(s) if is_config_code(lua)? => {
+                PathBuf::from(OsStr::from_bytes(&s.as_bytes()))
+            }
             _ => {
                 return match lua.named_registry_value::<Value>(FALLBACK)? {
                     Value::Function(f) => f.call::<Value>(name),
@@ -39,6 +43,22 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
         require(lua, &dir, &name.to_str()?)
     })?;
     lua.globals().set("require", f)
+}
+
+/// Whether the running code is the user's config rather than a pack.
+pub fn is_config_code(lua: &Lua) -> mlua::Result<bool> {
+    Ok(lua
+        .named_registry_value::<Option<bool>>(CONFIG_CODE)?
+        .unwrap_or(true))
+}
+
+/// Runs `f` as config code (`true`) or pack code (`false`).
+pub fn as_code<R>(lua: &Lua, config: bool, f: impl FnOnce() -> mlua::Result<R>) -> mlua::Result<R> {
+    let outer = is_config_code(lua)?;
+    lua.set_named_registry_value(CONFIG_CODE, config)?;
+    let r = f();
+    lua.set_named_registry_value(CONFIG_CODE, outer)?;
+    r
 }
 
 /// Points `require` at `dir` and starts an empty module cache.
