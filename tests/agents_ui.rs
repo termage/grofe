@@ -154,3 +154,76 @@ fn key_menu_c_f_filter() {
     try_wait_until(|| window_count(&srv) == 2, WAIT).unwrap_or_else(|e| panic!("{e}: new window"));
     a.wait_until("menu closed", WAIT, |t| !t.contains("key-menu prefix"));
 }
+
+fn report(srv: &TestServer, pane: &str, state: &str, msg: &str) {
+    srv.cmd(&[
+        "agent", "report", state, "-t", pane, "--kind", "claude", "--msg", msg,
+    ])
+    .expect("agent report");
+}
+
+/// Agents keep changing state for `span`, the way a busy session does.
+fn churn(srv: &TestServer, pane: &str, span: Duration) {
+    let end = std::time::Instant::now() + span;
+    let mut i = 0;
+    while std::time::Instant::now() < end {
+        let state = if i % 2 == 0 { "working" } else { "idle" };
+        report(srv, pane, state, &format!("tick{i}"));
+        i += 1;
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn prefix_y_tray_stays_open_while_agents_churn() {
+    let srv = start();
+    let pane = srv
+        .cmd(&["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "main"])
+        .expect("new-window")
+        .trim()
+        .to_string();
+    report(&srv, &pane, "blocked", "needs-permission");
+    let mut a = attach(&srv);
+    a.send(PREFIX);
+    a.send("y");
+    a.wait_for("choose-notification");
+    a.wait_for("needs-permission");
+    churn(&srv, &pane, Duration::from_secs(2));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        a.text().contains("choose-notification"),
+        "tray closed:\n{}",
+        a.text()
+    );
+    a.send("\x1b");
+    a.wait_until("tray closed", WAIT, |t| !t.contains("choose-notification"));
+}
+
+#[test]
+fn empty_tray_stays_open() {
+    let srv = start();
+    let mut a = attach(&srv);
+    a.send(PREFIX);
+    a.send("y");
+    a.wait_for("no notifications");
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(a.text().contains("no notifications"), "{}", a.text());
+}
+
+#[test]
+fn tray_updates_when_a_notification_arrives() {
+    let srv = start();
+    // A pane in a window not in view: one in view is seen and raises nothing.
+    let pane = srv
+        .cmd(&["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "main"])
+        .expect("new-window")
+        .trim()
+        .to_string();
+    let mut a = attach(&srv);
+    a.send(PREFIX);
+    a.send("y");
+    a.wait_for("no notifications");
+    report(&srv, &pane, "blocked", "late-arrival");
+    a.wait_for("late-arrival");
+    assert!(a.text().contains("choose-notification"), "{}", a.text());
+}
