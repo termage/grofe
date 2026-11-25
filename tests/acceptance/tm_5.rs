@@ -6,9 +6,8 @@
 //! never a real clipboard. The expected bytes are tmux 3.7b's, recorded
 //! with a private `-L` server (see the TM.5 report).
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::shell_quote;
 
 use std::fs;
 use std::path::Path;
@@ -462,10 +461,6 @@ fn the_selection_never_reaches_the_command_line() {
     // The pipe is done once the file is whole; give a stray `touch` time.
     common::quiet_period(Duration::from_millis(200));
     assert!(!pwned.exists(), "the selection ran as a command");
-}
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// The command runs under `/bin/sh` with the server's environment and

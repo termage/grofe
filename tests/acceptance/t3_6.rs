@@ -21,9 +21,8 @@
 //!   where `kitten` is absent, and the fixture replay
 //!   `t3_8::placeholder_images_reach_kitty_clients`, which always runs.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{hex_reader, shell_quote};
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -123,24 +122,10 @@ fn wait_outer(a: &mut Harness, what: &str, done: impl Fn(&Term<VoidListener>) ->
     }
 }
 
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
 /// `s` as a `printf` format of octal escapes, so a pane can print any UTF-8
 /// whatever its shell's own `printf` does with multibyte text.
 fn octal(s: &str) -> String {
     s.bytes().map(|b| format!("\\{b:03o}")).collect()
-}
-
-/// A pane script: prints `push` then `ready`, reads `n` raw bytes and shows
-/// them as hex (T2.5b's reader).
-fn hex_reader(push: &str, n: usize) -> String {
-    format!(
-        "printf '{push}ready\\n'; stty raw -echo; \
-         b=$(dd bs=1 count={n} 2>/dev/null | od -An -tx1 | tr -d ' \\n'); \
-         stty sane; printf 'got:%s:end' \"$b\"; exec sleep 600"
-    )
 }
 
 // ---- the panic report (R22) ----

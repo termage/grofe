@@ -3,9 +3,8 @@
 //! `tc_6/float-border-mouse`), the drag's lifetime, and grofe's verbs
 //! `float-pane` and `place-pane`.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::attach_mouse;
 
 use std::time::Duration;
 
@@ -13,7 +12,6 @@ use common::{TestServer, run_bounded, try_wait_until};
 
 use crate::harness::Harness;
 
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const WAIT: Duration = Duration::from_secs(10);
 /// Past tmux's click timeout, so the next press is no second click.
 const CLICK_GAP: Duration = Duration::from_millis(350);
@@ -66,12 +64,6 @@ fn new_float(srv: &TestServer, (x, y): (u16, u16), (w, h): (u16, u16), cmd: &str
     .expect("new-pane")
     .trim()
     .to_string()
-}
-
-fn attach(srv: &TestServer) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
-    a.wait_for_output(MOUSE_ON, 0);
-    a
 }
 
 /// An SGR 1006 report at 0-based window cell `(x, y)` (client cell + 1).
@@ -172,7 +164,7 @@ fn alive(srv: &TestServer) {
 #[test]
 fn the_top_edge_moves_the_pane_and_the_left_edge_resizes_it() {
     let (srv, float) = start();
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (19, 7));
     wait_rect(&srv, &float, (14, 8, 20, 4));
@@ -190,7 +182,7 @@ fn the_top_edge_moves_the_pane_and_the_left_edge_resizes_it() {
 fn a_drag_resize_reaches_the_pty_at_its_final_size() {
     let (srv, _) = start();
     let float = new_float(&srv, (10, 12), (20, 4), "sh");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     // The right edge is column 30, the pane's rows 12 to 15.
     press(&mut a, (30, 13));
     for x in 31..=40 {
@@ -217,7 +209,7 @@ fn a_drag_resize_reaches_the_pty_at_its_final_size() {
 #[test]
 fn killing_the_pane_mid_drag_leaves_no_drag_behind() {
     let (srv, float) = start();
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (19, 7));
     wait_rect(&srv, &float, (14, 8, 20, 4));
@@ -241,7 +233,7 @@ fn switching_window_mid_drag_moves_nothing() {
     let (srv, float) = start();
     srv.cmd(&["new-window", "-d", "-t", "main", "cat"])
         .expect("new-window");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (19, 7));
     wait_rect(&srv, &float, (14, 8, 20, 4));
@@ -257,13 +249,13 @@ fn switching_window_mid_drag_moves_nothing() {
 #[test]
 fn a_client_detached_mid_drag_leaves_the_pane_where_it_was() {
     let (srv, float) = start();
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (19, 7));
     wait_rect(&srv, &float, (14, 8, 20, 4));
     srv.cmd(&["detach-client", "-s", "main"]).expect("detach");
     a.wait_exit();
-    let mut b = attach(&srv);
+    let mut b = attach_mouse(&srv);
     press(&mut b, (50, 15));
     release(&mut b, (50, 15));
     stays(&srv, &float, (14, 8, 20, 4));
@@ -279,8 +271,8 @@ fn a_client_detached_mid_drag_leaves_the_pane_where_it_was() {
 #[test]
 fn two_clients_drag_one_pane_in_turn() {
     let (srv, float) = start();
-    let mut a = attach(&srv);
-    let mut b = attach(&srv);
+    let mut a = attach_mouse(&srv);
+    let mut b = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (17, 4));
     wait_rect(&srv, &float, (12, 5, 20, 4));
@@ -313,7 +305,7 @@ fn a_press_after_a_lost_release_ends_the_drag() {
         "pane",
     ])
     .expect("bind");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (19, 7));
     wait_rect(&srv, &float, (14, 8, 20, 4));
@@ -342,7 +334,7 @@ fn the_release_of_a_floating_drag_fires_its_drag_end_key() {
         "border",
     ])
     .expect("bind");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (19, 7));
     wait_rect(&srv, &float, (14, 8, 20, 4));
@@ -360,7 +352,7 @@ fn dragging_a_lower_pane_raises_and_focuses_it() {
     let high = new_float(&srv, (12, 7), (20, 4), "cat");
     assert_eq!(var(&srv, &high, "#{pane_z} #{pane_active}"), "0 1");
     assert_eq!(var(&srv, &low, "#{pane_z} #{pane_active}"), "1 0");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (15, 3));
     wait_rect(&srv, &low, (10, 4, 20, 4));
@@ -376,7 +368,7 @@ fn a_plain_click_on_the_border_clears_the_mark_and_raises() {
     let (srv, low) = start();
     let high = new_float(&srv, (12, 7), (20, 4), "cat");
     srv.cmd(&["select-pane", "-m", "-t", "%0"]).expect("mark");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     release(&mut a, (15, 4));
     let raised = try_wait_until(
@@ -400,7 +392,7 @@ fn unbinding_the_stock_rows_leaves_a_floating_border_to_bindings() {
         .expect("unbind");
     srv.cmd(&["unbind-key", "-n", "MouseDrag1Border"])
         .expect("unbind");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (25, 10));
     release(&mut a, (25, 10));
@@ -469,7 +461,7 @@ fn unbinding_the_drag_row_leaves_a_tiled_border_alone() {
     let border = before.0 - 1;
     srv.cmd(&["unbind-key", "-n", "MouseDrag1Border"])
         .expect("unbind");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (border, 5));
     drag(&mut a, (border - 8, 5));
     release(&mut a, (border - 8, 5));
@@ -495,7 +487,7 @@ fn unbinding_the_drag_row_leaves_a_tiled_border_alone() {
 #[test]
 fn a_modifier_variant_of_the_border_keys_acts_only_if_bound() {
     let (srv, float) = start();
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     // Meta 8, Control 16, Shift 4 added to the button numbers.
     for mods in [8, 16, 4] {
         a.send(sgr(mods, (15, 4), false));
@@ -530,7 +522,7 @@ fn a_root_binding_for_the_border_wins() {
         "#{pane_id}",
     ])
     .expect("bind");
-    let mut a = attach(&srv);
+    let mut a = attach_mouse(&srv);
     press(&mut a, (15, 4));
     drag(&mut a, (25, 10));
     release(&mut a, (25, 10));

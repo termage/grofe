@@ -9,13 +9,12 @@
 //! reads prints `got-<line>` at row 20, column 60, which is also where it
 //! leaves the cursor.
 
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::attach_command;
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
-use std::process::Command;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -30,14 +29,6 @@ use crate::harness::Harness;
 
 const PROMPT: &str = "stty -echo; printf 'grofe-prompt$ '; \
                       while read l; do printf '\\033[20;60Hgot-%s' \"$l\"; done";
-
-fn attach(srv: &TestServer, target: &str) -> Command {
-    let mut cmd = srv.command();
-    cmd.args(["attach", "-t", target])
-        .env("TERM", "xterm-256color")
-        .env_remove("COLORTERM");
-    cmd
-}
 
 fn start(size: (u16, u16)) -> TestServer {
     let srv = TestServer::start();
@@ -79,7 +70,7 @@ fn wait_pane_size(srv: &TestServer, want: &str) {
 #[test]
 fn attach_shows_the_prompt_and_input_reaches_the_pane() {
     let srv = start((80, 23));
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("grofe-prompt$ ");
     // The status line: default status-left, then the window list.
     a.wait_for("[main] 1:");
@@ -111,21 +102,21 @@ fn attach_shows_the_prompt_and_input_reaches_the_pane() {
 #[test]
 fn reattach_resizes_the_window_to_the_new_client() {
     let srv = start((80, 23));
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("grofe-prompt$ ");
     wait_pane_size(&srv, "80x23");
     srv.cmd(&["detach-client"]).expect("detach");
     a.wait_exit();
 
     // Smaller: the window shrinks to the client, less the status row.
-    let mut small = Harness::spawn(attach(&srv, "main"), 40, 12);
+    let mut small = Harness::spawn(attach_command(&srv, "main"), 40, 12);
     small.wait_for("grofe-prompt$ ");
     wait_pane_size(&srv, "40x11");
     srv.cmd(&["detach-client"]).expect("detach");
     small.wait_exit();
 
     // Larger: it grows again.
-    let mut large = Harness::spawn(attach(&srv, "main"), 120, 40);
+    let mut large = Harness::spawn(attach_command(&srv, "main"), 120, 40);
     large.wait_for("grofe-prompt$ ");
     wait_pane_size(&srv, "120x39");
     large.send("big\r");
@@ -140,14 +131,14 @@ fn reattach_resizes_the_window_to_the_new_client() {
 #[test]
 fn two_clients_letterbox_and_crop_with_a_debounced_owner() {
     let srv = start((80, 23));
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("grofe-prompt$ ");
     wait_pane_size(&srv, "80x23");
     assert!(!a.text().contains('·'));
 
     // B attaches (activity): it is the latest, the window follows it and
     // A letterboxes.
-    let mut b = Harness::spawn(attach(&srv, "main"), 40, 12);
+    let mut b = Harness::spawn(attach_command(&srv, "main"), 40, 12);
     b.wait_for("grofe-prompt$ ");
     wait_pane_size(&srv, "40x11");
     a.wait_for("·");
@@ -204,7 +195,7 @@ fn a_client_that_stops_reading_does_not_delay_another() {
         "exec seq 1 1000000000",
     ])
     .expect("new-session");
-    let mut b = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut b = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     b.wait_for("[main]");
     let mut control = Control::connect(&srv);
     let (base_status, base_list) = latencies(&mut control, &mut b, "B");
@@ -476,7 +467,7 @@ fn a_lagging_client_catches_up_with_a_pane_that_went_quiet() {
     clients_attached(&srv, 1);
     // The small client attaches last, so it owns the size: `big`
     // letterboxes.
-    let mut small = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut small = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     wait_pane_size(&srv, "80x24");
     clients_attached(&srv, 2);
     srv.cmd(&["send-keys", "-t", "main", "Enter"])
@@ -515,7 +506,7 @@ fn input_sent_with_the_hello_reaches_the_pane_without_more_input() {
 #[test]
 fn a_one_column_window_keeps_its_pane_two_columns_wide() {
     let srv = start((80, 23));
-    let mut a = Harness::spawn(attach(&srv, "main"), 20, 6);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 20, 6);
     // Server side first: a miss here is the pane, not the client's redraw
     // (a CI run once timed out below with the pane area blank).
     if let Err(e) = srv.wait_for(
@@ -556,7 +547,7 @@ fn attach_from_inside_a_pane_refuses_only_self_nesting() {
         .cmd(&["display-message", "-p", "-t", "main", "#{pane_id}"])
         .expect("pane id");
     let inside = |target: &str, extra: &[&str]| {
-        let mut cmd = attach(&srv, target);
+        let mut cmd = attach_command(&srv, target);
         cmd.args(extra)
             .env("GROFE", &srv.socket)
             .env("GROFE_PANE", pane.trim());
@@ -585,14 +576,14 @@ fn the_client_hears_why_it_was_let_go() {
     let srv = start((80, 23));
     srv.cmd(&["new-session", "-d", "-s", "other", PROMPT])
         .expect("new-session other");
-    let mut a = Harness::spawn(attach(&srv, "main"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "main"), 80, 24);
     a.wait_for("[main]");
     srv.cmd(&["kill-session", "-t", "main"])
         .expect("kill-session");
     a.wait_for("[exited]");
     a.wait_exit();
 
-    let mut b = Harness::spawn(attach(&srv, "other"), 80, 24);
+    let mut b = Harness::spawn(attach_command(&srv, "other"), 80, 24);
     b.wait_for("[other]");
     srv.cmd(&["kill-server"]).expect("kill-server");
     b.wait_for("[server exited]");

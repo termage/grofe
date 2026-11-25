@@ -3,9 +3,8 @@
 //! into the attach pty as SGR 1006, as the outer terminal sends them; what
 //! a binding did is read back through options it sets.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{MOUSE_ON, attach_sized, start};
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -14,33 +13,7 @@ use common::{TestServer, try_wait_until};
 
 use crate::harness::{Harness, require_tool};
 
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const WAIT: Duration = Duration::from_secs(10);
-
-/// A server with one session `main` sized for an 80x24 client with a
-/// status line, running `cmd`.
-fn start(cmd: &str) -> TestServer {
-    let srv = TestServer::start();
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        cmd,
-    ])
-    .expect("new-session");
-    srv
-}
-
-fn attach(srv: &TestServer, cols: u16, rows: u16) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], cols, rows);
-    a.wait_for_output(MOUSE_ON, 0);
-    a
-}
 
 /// An SGR 1006 report: `x` and `y` are 1-based client cells.
 fn sgr(button: u8, x: u16, y: u16, release: bool) -> String {
@@ -162,7 +135,7 @@ fn c_h_goes_to_nvim_or_moves_focus_from_a_shell() {
             "select-pane -L",
         ],
     );
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for("$");
     assert_eq!(var(&srv, &right, "#{pane_active}"), "1");
     a.send(b"\x08");
@@ -228,7 +201,7 @@ fn a_sleeping_shell_condition_does_not_delay_another_client() {
             "set -g @done no",
         ],
     );
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     let mut b = Harness::spawn_attach_with_env(srv.command(), "other", &[], 80, 24);
     b.wait_for_output(MOUSE_ON, 0);
 
@@ -364,7 +337,7 @@ fn a_status_click_dispatches_on_its_range() {
     srv.cmd(&["new-window", "-d", "-t", "main", "exec sh"])
         .expect("window 1");
     owner_status_binding(&srv);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("the status ranges", WAIT, |t| t.contains("NET CPU"));
     srv.cmd(&["set", "-g", "@hit", "none"]).expect("reset");
 
@@ -411,7 +384,7 @@ fn clicks_map_with_the_status_line_on_top() {
     owner_status_binding(&srv);
     let right = split_h(&srv, "exec sh");
     let left = first_pane(&srv);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("the status on top", WAIT, |t| {
         t.lines().next().is_some_and(|l| l.contains("NET CPU"))
     });
@@ -434,7 +407,7 @@ fn dragging_a_border_resizes_both_panes() {
     let right = split_h(&srv, "exec sh");
     let left = first_pane(&srv);
     let width = |p: &str| var(&srv, p, "#{pane_width}").parse::<u16>().unwrap_or(0);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for("$");
     let (l, r) = (width(&left), width(&right));
     let total = l + r;
@@ -485,7 +458,7 @@ fn double_click_fires_once() {
     let srv = start("exec sh");
     bind(&srv, &["-n", "DoubleClick1Pane", "set", "-ga", "@log", "D"]);
     bind(&srv, &["-n", "TripleClick1Pane", "set", "-ga", "@log", "T"]);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for("$");
     click(&mut a, 1, 10, 5);
     click(&mut a, 1, 10, 5);
@@ -523,7 +496,7 @@ fn a_mouse_binding_acts_on_the_pane_under_the_pointer() {
         ],
     );
     bind(&srv, &["-n", "MouseDown2Pane", "kill-pane"]);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for("$");
     assert_eq!(var(&srv, &right, "#{pane_active}"), "1");
 
@@ -566,7 +539,7 @@ fn the_wheel_condition_routes_by_the_pointer_pane() {
             "set -g @w copy",
         ],
     );
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     // The right pane is active; the wheel over the left one is copy mode.
     a.send(sgr(64, 5, 5, false));
     wait_opt(&srv, "@w", "copy");
@@ -581,7 +554,7 @@ fn a_custom_table_takes_the_next_key() {
     let srv = start("exec cat");
     bind(&srv, &["-T", "mine", "x", "set", "-g", "@t", "yes"]);
     bind(&srv, &["-n", "C-y", "switch-client", "-T", "mine"]);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.send(b"\x19x");
     wait_opt(&srv, "@t", "yes");
     a.send("x\r");
@@ -604,7 +577,7 @@ fn any_takes_a_mouse_event_its_table_leaves_unbound() {
         .expect("unbind-key");
     bind(&srv, &["-T", "kp", "Any", "set", "-g", "@any", "kp"]);
     bind(&srv, &["-n", "C-y", "switch-client", "-T", "kp"]);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.send(b"\x19");
     let entered = try_wait_until(|| var(&srv, "main", "#{client_key_table}") == "kp", WAIT);
     assert!(
@@ -628,7 +601,7 @@ fn meta_shift_tab_sends_nothing() {
     let dir = tempfile::tempdir().expect("tempdir");
     let log = dir.path().join("log");
     let srv = start(&format!("stty raw -echo; exec cat > '{}'", log.display()));
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for_output(MOUSE_ON, 0);
     a.send(b"\x1b[9;4u\x1b[9;2uz");
     let got = try_wait_until(
@@ -646,7 +619,7 @@ fn the_new_default_keys_run_their_verbs() {
     let srv = start("exec sh");
     let right = split_h(&srv, "exec sh");
     let left = first_pane(&srv);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for("$");
     // `;` goes back to the previously active pane.
     a.send(b"\x02;");
@@ -718,7 +691,7 @@ fn a_mouse_menu_opens_at_the_pointer() {
             "set -g @m two",
         ],
     );
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for("$");
     // The button stays down: its release outside the menu would close it,
     // as tmux 3.7b's does (`b3wpc/menu-bound-mouse`).
@@ -759,7 +732,7 @@ fn keys_after_a_shell_condition_wait_for_its_branch() {
         ],
     );
     bind(&srv, &["-n", "C-g", "if-shell", "true", "splat-window"]);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for_output(MOUSE_ON, 0);
     a.send(b"\x08ab\r");
     let read = || std::fs::read(&log).unwrap_or_default();
@@ -794,7 +767,7 @@ fn the_mouse_word_line_and_link_come_from_the_pane_under_the_pointer() {
             "[#{mouse_word}][#{mouse_line}][#{mouse_hyperlink}]",
         ],
     );
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_for("link end");
 
     // Cell (4, 0) is the `b` of `bar`, which a `-` ends.
