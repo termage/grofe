@@ -338,40 +338,37 @@ fn require_works_in_a_callback_after_init() {
     assert_eq!(global(&mut state, "@late"), "yes", "{}", messages(&state));
 }
 
-/// A9: a pack's callback keeps mlua's `require` after init set the folder,
-/// while a callback init defined loads from the folder.
+/// A9: one `require` for all Lua code: a pack's callback also loads from
+/// the config folder.
 #[test]
-fn a_pack_callback_keeps_the_old_require() {
+fn a_pack_callback_requires_from_the_config_folder() {
     let pack = tempfile::tempdir().unwrap();
     std::fs::write(
         pack.path().join("init.luau"),
-        "grofe.bind('prefix','p',function()\n\
-           local ok, e = pcall(require, 'm')\n\
-           grofe.cmd{'set-option','-g','@pack',tostring(ok) .. ' ' .. tostring(e)}\n\
-         end)",
+        "grofe.bind('prefix','p',function() grofe.cmd{'set-option','-g','@pack',require('m')} end)",
     )
     .unwrap();
-    let dir = folder(
-        "grofe.bind('prefix','g',function() grofe.cmd{'set-option','-g','@init',require('m')} end)",
-        &[("m.luau", "return 'folder'")],
-    );
+    let dir = folder("", &[("m.luau", "return 'folder'")]);
     let mut state = test_state();
     load_pack(&mut state, "p", pack.path()).unwrap();
     load_init(&mut state, dir.path());
     call(&mut state, 1, Payload::None);
-    call(&mut state, 2, Payload::None);
-    let got = global(&mut state, "@pack");
-    assert!(got.starts_with("false") && !got.contains("folder"), "{got}");
-    assert!(
-        !got.contains("not found"),
-        "pack got the folder require: {got}"
-    );
     assert_eq!(
-        global(&mut state, "@init"),
+        global(&mut state, "@pack"),
         "folder",
         "{}",
         messages(&state)
     );
+}
+
+/// An empty folder (no config folder) sets nothing; `require` is a plain
+/// Lua error, not a lookup relative to the cwd.
+#[test]
+fn require_without_a_folder_is_an_error() {
+    let mut state = test_state();
+    load_init(&mut state, Path::new(""));
+    let e = require(&mut state, "m").unwrap_err();
+    assert!(e.contains("no config folder"), "{e}");
 }
 
 /// A9: the folder is set even when there is no init file.

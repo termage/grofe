@@ -39,8 +39,6 @@ pub enum Payload {
 
 const SLOT: &str = "grofe_host";
 const CALLBACKS: &str = "grofe_callbacks";
-/// Callback ids registered by pack code, so they run as pack code.
-const PACK_CALLBACKS: &str = "grofe_pack_callbacks";
 const PLUGINS: &str = "grofe_plugins";
 const NEXT_ID: &str = "grofe_next_id";
 const MIN_EVERY_MS: u64 = 100;
@@ -78,10 +76,6 @@ fn add_callback(
     let id: u32 = lua.named_registry_value(NEXT_ID)?;
     register(id)?;
     lua.named_registry_value::<Table>(CALLBACKS)?.set(id, f)?;
-    if !super::require::is_config_code(lua)? {
-        lua.named_registry_value::<Table>(PACK_CALLBACKS)?
-            .set(id, true)?;
-    }
     lua.set_named_registry_value(NEXT_ID, id + 1)?;
     Ok(id)
 }
@@ -96,7 +90,6 @@ pub fn install(rt: &Runtime) -> Result<(), LuaError> {
 
 fn install_in(lua: &Lua) -> mlua::Result<()> {
     lua.set_named_registry_value(CALLBACKS, lua.create_table()?)?;
-    lua.set_named_registry_value(PACK_CALLBACKS, lua.create_table()?)?;
     lua.set_named_registry_value(PLUGINS, lua.create_table()?)?;
     lua.set_named_registry_value(NEXT_ID, 1u32)?;
     let g = lua.create_table()?;
@@ -289,8 +282,7 @@ pub fn call(rt: &Runtime, host: &mut dyn Host, id: u32, payload: Payload) -> Res
         let Value::Function(f) = f else {
             return Ok(());
         };
-        let pack: bool = lua.named_registry_value::<Table>(PACK_CALLBACKS)?.get(id)?;
-        super::require::as_code(lua, !pack, || match payload {
+        match payload {
             Payload::None => f.call::<()>(()),
             Payload::Event(v) => f.call::<()>(json_to_lua(lua, &v)?),
             Payload::System {
@@ -304,7 +296,7 @@ pub fn call(rt: &Runtime, host: &mut dyn Host, id: u32, payload: Payload) -> Res
                 t.set("stderr", stderr)?;
                 f.call::<()>(t)
             }
-        })
+        }
     })
 }
 

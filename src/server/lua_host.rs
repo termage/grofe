@@ -244,9 +244,7 @@ pub fn load_pack(state: &mut State, name: &str, dir: &Path) -> Result<(), String
     let src = std::fs::read_to_string(&file).map_err(|e| format!("{name}: {e}"))?;
     with_host(state, client_less_ctx(), |rt, host| {
         api::enter(rt, host, name, |lua| {
-            let value = require::as_code(lua, false, || {
-                lua.load(&src).set_name(name).eval::<mlua::Value>()
-            })?;
+            let value = lua.load(&src).set_name(name).eval::<mlua::Value>()?;
             api::set_plugin(rt, name, value).map_err(mlua::Error::external)
         })
     })
@@ -266,6 +264,9 @@ pub fn load_init(state: &mut State, config_dir: &Path) {
                 "lua: reload inside a call could not be queued".into(),
             );
         }
+        return;
+    }
+    if config_dir.as_os_str().is_empty() {
         return;
     }
     let Some(file) = init_file(config_dir) else {

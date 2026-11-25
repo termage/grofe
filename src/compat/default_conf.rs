@@ -143,16 +143,15 @@ mod tests {
 
     #[test]
     fn only_existing_files_count_and_none_is_none() {
-        let root = std::env::temp_dir().join(format!("grofe-dc-{}", std::process::id()));
-        let home = root.join("home");
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
-        let etc = root.join("etc-tmux.conf");
+        let etc = root.path().join("etc-tmux.conf");
         assert_eq!(existing(&etc, Some(&home), None), None);
         std::fs::write(&etc, "").unwrap();
         assert_eq!(existing(&etc, Some(&home), None), Some(vec![etc.clone()]));
         let user = home.join(".tmux.conf");
         std::fs::write(&user, "").unwrap();
         assert_eq!(existing(&etc, Some(&home), None), Some(vec![etc, user]));
-        std::fs::remove_dir_all(&root).unwrap();
     }
 }
