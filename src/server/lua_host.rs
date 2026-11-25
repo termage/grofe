@@ -276,7 +276,10 @@ pub fn load_init(state: &mut State, config_dir: &Path) {
         Err(e) => return log(state, format!("lua: {who}: {e}")),
     };
     let r = with_host(state, client_less_ctx(), |rt, host| {
-        api::enter(rt, host, &who, |lua| lua.load(&src).set_name(&who).exec())
+        api::enter(rt, host, &who, |lua| {
+            crate::lua::require::set_dir(lua, config_dir)?;
+            lua.load(&src).set_name(&who).exec()
+        })
     });
     if let Err(e) = r {
         log_error(state, &e);
