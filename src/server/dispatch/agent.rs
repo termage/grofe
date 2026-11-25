@@ -207,7 +207,7 @@ pub(crate) fn deliver(state: &mut State, raised: Raised) {
     }
 }
 
-fn pane_label(state: &State, pane: PaneId) -> String {
+pub(crate) fn pane_label(state: &State, pane: PaneId) -> String {
     let vars = FormatCtx::new(&state.model, pane);
     expand(
         "#{session_name}:#{window_index}.#{pane_index}",

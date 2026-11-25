@@ -8,7 +8,7 @@
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
 use unicode_width::UnicodeWidthChar;
 
-use super::{Grid, Mode, Row, active_pane, blank, vi_keys};
+use super::{Grid, Mode, Row, active_pane, vi_keys};
 use crate::server::pane::{CellFlags, SnapCell};
 use crate::server::{State, clients};
 use crate::types::{ClientId, PaneId};
@@ -112,7 +112,7 @@ struct Writer<'a> {
 
 impl Writer<'_> {
     fn fresh(&self) -> Vec<SnapCell> {
-        vec![blank(); self.grid.sx]
+        vec![SnapCell::blank(); self.grid.sx]
     }
 
     /// Ends the row; `wrapped` when the text goes on in the next.
@@ -189,7 +189,7 @@ impl Grid {
         let before = self.hsize;
         let mut pen = std::mem::replace(&mut self.pen, Pen::new());
         let mut w = Writer {
-            cells: vec![blank(); self.sx],
+            cells: vec![SnapCell::blank(); self.sx],
             grid: self,
             x: 0,
             now,

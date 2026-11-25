@@ -14,13 +14,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use alacritty_terminal::vte::ansi::{Color, NamedColor};
+use alacritty_terminal::vte::ansi::Color;
 
 use crate::cmd::{ClockMode, Resolve, expand_time};
 use crate::protocol::ClientCtx;
 use crate::server::dispatch::options;
 use crate::server::input::{Input, InputHook, ROOT_TABLE, Routed};
-use crate::server::pane::{CellFlags, SnapCell};
+use crate::server::pane::SnapCell;
 use crate::server::render::{Overlay, OverlayCtx, Screen};
 use crate::server::status;
 use crate::server::{State, clients};
@@ -319,7 +319,7 @@ impl Overlay for ClockOverlay {
                     }
                     let i = row as usize * usize::from(screen.cols) + col as usize;
                     if let Some(slot) = screen.cells.get_mut(i) {
-                        *slot = cells.get(&(x, y)).cloned().unwrap_or_else(blank);
+                        *slot = cells.get(&(x, y)).cloned().unwrap_or_else(SnapCell::blank);
                     }
                 }
             }
@@ -327,18 +327,6 @@ impl Overlay for ClockOverlay {
                 screen.cursor = None;
             }
         }
-    }
-}
-
-fn blank() -> SnapCell {
-    SnapCell {
-        c: ' ',
-        fg: Color::Named(NamedColor::Foreground),
-        bg: Color::Named(NamedColor::Background),
-        flags: CellFlags::empty(),
-        zerowidth: Vec::new(),
-        underline_color: None,
-        hyperlink: None,
     }
 }
 
@@ -361,7 +349,7 @@ fn layout(
                 let cell = SnapCell {
                     c,
                     fg: colour,
-                    ..blank()
+                    ..SnapCell::blank()
                 };
                 cells.insert((x + i, y), cell);
             }
@@ -389,7 +377,7 @@ fn layout(
                         c: '#',
                         fg: colour,
                         bg: colour,
-                        ..blank()
+                        ..SnapCell::blank()
                     };
                     cells.insert((x + i, y + j), cell);
                 }
@@ -409,6 +397,7 @@ pub(crate) fn register(state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alacritty_terminal::vte::ansi::NamedColor;
 
     fn fixed(hour: &str, min: &str, sec: &str) -> impl Fn(&str) -> String {
         let (hour, min, sec) = (hour.to_string(), min.to_string(), sec.to_string());

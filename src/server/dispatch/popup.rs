@@ -9,6 +9,7 @@ use crate::protocol::ClientCtx;
 use crate::server::dispatch::pane::print_pane;
 use crate::server::dispatch::{resolve_cwd, spawn_pane};
 use crate::server::layout::Insert;
+use crate::server::menu::strtol;
 use crate::server::model::{Floating, HOLE};
 use crate::server::pane::{PaneSpawn, pane_shell, usable_cwd};
 use crate::server::popup::{self, Frame, Lines, Position};
@@ -497,19 +498,6 @@ fn position(
         spot.client,
         spot.pane,
     )))
-}
-
-/// C's `strtol(s, NULL, 10)`: blanks, a sign, then digits; 0 without any.
-fn strtol(s: &str) -> i64 {
-    let s = s.trim_start();
-    let (sign, digits) = match s.strip_prefix('-') {
-        Some(rest) => (-1, rest),
-        None => (1, s.strip_prefix('+').unwrap_or(s)),
-    };
-    let end = digits
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(digits.len());
-    digits[..end].parse::<i64>().map_or(0, |n| sign * n)
 }
 
 #[cfg(test)]

@@ -10,13 +10,11 @@ use std::time::{Duration, Instant};
 use super::agents::{Agent, rank};
 use super::clients;
 use super::dispatch::agent;
-use super::dispatch::options::{FormatCtx, ServerVars};
 use super::input::{Input, InputHook, Routed};
 use super::listdraw::{Rows, centred, draw_list};
 use super::listview::{ListAction, ListState, filter};
 use super::render::{Overlay, OverlayCtx, Screen};
 use super::{State, passthrough, prompt};
-use crate::cmd::expand;
 use crate::protocol::Dialect;
 use crate::types::{ClientId, PaneId, Rect};
 
@@ -111,14 +109,6 @@ pub(crate) fn selected_pane(state: &State, client: ClientId) -> Option<PaneId> {
     v.panes.get(at).copied()
 }
 
-fn target_label(state: &State, pane: PaneId) -> String {
-    let vars = FormatCtx::new(&state.model, pane);
-    expand(
-        "#{session_name}:#{window_index}.#{pane_index}",
-        &ServerVars::fresh(state, pane, &vars),
-    )
-}
-
 fn age(since: Instant) -> String {
     let secs = since.elapsed().as_secs();
     match secs {
@@ -167,7 +157,7 @@ fn view(state: &State, query: &str) -> View {
         cols.push(vec![
             format!("{} {}", glyph(a), rank(a).as_str()),
             age(a.since),
-            target_label(state, pane),
+            agent::pane_label(state, pane),
             a.kind.clone().unwrap_or_default(),
             a.blocked
                 .clone()
@@ -291,7 +281,7 @@ fn ctrl(state: &mut State, client: ClientId, pane: Option<PaneId>, c: char) -> R
             prompt::ask(
                 state,
                 client,
-                &format!("Kill pane {}? (y/n) ", target_label(state, pane)),
+                &format!("Kill pane {}? (y/n) ", agent::pane_label(state, pane)),
                 "",
                 "command",
                 true,
@@ -306,7 +296,7 @@ fn ctrl(state: &mut State, client: ClientId, pane: Option<PaneId>, c: char) -> R
             );
         }
         'y' => {
-            let label = target_label(state, pane);
+            let label = agent::pane_label(state, pane);
             passthrough::send_selection(state, client, label.as_bytes());
         }
         's' if state.agents.mark_seen(pane) => clients::mark_all_dirty(state),
@@ -334,7 +324,9 @@ impl Overlay for PickerOverlay {
             .get(st.selected)
             .and_then(|&at| v.panes.get(at))
             .copied();
-        let title = pane.map(|p| target_label(state, p)).unwrap_or_default();
+        let title = pane
+            .map(|p| agent::pane_label(state, p))
+            .unwrap_or_default();
         draw_list(
             screen,
             preview,
@@ -539,7 +531,7 @@ mod tests {
         press(&mut state, client, "C-y");
         clients::tick(&mut state, Instant::now());
         let bytes = out.try_recv().expect("a frame");
-        let label = target_label(&state, p1);
+        let label = agent::pane_label(&state, p1);
         let osc = crate::server::passthrough::osc52("", label.as_bytes());
         assert!(
             bytes.windows(osc.len()).any(|w| w == osc.as_slice()),
@@ -611,7 +603,7 @@ mod tests {
                 .map(String::from)
                 .unwrap_or_default()
         };
-        let title = |state: &State, p| format!(" {} ", target_label(state, p));
+        let title = |state: &State, p| format!(" {} ", agent::pane_label(state, p));
         assert!(edge(&state).contains(&title(&state, p1)));
         press(&mut state, client, "Down");
         assert_eq!(selected_pane(&state, client), Some(p2));

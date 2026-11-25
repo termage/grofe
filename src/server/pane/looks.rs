@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 
 use alacritty_terminal::term::cell::Hyperlink;
-use alacritty_terminal::vte::ansi::{Color, NamedColor};
+use alacritty_terminal::vte::ansi::Color;
 
-use super::{CellFlags, SnapCell};
+use super::SnapCell;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct LookKey {
@@ -54,15 +54,7 @@ impl Looks {
             ids: HashMap::new(),
             lookups: 0,
         };
-        looks.intern(&SnapCell {
-            c: ' ',
-            fg: Color::Named(NamedColor::Foreground),
-            bg: Color::Named(NamedColor::Background),
-            flags: CellFlags::empty(),
-            zerowidth: Vec::new(),
-            underline_color: None,
-            hyperlink: None,
-        });
+        looks.intern(&SnapCell::blank());
         looks
     }
 

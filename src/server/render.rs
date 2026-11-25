@@ -46,19 +46,10 @@ pub struct Screen {
 impl Screen {
     /// A blank screen: spaces in the terminal's default colours, no cursor.
     pub fn new(cols: u16, rows: u16) -> Screen {
-        let blank = SnapCell {
-            c: ' ',
-            fg: Color::Named(NamedColor::Foreground),
-            bg: Color::Named(NamedColor::Background),
-            flags: CellFlags::empty(),
-            zerowidth: Vec::new(),
-            underline_color: None,
-            hyperlink: None,
-        };
         Screen {
             cols,
             rows,
-            cells: vec![blank; cols as usize * rows as usize],
+            cells: vec![SnapCell::blank(); cols as usize * rows as usize],
             cursor: None,
             images: Vec::new(),
         }
@@ -393,7 +384,7 @@ pub trait Overlay {
 
 /// Attribute flags that change how a cell looks. Everything else alacritty
 /// keeps on a cell (wrap markers, the wide-char layout flags) is layout.
-const STYLE_FLAGS: CellFlags = CellFlags::BOLD
+pub(crate) const STYLE_FLAGS: CellFlags = CellFlags::BOLD
     .union(CellFlags::DIM)
     .union(CellFlags::ITALIC)
     .union(CellFlags::ALL_UNDERLINES)
@@ -421,7 +412,7 @@ fn blank_like(cell: &SnapCell) -> SnapCell {
     }
 }
 
-fn styled(c: char, style: &Style) -> SnapCell {
+pub(crate) fn styled(c: char, style: &Style) -> SnapCell {
     SnapCell {
         c,
         fg: style.fg,

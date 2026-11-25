@@ -40,7 +40,7 @@ use crate::server::input::{Input, InputHook, Key, KeyCode, ROOT_TABLE, Routed};
 use crate::server::model::Window;
 use crate::server::pane::looks::Looks;
 use crate::server::pane::{CellFlags, CursorShape, CursorState, PaneHandle, SnapCell, marks};
-use crate::server::render::{Overlay, OverlayCtx, Screen};
+use crate::server::render::{Overlay, OverlayCtx, STYLE_FLAGS, Screen, styled};
 use crate::server::screenimg::{self, ImageCaps, Place};
 use crate::server::status::{self, Style};
 use crate::server::{State, buffers, clients, passthrough};
@@ -185,18 +185,6 @@ pub(crate) struct GridCell {
     pub tab: usize,
 }
 
-fn blank() -> SnapCell {
-    SnapCell {
-        c: ' ',
-        fg: Color::Named(NamedColor::Foreground),
-        bg: Color::Named(NamedColor::Background),
-        flags: CellFlags::empty(),
-        zerowidth: Vec::new(),
-        underline_color: None,
-        hyperlink: None,
-    }
-}
-
 impl Grid {
     fn empty(sx: usize, hsize: usize, sy: usize) -> Grid {
         Grid {
@@ -237,7 +225,7 @@ impl Grid {
         }
         self.sy = self.rows.len() - self.hsize;
         while self.sy < rows {
-            let mut blanks = vec![blank(); self.sx];
+            let mut blanks = vec![SnapCell::blank(); self.sx];
             self.push_row(&mut blanks, &vec![false; self.sx]);
             self.sy += 1;
         }
@@ -256,16 +244,19 @@ impl Grid {
             let mut cells: Vec<SnapCell> = Vec::new();
             let mut tabs = Vec::new();
             for c in text.chars() {
-                cells.push(SnapCell { c, ..blank() });
+                cells.push(SnapCell {
+                    c,
+                    ..SnapCell::blank()
+                });
                 tabs.push(false);
                 if c == '\t' {
                     while !cells.len().is_multiple_of(8) {
-                        cells.push(blank());
+                        cells.push(SnapCell::blank());
                         tabs.push(true);
                     }
                 }
             }
-            cells.resize(sx, blank());
+            cells.resize(sx, SnapCell::blank());
             tabs.resize(sx, false);
             grid.push_row(&mut cells, &tabs);
         }
@@ -404,7 +395,7 @@ impl Grid {
                 ..look.clone()
             },
             Some((c, look)) => SnapCell { c, ..look.clone() },
-            None => blank(),
+            None => SnapCell::blank(),
         }
     }
 
@@ -2558,7 +2549,14 @@ impl Overlay for CopyOverlay {
                             .flags
                             .contains(CellFlags::WIDE_CHAR_SPACER)
                     {
-                        put(end, y, SnapCell { c: ' ', ..blank() });
+                        put(
+                            end,
+                            y,
+                            SnapCell {
+                                c: ' ',
+                                ..SnapCell::blank()
+                            },
+                        );
                     }
                 }
             }
@@ -2566,7 +2564,10 @@ impl Overlay for CopyOverlay {
                 put(
                     cols.saturating_sub(1),
                     mode.cy,
-                    SnapCell { c: '$', ..blank() },
+                    SnapCell {
+                        c: '$',
+                        ..SnapCell::blank()
+                    },
                 );
             }
             if pane == w.active
@@ -2680,26 +2681,6 @@ fn position_label(
             }
             x += w;
         }
-    }
-}
-
-const STYLE_FLAGS: CellFlags = CellFlags::BOLD
-    .union(CellFlags::DIM)
-    .union(CellFlags::ITALIC)
-    .union(CellFlags::ALL_UNDERLINES)
-    .union(CellFlags::INVERSE)
-    .union(CellFlags::HIDDEN)
-    .union(CellFlags::STRIKEOUT);
-
-fn styled(c: char, style: &Style) -> SnapCell {
-    SnapCell {
-        c,
-        fg: style.fg,
-        bg: style.bg,
-        flags: style.attrs & STYLE_FLAGS,
-        zerowidth: Vec::new(),
-        underline_color: style.underline_color,
-        hyperlink: None,
     }
 }
 
@@ -3035,7 +3016,7 @@ mod tests {
     fn a_full_history_copy_is_bounded() {
         let red = SnapCell {
             fg: Color::Named(NamedColor::Red),
-            ..blank()
+            ..SnapCell::blank()
         };
         let mut g = Grid::empty(80, 0, 0);
         for y in 0..100_000usize {
@@ -3044,7 +3025,7 @@ mod tests {
                     let look = if (x / 4 + y) % 2 == 0 {
                         red.clone()
                     } else {
-                        blank()
+                        SnapCell::blank()
                     };
                     SnapCell { c: 'x', ..look }
                 })
@@ -3062,7 +3043,7 @@ mod tests {
         // Blank rows cost no cells.
         let mut blank_rows = Grid::empty(80, 0, 0);
         for _ in 0..1000 {
-            blank_rows.push_row(&mut vec![blank(); 80], &[]);
+            blank_rows.push_row(&mut vec![SnapCell::blank(); 80], &[]);
         }
         assert!(blank_rows.rows.iter().all(|r| r.cells.capacity() == 0));
     }

@@ -5,7 +5,9 @@
 use crate::cmd::{self, ConfirmBefore, DisplayMenu, DisplayPanes, MenuEntry, Resolve};
 use crate::protocol::{ClientCtx, Dialect};
 use crate::server::input::parse_key;
-use crate::server::menu::{self, Internal, Look, Menu, MenuItem, PanesArgs, Position, Start};
+use crate::server::menu::{
+    self, Internal, Look, Menu, MenuItem, PanesArgs, Position, Start, strtol,
+};
 use crate::server::popup::Lines;
 use crate::server::{State, clients, prompt};
 
@@ -167,19 +169,6 @@ fn position(
     Ok(Position::Cells(strtol(&prompt::expand_command(
         state, ctx, value,
     ))))
-}
-
-/// C's `strtol(s, NULL, 10)`: blanks, a sign, then digits; 0 without any.
-fn strtol(s: &str) -> i64 {
-    let s = s.trim_start();
-    let (sign, digits) = match s.strip_prefix('-') {
-        Some(rest) => (-1, rest),
-        None => (1, s.strip_prefix('+').unwrap_or(s)),
-    };
-    let end = digits
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(digits.len());
-    digits[..end].parse::<i64>().map_or(0, |n| sign * n)
 }
 
 /// `display-panes [-bN] [-d duration] [-t client] [template]`: each pane

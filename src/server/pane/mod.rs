@@ -30,7 +30,9 @@ use alacritty_terminal::Term;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::{self, TermMode};
-use alacritty_terminal::vte::ansi::{Color, CursorShape as VteCursorShape, Processor, Rgb};
+use alacritty_terminal::vte::ansi::{
+    Color, CursorShape as VteCursorShape, NamedColor, Processor, Rgb,
+};
 use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
 use nix::libc;
@@ -170,6 +172,21 @@ pub struct SnapCell {
     pub underline_color: Option<Color>,
     /// The OSC 8 hyperlink the cell is part of (R20; T3.3 emits it).
     pub hyperlink: Option<Hyperlink>,
+}
+
+impl SnapCell {
+    /// A space in the terminal's default colours, with no attributes.
+    pub(crate) fn blank() -> SnapCell {
+        SnapCell {
+            c: ' ',
+            fg: Color::Named(NamedColor::Foreground),
+            bg: Color::Named(NamedColor::Background),
+            flags: CellFlags::empty(),
+            zerowidth: Vec::new(),
+            underline_color: None,
+            hyperlink: None,
+        }
+    }
 }
 
 /// The cursor's shape, as DECSCUSR sets it.

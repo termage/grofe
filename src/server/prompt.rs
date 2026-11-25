@@ -23,7 +23,6 @@ use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::vte::ansi::{Color, NamedColor};
 use tokio::sync::oneshot;
 use unicode_width::UnicodeWidthChar;
 
@@ -884,15 +883,7 @@ fn line_cells(line: &status::StyledLine, cols: usize) -> Vec<SnapCell> {
         }
     }
     out.truncate(cols);
-    let fill = out.last().cloned().unwrap_or_else(|| SnapCell {
-        c: ' ',
-        fg: Color::Named(NamedColor::Foreground),
-        bg: Color::Named(NamedColor::Background),
-        flags: CellFlags::empty(),
-        zerowidth: Vec::new(),
-        underline_color: None,
-        hyperlink: None,
-    });
+    let fill = out.last().cloned().unwrap_or_else(SnapCell::blank);
     out.resize(cols, SnapCell { c: ' ', ..fill });
     out
 }
@@ -2488,6 +2479,7 @@ fn exit_result(script: &str, status: ExitStatus) -> Result<(), (String, i32)> {
 mod tests {
     use super::*;
     use crate::server::input::Mods;
+    use alacritty_terminal::vte::ansi::{Color, NamedColor};
 
     /// `command-prompt -N` (FE.1): only digits reach the text.
     #[test]
