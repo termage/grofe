@@ -31,7 +31,8 @@ pub fn centred(client: (u16, u16), w_pct: u16, h_pct: u16) -> Rect {
     }
 }
 
-fn width(text: &str) -> usize {
+/// Cells `text` takes on screen.
+pub fn width(text: &str) -> usize {
     text.chars()
         .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
         .sum()
@@ -92,7 +93,8 @@ fn cell_mut(screen: &mut Screen, x: usize, y: usize) -> Option<&mut SnapCell> {
     screen.cells.get_mut(y * cols + x)
 }
 
-fn fill(screen: &mut Screen, x0: usize, x1: usize, y: usize, style: &Style) {
+/// Paints cells `x0..x1` of row `y` blank in `style`.
+pub fn fill(screen: &mut Screen, x0: usize, x1: usize, y: usize, style: &Style) {
     for x in x0..x1 {
         put_cell(screen, x, y, ' ', style, CellFlags::empty());
     }
@@ -172,25 +174,14 @@ pub fn fit_text(text: &str, max: usize) -> String {
     out
 }
 
-/// [`draw_list`], laying the columns out to the box when `cols` is given:
-/// each column is capped, the widest are narrowed until a row fits, and a
-/// cell cut short ends in `…`.
-#[allow(clippy::too_many_arguments)]
-pub fn draw_list_fit(
-    screen: &mut Screen,
-    area: Rect,
-    title: &str,
-    rows: &Rows,
-    visible: &[usize],
-    st: &ListState,
-    show_query: bool,
-    cols: Option<&[Col]>,
-) {
+/// Clears `area` and draws the overlays' rounded border around it, with
+/// `title` in the top edge. False when the area is too small for a border.
+pub fn draw_frame(screen: &mut Screen, area: Rect, title: &str) -> bool {
     let plain = Style::default();
     let (x0, y0) = (usize::from(area.x), usize::from(area.y));
     let (w, h) = (usize::from(area.cols), usize::from(area.rows));
     if w < 2 || h < 2 {
-        return;
+        return false;
     }
     let (x1, y1) = (x0 + w - 1, y0 + h - 1);
 
@@ -214,17 +205,61 @@ pub fn draw_list_fit(
         let x = put_text(screen, x, y0, x1 - 1, title, &plain);
         put_text(screen, x, y0, x1 - 1, " ", &plain);
     }
+    true
+}
+
+/// A list's query line in cells `x..end` of row `y`: `prompt` in its
+/// style, the query, and `placeholder` dimmed while the query is empty.
+pub fn query_line(
+    screen: &mut Screen,
+    (x, end, y): (usize, usize, usize),
+    (prompt, style): (&str, &Style),
+    query: &str,
+    placeholder: &str,
+) {
+    let x = put_text(screen, x, y, end, prompt, style);
+    let x = put_text(screen, x, y, end, query, &Style::default());
+    if query.is_empty() {
+        let mut dim = Style::default();
+        dim.attrs |= CellFlags::DIM;
+        put_text(screen, x, y, end, placeholder, &dim);
+    }
+}
+
+/// [`draw_list`], laying the columns out to the box when `cols` is given:
+/// each column is capped, the widest are narrowed until a row fits, and a
+/// cell cut short ends in `…`.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_list_fit(
+    screen: &mut Screen,
+    area: Rect,
+    title: &str,
+    rows: &Rows,
+    visible: &[usize],
+    st: &ListState,
+    show_query: bool,
+    cols: Option<&[Col]>,
+) {
+    let plain = Style::default();
+    if !draw_frame(screen, area, title) {
+        return;
+    }
+    let (x0, y0) = (usize::from(area.x), usize::from(area.y));
+    let (x1, y1) = (
+        x0 + usize::from(area.cols) - 1,
+        y0 + usize::from(area.rows) - 1,
+    );
 
     let (ix0, ix1) = (x0 + 1, x1);
     let mut y = y0 + 1;
     if show_query && y < y1 {
-        let x = put_text(screen, ix0, y, ix1, "> ", &plain);
-        let x = put_text(screen, x, y, ix1, &st.query, &plain);
-        if st.query.is_empty() {
-            let mut dim = plain;
-            dim.attrs |= CellFlags::DIM;
-            put_text(screen, x, y, ix1, "type to filter", &dim);
-        }
+        query_line(
+            screen,
+            (ix0, ix1, y),
+            ("> ", &plain),
+            &st.query,
+            "type to filter",
+        );
         y += 1;
     }
 

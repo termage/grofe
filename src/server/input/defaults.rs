@@ -259,6 +259,19 @@ const GROUP_ORDER: &[&str] = &[
     "other",
 ];
 
+/// Sorts groups as the keys reference and the key menu list them: by
+/// [`GROUP_ORDER`], any other group after those in name order, `other` last.
+pub fn sort_groups(groups: &mut [String]) {
+    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
+    groups.sort_by_cached_key(|g| {
+        (
+            g == "other",
+            rank(g).unwrap_or(GROUP_ORDER.len()),
+            g.clone(),
+        )
+    });
+}
+
 /// The book's keys reference (`docs/book/src/keys.md`), generated from
 /// [`default_bindings`] so it cannot drift: every `prefix` binding of grofe
 /// identity by group, with its note and command, and how tmux's own key
@@ -275,9 +288,8 @@ pub fn keys_reference_markdown() -> String {
             groups.entry(group).or_default().push((key, b));
         }
     }
-    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
     let mut order: Vec<String> = groups.keys().cloned().collect();
-    order.sort_by_key(|g| (rank(g).unwrap_or(GROUP_ORDER.len()), g.clone()));
+    sort_groups(&mut order);
     let mut out = String::from(
         "# Keys
 
@@ -290,6 +302,12 @@ prefix key (`Ctrl-b`) first. The last column says how tmux's own default for
 that key compares: the same command, grofe's own key, or what tmux binds
 there instead. Under tmux identity (grofe run as `tmux`, or
 `compat-identity = \"tmux\"`) the keys are tmux's, with tmux's notes.
+
+In the key menu (`prefix Space`), press a listed key to run it, or `C-f` to
+search every binding by key, description, group and command. `/` searches
+too in a table where `/` is not bound; in the prefix table `/` is
+`Describe key binding`. `Enter` runs the selected row, `Escape` leaves search
+and then closes the menu.
 ",
     );
     for group in order {

@@ -66,18 +66,35 @@ Rebind any of them like any other key, in TOML or with `bind-key`.
 
 ## The key menu
 
-`prefix Space` lists the bindings of the prefix table by group (agents,
-notifications, pane, window and so on), each with its key and description.
+`prefix Space` opens a box titled `Keys · prefix` that lists the bindings of
+the prefix table by group (window, pane, session and so on, then your own
+groups by name, with `other` last), in as many columns as the client is wide; a narrow client gets one
+column. Each group has a bold header, and each binding shows its key in a
+bold, right-aligned column and its description. A binding with no
+description shows its command, dimmed, and a description too long for its
+column ends in `…`. A table too big for the box is split into pages, and the
+title shows which page is showing; the page always holds the selected row.
+
 Pressing a key that is bound in the table runs that binding at once and
 closes the menu. The menu keeps these keys for itself: `Up`, `Down`, `C-p` and
-`C-n` move the selection, `PageUp` and `PageDown` move a screenful, `Home` and
-`End` jump to the first and last row, `C-f` starts filtering (then `Enter`
-runs the selected row), and `Escape` and `C-c` close it. A binding on one of
-those keys, such as `prefix Up` for `select-pane -U`, is still listed and
-can be reached by filtering. The prefix key itself is ignored while the menu is
-open, so it cannot start a prefix sequence under the menu. A binding that runs
-`switch-client -T <table>` opens that table's menu. A hint at the bottom of the
-box lists the main keys, and a description too long for the box ends in `…`.
+`C-n` move the selection, `PageUp` and `PageDown` move to the first row of
+the previous or next page (a screenful of results while searching), `Home` and
+`End` jump to the first and last row, `Enter` runs the selected row when
+`Enter` is not bound itself, and `Escape` and `C-c` close it. A binding on one
+of those keys, such as `prefix Up` for `select-pane -U`, is still listed and
+can be reached by searching. The prefix key itself is ignored while the menu
+is open, so it cannot start a prefix sequence under the menu. A binding that
+runs `switch-client -T <table>` opens that table's menu. A hint at the bottom
+of the box lists the main keys.
+
+`/` or `C-f` opens a search line at the top of the box. When `/` is itself
+bound in the table, as it is in the prefix table (`Describe key binding`),
+`/` runs that binding and only `C-f` searches; the hint says which. Search is
+fuzzy over each binding's key, description, group and command, so `splt`
+finds `split-window`. Results are one list, best match first, each row
+`key  description  · group` with the matched characters underlined. `Enter`
+runs the selected result. `Backspace` on an empty query, or `Escape`, leaves
+search and goes back to the groups; `Escape` again closes the menu.
 
 `key-menu -T <table>` opens the menu for any key table. The group comes from
 `bind-key -G <group>` or a `group` in a TOML binding, and the description from
