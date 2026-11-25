@@ -14,7 +14,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 8] = [
+    pub(crate) const ALL: [Section; 8] = [
         Section::Appearance,
         Section::StatusLine,
         Section::Keys,
@@ -25,7 +25,7 @@ impl Section {
         Section::Other,
     ];
 
-    pub fn title(self) -> &'static str {
+    pub(crate) fn title(self) -> &'static str {
         match self {
             Section::Appearance => "Appearance",
             Section::StatusLine => "Status line",

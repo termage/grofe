@@ -54,7 +54,7 @@ use crate::protocol::{Caps, ClientCtx, Frame, FrameCodec};
 use crate::server::input::Key;
 
 /// How often [`Hook::tick`] runs (and the bar's countdown is checked).
-pub const TICK: Duration = Duration::from_millis(100);
+pub(crate) const TICK: Duration = Duration::from_millis(100);
 
 /// Most bytes typed during a switch that are kept for the new attach.
 const MAX_HELD: usize = 64 * 1024;
@@ -74,7 +74,7 @@ pub use hooks::{Hook, HookCtx, Input, Prompt, Switch};
 // ------------------------------------------------------------------ events
 
 /// Something a connection's thread reports to the main loop.
-pub struct Event {
+pub(crate) struct Event {
     generation: u64,
     kind: Kind,
 }
@@ -113,7 +113,7 @@ fn post(out: &SyncSender<Out>, generation: u64, kind: Kind) -> bool {
 /// (`-t`) and find its session even while a dropped connection's stale
 /// client still lingers on the server, and never a local device path the
 /// remote could mistake for one of its own terminals.
-pub fn tty_for(generation: u64) -> String {
+pub(crate) fn tty_for(generation: u64) -> String {
     static BASE: OnceLock<String> = OnceLock::new();
     let base = BASE.get_or_init(|| {
         let nanos = std::time::SystemTime::now()

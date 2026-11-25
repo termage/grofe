@@ -252,14 +252,14 @@ impl Scanner {
     /// cursor's line with (`marks::PROMPT`, `marks::OUTPUT`). tmux 3.7b
     /// reads only the first character after `133;`, and only `A` and `C`
     /// mark anything.
-    pub fn take_marks(&mut self) -> Vec<(usize, u8)> {
+    pub(crate) fn take_marks(&mut self) -> Vec<(usize, u8)> {
         std::mem::take(&mut self.marks)
     }
 
     /// How many XTVERSION queries were met since the last call. As tmux
     /// 3.7b's `INPUT_CSI_XDA`, that is `CSI > q` whose first parameter is
     /// absent or 0 (recorded: `CSI > 1 q` gets no reply).
-    pub fn take_xtversion(&mut self) -> usize {
+    pub(crate) fn take_xtversion(&mut self) -> usize {
         std::mem::take(&mut self.xtversion)
     }
 
@@ -758,7 +758,7 @@ fn notification_text(body: &[u8]) -> Option<String> {
 
 /// A `Title`, `Bell`, `Clipboard`, `Cwd` or `Osc` (notification or cursor
 /// colour) event from `pane`.
-pub fn on_pane_event(state: &mut State, pane: PaneId, kind: PaneEventKind) {
+pub(crate) fn on_pane_event(state: &mut State, pane: PaneId, kind: PaneEventKind) {
     let Some(p) = state.model.panes.get(&pane) else {
         return;
     };
@@ -881,7 +881,7 @@ fn refresh_session(state: &mut State, session: SessionId) {
 /// OSC 112. While `set-titles` is off, no title is sent at all, even a
 /// clearing one, and nothing already shown is touched. When the session's
 /// active pane moved, focus reports follow it ([`move_focus`]).
-pub fn on_active_changed(state: &mut State, id: ClientId) {
+pub(crate) fn on_active_changed(state: &mut State, id: ClientId) {
     let Some(session) = state.clients.get(&id).map(|c| c.session) else {
         return;
     };
@@ -961,7 +961,7 @@ fn held_elsewhere(state: &State, session: SessionId, pane: PaneId) -> bool {
 /// has focus gets a focus-out (unless the client had lost focus, which
 /// already sent one) and the session forgets it, so the next attach sends
 /// focus-in, as tmux 3.7b does.
-pub fn on_client_gone(state: &mut State, id: ClientId) {
+pub(crate) fn on_client_gone(state: &mut State, id: ClientId) {
     state.passthrough.sent.remove(&id);
     let Some((session, focused)) = state.clients.get(&id).map(|c| (c.session, c.focused)) else {
         return;
@@ -1126,7 +1126,7 @@ fn send_clipboard(state: &mut State, to: Vec<ClientId>, bytes: &[u8]) {
 /// `load-buffer -w` (TM.7): `data` to client `id`'s clipboard as OSC 52,
 /// as tmux's `tty_set_selection` sends it, with no `set-clipboard` check;
 /// past [`MAX_COPY_CLIP`] nothing is sent.
-pub fn send_selection(state: &mut State, id: ClientId, data: &[u8]) {
+pub(crate) fn send_selection(state: &mut State, id: ClientId, data: &[u8]) {
     if !data.is_empty() && data.len() <= MAX_COPY_CLIP {
         send_clipboard(state, vec![id], &osc52("", data));
     }

@@ -2,11 +2,9 @@
 //! own size. tmux's `window-size latest` sizes it for the client that was
 //! active last; here too, and it does not flap between the two.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::attach_command;
 
-use std::process::Command;
 use std::time::Duration;
 
 use common::{TestServer, try_wait_until};
@@ -14,14 +12,6 @@ use common::{TestServer, try_wait_until};
 use crate::harness::Harness;
 
 const WAIT: Duration = Duration::from_secs(10);
-
-fn attach(srv: &TestServer, target: &str) -> Command {
-    let mut cmd = srv.command();
-    cmd.args(["attach", "-t", target])
-        .env("TERM", "xterm-256color")
-        .env_remove("COLORTERM");
-    cmd
-}
 
 fn size(srv: &TestServer) -> String {
     srv.cmd(&[
@@ -61,11 +51,11 @@ fn a_shared_window_is_sized_for_the_client_that_was_active_last() {
     }
     srv.cmd(&["link-window", "-d", "-s", "a:1", "-t", "b:5"])
         .expect("link-window");
-    let mut a = Harness::spawn(attach(&srv, "a"), 80, 24);
+    let mut a = Harness::spawn(attach_command(&srv, "a"), 80, 24);
     a.wait_for("[a]");
     wait_size(&srv, "80x23");
     // b's client attaches later, so the window is b's size.
-    let mut b = Harness::spawn(attach(&srv, "b"), 50, 12);
+    let mut b = Harness::spawn(attach_command(&srv, "b"), 50, 12);
     b.wait_for("[b]");
     wait_size(&srv, "50x11");
     // Typing in a makes it the one that was active last, and back again.
@@ -102,7 +92,7 @@ fn a_command_from_a_linked_pane_finds_the_client_of_the_other_session() {
         .expect("pane id")
         .trim_end()
         .to_string();
-    let mut b = Harness::spawn(attach(&srv, "b"), 80, 24);
+    let mut b = Harness::spawn(attach_command(&srv, "b"), 80, 24);
     b.wait_for("[b]");
     let mut cmd = srv.command();
     cmd.args(["refresh-client", "-S"])

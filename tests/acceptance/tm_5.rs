@@ -6,9 +6,8 @@
 //! never a real clipboard. The expected bytes are tmux 3.7b's, recorded
 //! with a private `-L` server (see the TM.5 report).
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::shell_quote;
 
 use std::fs;
 use std::path::Path;
@@ -16,7 +15,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use common::{CMD_TIMEOUT, TestServer, try_wait_until};
+use common::{CMD_TIMEOUT, TestServer, display_main as display, try_wait_until};
 
 use crate::harness::Harness;
 
@@ -42,13 +41,6 @@ fn attach(srv: &TestServer, session: &str) -> Harness {
     let mut a = Harness::spawn_attach_with_env(srv.command(), session, &[], 80, 24);
     a.wait_for_output(b"\x1b[2J", 0);
     a
-}
-
-fn display(srv: &TestServer, format: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", "main", format])
-        .unwrap_or_else(|e| panic!("display {format}: {e}"))
-        .trim_end()
-        .to_string()
 }
 
 fn wait_display(srv: &TestServer, format: &str, want: &str) {
@@ -462,10 +454,6 @@ fn the_selection_never_reaches_the_command_line() {
     // The pipe is done once the file is whole; give a stray `touch` time.
     common::quiet_period(Duration::from_millis(200));
     assert!(!pwned.exists(), "the selection ran as a command");
-}
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// The command runs under `/bin/sh` with the server's environment and

@@ -123,7 +123,7 @@ fn applies(action: &str, current: bool) -> bool {
 /// A bell rang in `window`. Like tmux's `alerts_queue`, the bells of one
 /// burst are one alert: the window is checked once, behind the events
 /// already waiting.
-pub fn bell(state: &mut State, window: WindowId) {
+pub(crate) fn bell(state: &mut State, window: WindowId) {
     if !state.alerts.bell_queued.insert(window) {
         return;
     }
@@ -143,7 +143,7 @@ pub fn bell(state: &mut State, window: WindowId) {
 
 /// `panes` printed something: activity in their windows, and their
 /// silence waits start again.
-pub fn output(state: &mut State, panes: &BTreeSet<PaneId>) {
+pub(crate) fn output(state: &mut State, panes: &BTreeSet<PaneId>) {
     let windows: BTreeSet<WindowId> = panes
         .iter()
         .filter_map(|p| state.model.panes.get(p).map(|p| p.window))
@@ -167,7 +167,7 @@ fn touch(state: &mut State, window: WindowId) {
 /// Windows that became current count as output in them, as tmux's
 /// `session_set_current` updates the window's activity: run at the end of
 /// every command sequence and pane wake-up.
-pub fn drain(state: &mut State) {
+pub(crate) fn drain(state: &mut State) {
     let selected = std::mem::take(&mut state.model.selected);
     for window in selected {
         touch(state, window);
@@ -180,7 +180,7 @@ pub fn drain(state: &mut State) {
 
 /// `monitor-silence` was set: every window's wait starts again, as
 /// tmux's `alerts_reset_all`.
-pub fn silence_option_set(state: &mut State) {
+pub(crate) fn silence_option_set(state: &mut State) {
     let windows: Vec<WindowId> = state.model.windows.keys().copied().collect();
     for window in windows {
         restart_silence(state, window);

@@ -3,13 +3,13 @@
 
 /// One word for a POSIX shell: in single quotes, a `'` as `'\''`, so
 /// backslashes, `$` and `~` stay as they are.
-pub fn sh(s: &str) -> String {
+pub(crate) fn sh(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// A value for inside double quotes in `sh`: `$`, `` ` ``, `"` and `\` get
 /// a backslash, as tmux's `cmd_show_environment_escape`.
-pub fn sh_double(value: &str) -> String {
+pub(crate) fn sh_double(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for ch in value.chars() {
         if matches!(ch, '$' | '`' | '"' | '\\') {
@@ -87,13 +87,13 @@ pub fn tmux_arg(s: &str) -> String {
 }
 
 /// A TOML basic string.
-pub fn toml_str(s: &str) -> String {
+pub(crate) fn toml_str(s: &str) -> String {
     toml::Value::String(s.to_string()).to_string()
 }
 
 /// A TOML key: bare when it is only letters, digits, `-` and `_`, else a
 /// quoted string.
-pub fn toml_key(s: &str) -> String {
+pub(crate) fn toml_key(s: &str) -> String {
     let bare = !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
@@ -103,7 +103,7 @@ pub fn toml_key(s: &str) -> String {
 /// A key binding as a config value: the bare command string when it has
 /// nothing else, else an inline table with `cmd`, each of `extras` that is
 /// set, and `repeat`.
-pub fn toml_binding(command: &str, extras: &[(&str, Option<&str>)], repeat: bool) -> String {
+pub(crate) fn toml_binding(command: &str, extras: &[(&str, Option<&str>)], repeat: bool) -> String {
     if repeat || extras.iter().any(|(_, v)| v.is_some()) {
         let mut fields = vec![format!("cmd = {}", toml_str(command))];
         for (k, v) in extras {

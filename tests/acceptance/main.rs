@@ -12,17 +12,21 @@
 mod b1c;
 mod b1e;
 mod b4_lock;
+#[path = "../common/mod.rs"]
+mod common;
 mod copy_emacs;
 mod exit_unattached;
 mod f1;
 mod float_mouse;
 mod g3_graphics;
+mod golden;
 mod harness;
 mod layouts;
 mod m2_gate;
 mod m2_robust;
 mod plugin_rig;
 mod self_test;
+mod setup;
 mod stale_build;
 mod t2_5a;
 mod t2_5b;

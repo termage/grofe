@@ -10,7 +10,7 @@ use super::rows::{Act, Entry};
 use super::sections::Section;
 
 /// A row per file in the layouts directory: name and the sessions it makes.
-pub fn entries() -> Vec<Entry> {
+pub(crate) fn entries() -> Vec<Entry> {
     let Ok(found) = layouts::entries(&Dirs::from_process()) else {
         return Vec::new();
     };
@@ -31,7 +31,7 @@ pub fn entries() -> Vec<Entry> {
 }
 
 /// Draws the preview of `layout_toml` into `area`.
-pub fn draw_preview(screen: &mut Screen, area: Rect, layout_toml: &str) {
+pub(crate) fn draw_preview(screen: &mut Screen, area: Rect, layout_toml: &str) {
     let lines = preview(layout_toml, area.cols, area.rows.min(12));
     for (i, line) in lines.iter().enumerate() {
         let end = usize::from(area.x + area.cols);

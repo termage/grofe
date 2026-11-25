@@ -143,7 +143,7 @@ impl PaneToken {
     /// tmux's plain-word spelling of an edge or corner token (`top`,
     /// `Bottom-Right`): window.c `window_find_string` matches them
     /// case-insensitively. The `-of` tokens have none.
-    pub fn parse_word(s: &str) -> Option<PaneToken> {
+    pub(crate) fn parse_word(s: &str) -> Option<PaneToken> {
         Self::ALL
             .iter()
             .skip(4)
@@ -152,7 +152,7 @@ impl PaneToken {
     }
 
     /// The token as typed, for tmux's `can't find pane: {up-of}`.
-    pub fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         Self::ALL
             .iter()
             .find(|(_, t)| *t == self)
@@ -207,12 +207,12 @@ thread_local! {
 
 /// tmux 3.7b's error for a bare `=` target with no mouse event (recorded:
 /// `has-session -t =`).
-pub const NO_MOUSE_TARGET: &str = "no mouse target";
+pub(crate) const NO_MOUSE_TARGET: &str = "no mouse target";
 
 /// Runs `f` (a native parse) with targets read as the tmux front end reads
 /// them (see the module docs). Only `compat::tmux` calls this, so the
 /// native grammar is unchanged everywhere else.
-pub fn with_tmux_targets<R>(f: impl FnOnce() -> R) -> R {
+pub(crate) fn with_tmux_targets<R>(f: impl FnOnce() -> R) -> R {
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -249,7 +249,7 @@ fn tmux_window(s: &str) -> Option<WindowRef> {
 /// `^`, `{end}`), for a verb that wants a window. The tmux front end leaves
 /// such words as [`SessionRef::Bare`] for the resolver; a window named
 /// `{previous}` or `-` is not reachable by a bare word there.
-pub fn tmux_window_token(s: &str) -> Option<WindowRef> {
+pub(crate) fn tmux_window_token(s: &str) -> Option<WindowRef> {
     if is_last_token(s) {
         return Some(WindowRef::LastUsed);
     }
@@ -263,7 +263,7 @@ pub fn tmux_window_token(s: &str) -> Option<WindowRef> {
 /// The same for a verb that wants a pane: `!`, `{next}`, `-1`, `{top}`, and
 /// for a tmux client the plain words `top` and `Bottom-Left` (a grofe
 /// client's bare word may be a session's name).
-pub fn tmux_pane_token(s: &str, dialect: Dialect) -> Option<PanePart> {
+pub(crate) fn tmux_pane_token(s: &str, dialect: Dialect) -> Option<PanePart> {
     let word = (dialect == Dialect::Tmux)
         .then(|| PaneToken::parse_word(s))
         .flatten();
@@ -277,7 +277,7 @@ pub fn tmux_pane_token(s: &str, dialect: Dialect) -> Option<PanePart> {
 }
 
 /// tmux's `!` and `{last}`.
-pub fn is_last_token(s: &str) -> bool {
+pub(crate) fn is_last_token(s: &str) -> bool {
     s == "!" || s == "{last}"
 }
 

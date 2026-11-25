@@ -21,16 +21,16 @@ use crate::server::graphics::{Cmd, encode};
 use crate::server::sixel::{self, Sixel};
 
 /// Most kitty placements kept per pane; the oldest go first.
-pub const MAX_KITTY: usize = 512;
+pub(crate) const MAX_KITTY: usize = 512;
 /// Most sixel images kept per pane (tmux keeps 19 for the whole server).
-pub const MAX_SIXEL: usize = 19;
+pub(crate) const MAX_SIXEL: usize = 19;
 /// Most pixel bytes of sixel images kept per pane.
-pub const MAX_SIXEL_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_SIXEL_BYTES: usize = 16 * 1024 * 1024;
 /// Most image sizes remembered per pane.
 const MAX_SIZES: usize = 1024;
 /// Image ids the reader gives an `a=T` with no `i=`, so that the actor and
 /// the store name the image alike.
-pub const ANON_BASE: u32 = 0x8000_0000;
+pub(crate) const ANON_BASE: u32 = 0x8000_0000;
 /// Most rows or columns a placement is moved the cursor by.
 const MAX_MOVE: u32 = 1000;
 /// Most cells a relative placement may sit from its parent, so that sums of
@@ -54,14 +54,14 @@ fn next_serial() -> u32 {
 
 /// The cursor's screen cell, 0-based.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Cursor {
+pub(crate) struct Cursor {
     pub line: u32,
     pub col: u32,
 }
 
 /// What `on_apc` says about the command.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct ApcOut {
+pub(crate) struct ApcOut {
     /// Escape sequences to feed the emulator after the command: the cursor
     /// movement a placement causes.
     pub inject: Vec<u8>,
@@ -80,7 +80,7 @@ pub enum Forward {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Erase {
+pub(crate) enum Erase {
     /// `ED 2`: the screen.
     All,
     /// `ED 3`: the scrollback.
@@ -180,7 +180,7 @@ impl Layer {
 
 /// What the parser looked like before an operation that may scroll.
 #[derive(Debug, Clone, Copy)]
-pub struct Probe {
+pub(crate) struct Probe {
     pub history: usize,
     pub line: u32,
     pub rows: u32,
@@ -190,7 +190,7 @@ pub struct Probe {
 
 /// An operation that may scroll the viewport.
 #[derive(Debug, Clone, Copy)]
-pub enum ScrollOp {
+pub(crate) enum ScrollOp {
     /// `LF`, `IND`, `NEL`.
     Feed,
     /// A character written at the end of a line.
@@ -268,13 +268,13 @@ pub struct PaneImages {
 }
 
 impl PaneImages {
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.kitty.is_empty() && self.sixel.is_empty()
     }
 
     /// The kitty placements `by` rows further down (negative: up), as
     /// copy mode sees them under its own scroll.
-    pub fn shifted(&self, by: i32) -> PaneImages {
+    pub(crate) fn shifted(&self, by: i32) -> PaneImages {
         PaneImages {
             kitty: self
                 .kitty
@@ -323,7 +323,7 @@ impl PartialEq for ViewSixel {
 
 /// One pane's placements.
 #[derive(Debug)]
-pub struct Store {
+pub(crate) struct Store {
     main: Layer,
     alt: Layer,
     in_alt: bool,
@@ -340,7 +340,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(cols: u32, rows: u32, history_limit: usize) -> Store {
+    pub(crate) fn new(cols: u32, rows: u32, history_limit: usize) -> Store {
         Store {
             main: Layer::default(),
             alt: Layer::default(),
@@ -369,13 +369,14 @@ impl Store {
     }
 
     /// Nothing to track or draw (cheap checks first).
-    pub fn is_empty(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
         self.main.is_empty() && self.alt.is_empty()
     }
 
     /// The cell size sixel and cell counts are measured in; `None` is
     /// tmux's default.
-    pub fn set_cell_px(&mut self, px: Option<(u16, u16)>) {
+    pub(crate) fn set_cell_px(&mut self, px: Option<(u16, u16)>) {
         self.cell_px = match px {
             Some((w, h)) if w > 0 && h > 0 => (u32::from(w), u32::from(h)),
             _ => sixel::DEFAULT_CELL_PX,
@@ -384,19 +385,19 @@ impl Store {
 
     /// Whether the history is full (or off), so that a scroll leaves its
     /// size as it was.
-    pub fn history_full(&self, history: usize) -> bool {
+    pub(crate) fn history_full(&self, history: usize) -> bool {
         self.in_alt || history >= self.history_limit
     }
 
     // ---- terminal events ----
 
     /// Whether the screen holds a sixel image.
-    pub fn has_sixel(&self) -> bool {
+    pub(crate) fn has_sixel(&self) -> bool {
         !self.layer().sixel.is_empty()
     }
 
     /// `DECSTBM`, as the emulator takes it.
-    pub fn set_region(&mut self, top: usize, bottom: Option<usize>) {
+    pub(crate) fn set_region(&mut self, top: usize, bottom: Option<usize>) {
         let bottom = bottom.unwrap_or(self.rows as usize);
         if top >= bottom {
             return;
@@ -407,7 +408,7 @@ impl Store {
 
     /// `RI` with the cursor on `line`: tmux frees every sixel image when it
     /// scrolls the region down.
-    pub fn reverse_index(&mut self, line: u32) {
+    pub(crate) fn reverse_index(&mut self, line: u32) {
         if line == self.region.0 {
             self.free_sixels();
         }
@@ -415,7 +416,7 @@ impl Store {
 
     /// An operation that may have scrolled the viewport ran; `before` is
     /// how things stood, `history` the scrollback size now.
-    pub fn scroll_op(&mut self, op: ScrollOp, before: Probe, history: usize) {
+    pub(crate) fn scroll_op(&mut self, op: ScrollOp, before: Probe, history: usize) {
         if self.region != (0, self.rows) {
             // Only a region that is the whole screen moves the viewport.
             let feed =
@@ -445,13 +446,13 @@ impl Store {
     }
 
     /// The viewport scrolled up `k` lines.
-    pub fn scrolled(&mut self, k: u32) {
+    pub(crate) fn scrolled(&mut self, k: u32) {
         self.layer_mut().v += u64::from(k);
     }
 
     /// Frees what has scrolled out of reach: kitty placements wholly above
     /// the scrollback, sixel images wholly above the screen.
-    pub fn prune(&mut self, history: usize) {
+    pub(crate) fn prune(&mut self, history: usize) {
         let layer = self.layer_mut();
         let floor = layer.v.saturating_sub(history as u64);
         layer.kitty.retain(|p| match p.anchor {
@@ -465,7 +466,7 @@ impl Store {
 
     /// The program entered (`true`) or left the alternate screen: that
     /// screen starts empty and is dropped when left.
-    pub fn alt_changed(&mut self, now_alt: bool) {
+    pub(crate) fn alt_changed(&mut self, now_alt: bool) {
         if now_alt == self.in_alt {
             return;
         }
@@ -474,7 +475,7 @@ impl Store {
     }
 
     /// `RIS`: everything goes.
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.main = Layer::default();
         self.alt = Layer::default();
         self.in_alt = false;
@@ -483,7 +484,7 @@ impl Store {
     }
 
     /// An erase of the display, called before the emulator does it.
-    pub fn erase(&mut self, mode: Erase, cursor: Cursor) {
+    pub(crate) fn erase(&mut self, mode: Erase, cursor: Cursor) {
         let rows = self.rows;
         match mode {
             Erase::All => {
@@ -521,7 +522,7 @@ impl Store {
 
     /// `clear-history`: the placements wholly in the scrollback go. On the
     /// alternate screen the emulator's grid holds none, so nothing does.
-    pub fn history_cleared(&mut self) {
+    pub(crate) fn history_cleared(&mut self) {
         if !self.in_alt {
             self.erase(Erase::Saved, Cursor { line: 0, col: 0 });
         }
@@ -529,7 +530,7 @@ impl Store {
 
     /// tmux's `image_check_line`: a sixel overlapping rows `py..py+ny` is
     /// freed.
-    pub fn check_line(&mut self, py: u32, ny: u32) {
+    pub(crate) fn check_line(&mut self, py: u32, ny: u32) {
         let layer = self.layer_mut();
         if layer.sixel.is_empty() {
             return;
@@ -543,7 +544,7 @@ impl Store {
     }
 
     /// tmux's `image_check_area`: a sixel overlapping the cells is freed.
-    pub fn check_area(&mut self, px: u32, py: u32, nx: u32, ny: u32) {
+    pub(crate) fn check_area(&mut self, px: u32, py: u32, nx: u32, ny: u32) {
         let layer = self.layer_mut();
         if layer.sixel.is_empty() {
             return;
@@ -562,12 +563,12 @@ impl Store {
     }
 
     /// Frees every sixel image of the screen.
-    pub fn free_sixels(&mut self) {
+    pub(crate) fn free_sixels(&mut self) {
         self.layer_mut().sixel.clear();
     }
 
     /// The pane was resized. `history` is its size before and after.
-    pub fn resized(&mut self, cols: u32, rows: u32, history: (usize, usize)) {
+    pub(crate) fn resized(&mut self, cols: u32, rows: u32, history: (usize, usize)) {
         let rows_changed = rows != self.rows;
         let full = self.history_full(history.0);
         self.cols = cols;
@@ -592,7 +593,7 @@ impl Store {
     // ---- views ----
 
     /// The visible placements, or `None` while there are none.
-    pub fn view(&self) -> Option<PaneImages> {
+    pub(crate) fn view(&self) -> Option<PaneImages> {
         let layer = self.layer();
         if layer.is_empty() {
             return None;
@@ -640,7 +641,7 @@ impl Store {
     /// whose first row is the oldest of its `history` rows of scrollback:
     /// copy mode shows them as the text is scrolled back (sixel images are
     /// not kept past the screen, as in tmux).
-    pub fn copy_view(&self, history: usize) -> Option<PaneImages> {
+    pub(crate) fn copy_view(&self, history: usize) -> Option<PaneImages> {
         let layer = self.layer();
         let top = layer.v as i64 - history as i64;
         let total = history as i64 + i64::from(self.rows);
@@ -684,7 +685,7 @@ impl Store {
 
     /// One APC `_G` from the pane that is not a query. `cur` is the cursor
     /// where the command arrived.
-    pub fn on_apc(&mut self, apc: &[u8], cur: Cursor) -> ApcOut {
+    pub(crate) fn on_apc(&mut self, apc: &[u8], cur: Cursor) -> ApcOut {
         let Some(cmd) = Cmd::parse(apc) else {
             return ApcOut::default();
         };
@@ -998,7 +999,7 @@ impl Store {
     /// A `DCS q` image whose parameters gave `p2`, from the pane, with the
     /// cursor where it began: stores it as tmux's `screen_write_sixelimage`
     /// does and returns the screen scrolling and cursor movement it causes.
-    pub fn on_sixel(&mut self, body: &[u8], p2: u32, cur: Cursor) -> Vec<u8> {
+    pub(crate) fn on_sixel(&mut self, body: &[u8], p2: u32, cur: Cursor) -> Vec<u8> {
         if self.rows <= 1 || self.cols == 0 {
             return Vec::new();
         }
@@ -1107,7 +1108,7 @@ fn read_head(path: &std::path::Path) -> Option<Vec<u8>> {
 }
 
 /// The size in a PNG's header.
-pub fn png_size(head: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn png_size(head: &[u8]) -> Option<(u32, u32)> {
     if head.len() < 24 || head[..8] != [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a] {
         return None;
     }

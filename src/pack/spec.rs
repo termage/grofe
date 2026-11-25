@@ -9,7 +9,7 @@ pub struct Spec {
 }
 
 /// Turn a user-written source into a clone URL or path, rejecting anything else.
-pub fn normalize_src(s: &str) -> Result<String, String> {
+pub(crate) fn normalize_src(s: &str) -> Result<String, String> {
     let body = s.strip_prefix("github:").unwrap_or(s);
     if body.split(['/', '\\']).any(|seg| seg == "..") {
         return Err(format!("pack source '{s}' contains '..'"));
@@ -36,17 +36,17 @@ pub fn normalize_src(s: &str) -> Result<String, String> {
 }
 
 /// A name is one path component: no separators, not empty, not `.` or `..`.
-pub fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
 }
 
 /// The last path segment of a source, without a `.git` suffix.
-pub fn name_of(src: &str) -> String {
+pub(crate) fn name_of(src: &str) -> String {
     let last = src.trim_end_matches('/').rsplit('/').next().unwrap_or("");
     last.strip_suffix(".git").unwrap_or(last).to_string()
 }
 
-pub fn pack_root(home: &Path, xdg_data_home: Option<&Path>) -> PathBuf {
+pub(crate) fn pack_root(home: &Path, xdg_data_home: Option<&Path>) -> PathBuf {
     let data = match xdg_data_home {
         Some(x) => x.to_path_buf(),
         None => home.join(".local").join("share"),

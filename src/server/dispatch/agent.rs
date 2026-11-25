@@ -24,7 +24,7 @@ fn known_unfocused(state: &State, c: &clients::ClientEntry) -> bool {
 /// Whether `pane` is the active pane of the current window of an attached
 /// client whose outer terminal is focused (a client whose focus is unknown
 /// counts as focused, spec §2.4).
-pub fn is_seen(state: &State, pane: PaneId) -> bool {
+pub(crate) fn is_seen(state: &State, pane: PaneId) -> bool {
     let Some(window) = state.model.panes.get(&pane).map(|p| p.window) else {
         return false;
     };
@@ -49,7 +49,7 @@ pub fn is_seen(state: &State, pane: PaneId) -> bool {
 /// Applies a report to `pane`'s record: creates it bound to the pane's
 /// foreground process, raises `agent-changed`, redraws, and sets the pane's
 /// resume when the session id changed.
-pub fn apply(state: &mut State, pane: PaneId, r: Report) {
+pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
     if !state.agents_enabled || !state.model.panes.contains_key(&pane) {
         return;
     }
@@ -154,7 +154,7 @@ fn emit_notify(state: &mut State, raised: Raised) {
 /// Sends a raised notification out of the terminal (spec §6.4): `auto` is
 /// OSC 9 when some client is known unfocused and the command when no client
 /// is attached.
-pub fn deliver(state: &mut State, raised: Raised) {
+pub(crate) fn deliver(state: &mut State, raised: Raised) {
     if !raised.desktop {
         return;
     }
@@ -207,7 +207,7 @@ pub fn deliver(state: &mut State, raised: Raised) {
     }
 }
 
-fn pane_label(state: &State, pane: PaneId) -> String {
+pub(crate) fn pane_label(state: &State, pane: PaneId) -> String {
     let vars = FormatCtx::new(&state.model, pane);
     expand(
         "#{session_name}:#{window_index}.#{pane_index}",
@@ -216,7 +216,7 @@ fn pane_label(state: &State, pane: PaneId) -> String {
 }
 
 /// A bell or OSC 9/777 on a pane that never reported (spec §3.3).
-pub fn attention(state: &mut State, pane: PaneId, msg: Option<String>) {
+pub(crate) fn attention(state: &mut State, pane: PaneId, msg: Option<String>) {
     if state.agents_enabled && state.agents.attention(pane, msg) {
         clients::mark_all_dirty(state);
     }
@@ -224,7 +224,7 @@ pub fn attention(state: &mut State, pane: PaneId, msg: Option<String>) {
 
 /// Reads `[agents]`: the built-in kinds with `[agents.kinds.<name>]` laid
 /// over them key by key; `enabled = false` drops a kind.
-pub fn configure(state: &mut State, r: &Resolved) {
+pub(crate) fn configure(state: &mut State, r: &Resolved) {
     state.agents_enabled = r.agents.enabled;
     let mut all = kinds::builtin();
     for (name, c) in &r.agents.kinds {
@@ -267,7 +267,7 @@ pub fn configure(state: &mut State, r: &Resolved) {
 /// command, else the most recently active one. It stays in its session when
 /// that holds the pane's window (linked windows included), else switches to
 /// the pane's session; then the window and pane are selected.
-pub fn jump(state: &mut State, ctx: &ClientCtx, pane: PaneId) -> Result<(), String> {
+pub(crate) fn jump(state: &mut State, ctx: &ClientCtx, pane: PaneId) -> Result<(), String> {
     let window = state
         .model
         .panes
@@ -827,7 +827,9 @@ mod tests {
         let (mut state, p1) = state_with_pane();
         crate::server::register_builtins(&mut state);
         state.notify.cfg.delivery = "off".into();
-        let dir = tempfile::tempdir().expect("tempdir");
+        // In /tmp, not TMPDIR: a long marker path in the agent text pushes
+        // the drawn part off the 160-column status line.
+        let dir = tempfile::tempdir_in("/tmp").expect("tempdir");
         let x = dir.path().join("X");
         let run = |state: &mut State, ctx: &ClientCtx, words: &[&str]| {
             let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();

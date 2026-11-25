@@ -43,6 +43,7 @@
 
 #![allow(dead_code)]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -56,6 +57,7 @@ use std::time::{Duration, Instant};
 use grofe::event::Event;
 use grofe::paths::{self, Env};
 use grofe::protocol::{ClientCtx, Dialect, Hello, Reply, Request, encode_hello};
+use grofe::server::layout::{GeometryCell, LayoutGeometry};
 use grofe::server::{START_MARKER, StartOptions};
 use tempfile::TempDir;
 
@@ -828,4 +830,72 @@ pub fn wait_child(mut child: Child, timeout: Duration) -> Result<ExitStatus, Str
 /// Whether `path` exists (as any file type, including a socket).
 pub fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
+}
+
+/// `display-message -p` of `fmt` in `target`, trailing newline trimmed.
+pub fn display(srv: &TestServer, target: &str, fmt: &str) -> String {
+    srv.cmd(&["display-message", "-p", "-t", target, fmt])
+        .unwrap_or_else(|e| panic!("display-message {fmt}: {e}"))
+        .trim_end()
+        .to_string()
+}
+
+/// [`display`] in session `main`, with its own panic message.
+pub fn display_main(srv: &TestServer, format: &str) -> String {
+    srv.cmd(&["display-message", "-p", "-t", "main", format])
+        .unwrap_or_else(|e| panic!("display {format}: {e}"))
+        .trim_end()
+        .to_string()
+}
+
+/// `list-panes -F` for `target`, one string per pane in layout order.
+pub fn panes(srv: &TestServer, target: &str, fmt: &str) -> Vec<String> {
+    srv.cmd(&["list-panes", "-t", target, "-F", fmt])
+        .unwrap_or_else(|e| panic!("list-panes: {e}"))
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Every pane's `pane_uid`.
+pub fn uids(srv: &TestServer) -> BTreeSet<String> {
+    srv.cmd(&["list-panes", "-a", "-F", "#{pane_uid}"])
+        .expect("list-panes")
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// The contents of `path` once a line ending in `\n` is written to it.
+pub fn wait_for_file(path: &Path) -> String {
+    try_wait_until(
+        || fs::read_to_string(path).is_ok_and(|s| s.ends_with('\n')),
+        Duration::from_secs(5),
+    )
+    .unwrap_or_else(|e| panic!("{} never written: {e}", path.display()));
+    fs::read_to_string(path).unwrap_or_default()
+}
+
+/// A pane cell of a layout geometry.
+pub fn cell(x: u16, y: u16, cols: u16, rows: u16, uid: &str) -> LayoutGeometry<String> {
+    LayoutGeometry {
+        x,
+        y,
+        cols,
+        rows,
+        cell: GeometryCell::Pane(uid.to_string()),
+    }
+}
+
+/// Waits until a line of `target`'s screen ends in the shell's [`PROMPT`].
+pub fn wait_prompt(srv: &TestServer, target: &str) {
+    srv.wait_for(
+        || {
+            srv.capture(target)
+                .lines()
+                .any(|l| l.trim_end().ends_with(PROMPT.trim_end()))
+        },
+        Duration::from_secs(10),
+    )
+    .unwrap_or_else(|e| panic!("{e}: prompt in {target}"));
 }

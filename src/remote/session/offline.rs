@@ -201,7 +201,7 @@ impl Loop {
 }
 
 /// How long the ping after a wake from sleep waits for its pong.
-pub const WAKE_PING: Duration = Duration::from_secs(2);
+pub(crate) const WAKE_PING: Duration = Duration::from_secs(2);
 
 /// Pings `link` once: alive when the pong comes within `timeout`, else the
 /// link is closed (its channels fail, so the attach reader reports a drop).

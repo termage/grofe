@@ -207,7 +207,7 @@ pub(super) fn draw_help(state: &State, client: ClientId, tree: &Tree, screen: &m
 // --- Drawing ------------------------------------------------------------
 
 /// Draws a client's chooser over its pane, when that pane is on screen.
-pub struct TreeOverlay;
+pub(crate) struct TreeOverlay;
 
 impl Overlay for TreeOverlay {
     fn draw(&self, state: &State, client: ClientId, cx: &OverlayCtx, screen: &mut Screen) {

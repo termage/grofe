@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use common::{TestServer, try_wait_until};
+use common::{TestServer, cell, try_wait_until};
 use grofe::server::layout::{GeometryCell, LayoutGeometry};
 use grofe::server::snapshot::{
     OptionSnap, PaneSnap, SNAPSHOT_VERSION, SessionSnap, Snapshot, WindowSnap,
@@ -68,16 +68,6 @@ fn pane(uid: &str, cwd: &Path) -> PaneSnap {
         argv: None,
         resume: None,
         options: Vec::new(),
-    }
-}
-
-fn cell(x: u16, y: u16, cols: u16, rows: u16, uid: &str) -> LayoutGeometry<String> {
-    LayoutGeometry {
-        x,
-        y,
-        cols,
-        rows,
-        cell: GeometryCell::Pane(uid.to_string()),
     }
 }
 

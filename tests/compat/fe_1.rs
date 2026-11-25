@@ -20,7 +20,7 @@ use grofe::compat::tmux;
 use grofe::paths::{self, Env};
 use grofe::protocol::{ClientCtx, Dialect};
 
-use crate::normalize::{Normalizer, fixtures_dir};
+use crate::normalize::{Normalizer, concrete, fixtures_dir};
 use crate::record::{SOCKET_NAME, fixed_env};
 use crate::replay::{Cli, parse_scenario, replay, split_words};
 
@@ -324,28 +324,6 @@ const ARTIFACTS: &[(&str, &str)] = &[
     ),
     ("new-session -A -s", "an alias; the caller appends the name"),
 ];
-
-/// `line` with its placeholders (`<...>`, `%N`, `@N`) made concrete.
-fn concrete(line: &str) -> String {
-    let mut out = String::new();
-    let mut rest = line;
-    while let Some(start) = rest.find('<') {
-        let end = rest[start..].find('>').map(|e| start + e);
-        match end {
-            Some(end) if !rest[start + 1..end].contains([' ', '<']) && end > start + 1 => {
-                out.push_str(&rest[..start]);
-                out.push('1');
-                rest = &rest[end + 1..];
-            }
-            _ => {
-                out.push_str(&rest[..=start]);
-                rest = &rest[start + 1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out.replace("%N", "%1").replace("@N", "@1")
-}
 
 fn ctx() -> ClientCtx {
     ClientCtx {

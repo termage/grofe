@@ -1,7 +1,7 @@
-pub const PLUGIN_API: u32 = 1;
+pub(crate) const PLUGIN_API: u32 = 1;
 
 pub mod cli;
-pub mod git;
-pub mod lock;
-pub mod manifest;
-pub mod spec;
+pub(crate) mod git;
+pub(crate) mod lock;
+pub(crate) mod manifest;
+pub(crate) mod spec;

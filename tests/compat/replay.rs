@@ -1044,3 +1044,21 @@ fn the_reaper_kills_its_pids_when_the_test_goes_away() {
     }
     let _ = reaper.child.wait();
 }
+
+/// A transcript split into steps: each step's first line (`$ ...`,
+/// `client ...`, `screen ...`) with everything it recorded.
+pub fn steps(transcript: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in transcript.split_inclusive('\n') {
+        let starts = line.starts_with("$ ")
+            || line.starts_with("$& ")
+            || line.starts_with("client ")
+            || line == "screen\n"
+            || line.starts_with("screen ");
+        match out.last_mut() {
+            Some(step) if !starts => step.push_str(line),
+            _ => out.push(line.to_string()),
+        }
+    }
+    out
+}

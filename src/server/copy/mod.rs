@@ -20,11 +20,11 @@
 // wide cell), and a resize takes a fresh copy instead of reflowing the old
 // one; `copy-mode-position-format`'s line time is not drawn.
 
-pub mod hints;
-pub mod pipe;
-pub mod search;
-pub mod select;
-pub mod view;
+pub(crate) mod hints;
+pub(crate) mod pipe;
+pub(crate) mod search;
+pub(crate) mod select;
+pub(crate) mod view;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -40,21 +40,21 @@ use crate::server::input::{Input, InputHook, Key, KeyCode, ROOT_TABLE, Routed};
 use crate::server::model::Window;
 use crate::server::pane::looks::Looks;
 use crate::server::pane::{CellFlags, CursorShape, CursorState, PaneHandle, SnapCell, marks};
-use crate::server::render::{Overlay, OverlayCtx, Screen};
+use crate::server::render::{Overlay, OverlayCtx, STYLE_FLAGS, Screen, styled};
 use crate::server::screenimg::{self, ImageCaps, Place};
 use crate::server::status::{self, Style};
 use crate::server::{State, buffers, clients, passthrough};
 use crate::types::{ClientId, PaneId, Rect};
 
 /// `#{pane_mode}` while a pane is in copy mode.
-pub const MODE_NAME: &str = "copy-mode";
+pub(crate) const MODE_NAME: &str = "copy-mode";
 /// `#{pane_mode}` while it shows command output.
-pub const VIEW_MODE_NAME: &str = "view-mode";
+pub(crate) const VIEW_MODE_NAME: &str = "view-mode";
 /// The key table copy mode uses with `mode-keys vi`.
-pub const VI_TABLE: &str = "copy-mode-vi";
+pub(crate) const VI_TABLE: &str = "copy-mode-vi";
 /// The key table with `mode-keys emacs`: tmux 3.7b's stock emacs rows
 /// ([`crate::server::input::COPY_MODE_EMACS`]).
-pub const EMACS_TABLE: &str = "copy-mode";
+pub(crate) const EMACS_TABLE: &str = "copy-mode";
 
 /// tmux's `WHITESPACE`.
 const WHITESPACE: &str = "\t ";
@@ -68,11 +68,11 @@ const HINT_STYLE: &str = "bg=green,fg=black,bold";
 /// The most repeats a count runs (`send-keys -N`, a mode's prefix).
 // ponytail: tmux 3.7b runs every one, and for `-N 4294967295` stops
 // answering (recorded); grofe runs this many.
-pub const MAX_REPEAT: u32 = 100_000;
+pub(crate) const MAX_REPEAT: u32 = 100_000;
 
 /// The commands whose string `send-keys -F` expands as a format (tmux's
 /// `window_copy_expand_search_string`).
-pub const FORMAT_COMMANDS: &[&str] = &[
+pub(crate) const FORMAT_COMMANDS: &[&str] = &[
     "search-backward",
     "search-backward-text",
     "search-forward",
@@ -88,24 +88,24 @@ pub struct Copies {
 }
 
 impl Copies {
-    pub fn get(&self, pane: PaneId) -> Option<&Mode> {
+    pub(crate) fn get(&self, pane: PaneId) -> Option<&Mode> {
         self.modes.get(&pane)
     }
 
-    pub fn get_mut(&mut self, pane: PaneId) -> Option<&mut Mode> {
+    pub(crate) fn get_mut(&mut self, pane: PaneId) -> Option<&mut Mode> {
         self.modes.get_mut(&pane)
     }
 
-    pub fn is_active(&self, pane: PaneId) -> bool {
+    pub(crate) fn is_active(&self, pane: PaneId) -> bool {
         self.modes.contains_key(&pane)
     }
 
-    pub fn insert(&mut self, pane: PaneId, mode: Mode) {
+    pub(crate) fn insert(&mut self, pane: PaneId, mode: Mode) {
         self.modes.insert(pane, mode);
     }
 
     /// Leaves copy mode in `pane`; whether it was in it.
-    pub fn remove(&mut self, pane: PaneId) -> bool {
+    pub(crate) fn remove(&mut self, pane: PaneId) -> bool {
         let Some(mut mode) = self.modes.remove(&pane) else {
             return false;
         };
@@ -120,7 +120,7 @@ impl Copies {
     }
 
     /// Drops the modes of panes that are gone.
-    pub fn retain(&mut self, live: impl Fn(PaneId) -> bool) {
+    pub(crate) fn retain(&mut self, live: impl Fn(PaneId) -> bool) {
         self.modes.retain(|p, _| live(*p));
         self.searches.retain(|p, _| live(*p));
     }
@@ -157,7 +157,7 @@ struct Row {
 /// A copy of a pane's history and screen (tmux's backing screen): `hsize`
 /// history rows, then `sy` screen rows, `sx` columns.
 #[derive(Debug, Clone)]
-pub struct Grid {
+pub(crate) struct Grid {
     pub sx: usize,
     pub hsize: usize,
     pub sy: usize,
@@ -175,7 +175,7 @@ pub struct Grid {
 // which gives them the same ids; derive `Clone` on it to drop this.
 /// What tmux's `grid_get_cell` tells a motion about one cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GridCell {
+pub(crate) struct GridCell {
     pub c: char,
     /// The second half of a wide character (`GRID_FLAG_PADDING`).
     pub padding: bool,
@@ -183,18 +183,6 @@ pub struct GridCell {
     pub single: bool,
     /// A tab's width (tmux's `GRID_FLAG_TAB`), 0 for any other cell.
     pub tab: usize,
-}
-
-fn blank() -> SnapCell {
-    SnapCell {
-        c: ' ',
-        fg: Color::Named(NamedColor::Foreground),
-        bg: Color::Named(NamedColor::Background),
-        flags: CellFlags::empty(),
-        zerowidth: Vec::new(),
-        underline_color: None,
-        hyperlink: None,
-    }
 }
 
 impl Grid {
@@ -212,7 +200,7 @@ impl Grid {
 
     /// Copies `handle`'s grid; also returns the cursor (column, row on the
     /// screen).
-    pub fn from_pane(handle: &PaneHandle) -> (Grid, (usize, usize)) {
+    pub(crate) fn from_pane(handle: &PaneHandle) -> (Grid, (usize, usize)) {
         let mut grid = Grid::empty(0, 0, 0);
         let (hsize, cursor) = handle.copy_grid(|cells, tabs, mark| {
             grid.push_row(cells, tabs);
@@ -237,7 +225,7 @@ impl Grid {
         }
         self.sy = self.rows.len() - self.hsize;
         while self.sy < rows {
-            let mut blanks = vec![blank(); self.sx];
+            let mut blanks = vec![SnapCell::blank(); self.sx];
             self.push_row(&mut blanks, &vec![false; self.sx]);
             self.sy += 1;
         }
@@ -249,23 +237,26 @@ impl Grid {
 
     /// A grid of plain text rows, for tests: `hsize` of them history.
     #[cfg(test)]
-    pub fn from_text(sx: usize, hsize: usize, rows: &[&str]) -> Grid {
+    pub(crate) fn from_text(sx: usize, hsize: usize, rows: &[&str]) -> Grid {
         let mut grid = Grid::empty(sx, hsize, rows.len() - hsize);
         for text in rows {
             // A tab runs to the next stop of 8, as a terminal moves it.
             let mut cells: Vec<SnapCell> = Vec::new();
             let mut tabs = Vec::new();
             for c in text.chars() {
-                cells.push(SnapCell { c, ..blank() });
+                cells.push(SnapCell {
+                    c,
+                    ..SnapCell::blank()
+                });
                 tabs.push(false);
                 if c == '\t' {
                     while !cells.len().is_multiple_of(8) {
-                        cells.push(blank());
+                        cells.push(SnapCell::blank());
                         tabs.push(true);
                     }
                 }
             }
-            cells.resize(sx, blank());
+            cells.resize(sx, SnapCell::blank());
             tabs.resize(sx, false);
             grid.push_row(&mut cells, &tabs);
         }
@@ -275,7 +266,8 @@ impl Grid {
     /// The copy's heap size, roughly: its cells, rows and looks.
     // ponytail: looks count by length, not capacity or the intern map, so
     // this undercounts slightly; add `Looks::heap_bytes` if a budget needs it.
-    pub fn heap_bytes(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn heap_bytes(&self) -> usize {
         use std::mem::size_of;
         let cells: usize = self.rows.iter().map(|r| r.cells.capacity()).sum();
         cells * size_of::<Cell>()
@@ -331,7 +323,7 @@ impl Grid {
     }
 
     /// Every row: history then screen.
-    pub fn total(&self) -> usize {
+    pub(crate) fn total(&self) -> usize {
         self.hsize + self.sy
     }
 
@@ -355,7 +347,7 @@ impl Grid {
     }
 
     /// tmux's `grid_get_cell`: past the end of a row, a blank.
-    pub fn get(&self, x: usize, y: usize) -> GridCell {
+    pub(crate) fn get(&self, x: usize, y: usize) -> GridCell {
         match self.look(x, y) {
             Some((TAB_PAD, _)) => GridCell {
                 c: ' ',
@@ -396,19 +388,19 @@ impl Grid {
     }
 
     /// The cell as drawn: a tab and its padding are blanks.
-    pub fn snap(&self, x: usize, y: usize) -> SnapCell {
+    pub(crate) fn snap(&self, x: usize, y: usize) -> SnapCell {
         match self.look(x, y) {
             Some((TAB_PAD | '\t', look)) => SnapCell {
                 c: ' ',
                 ..look.clone()
             },
             Some((c, look)) => SnapCell { c, ..look.clone() },
-            None => blank(),
+            None => SnapCell::blank(),
         }
     }
 
     /// tmux's `grid_line_length`: the row's width without trailing blanks.
-    pub fn line_length(&self, y: usize) -> usize {
+    pub(crate) fn line_length(&self, y: usize) -> usize {
         let Some(row) = self.rows.get(y) else {
             return 0;
         };
@@ -423,14 +415,14 @@ impl Grid {
         px
     }
 
-    pub fn wrapped(&self, y: usize) -> bool {
+    pub(crate) fn wrapped(&self, y: usize) -> bool {
         self.rows.get(y).is_some_and(|r| r.wrapped)
     }
 
     /// tmux's `grid_in_set`: 1 when the cell's character is in `set`, 0
     /// for padding or a character outside it. With a tab in `set`, a tab
     /// counts as its width, and its padding as the width left.
-    pub fn in_set(&self, x: usize, y: usize, set: &str) -> usize {
+    pub(crate) fn in_set(&self, x: usize, y: usize, set: &str) -> usize {
         let gc = self.get(x, y);
         if set.contains('\t') {
             if gc.padding && self.look(x, y).is_some_and(|(c, _)| c == TAB_PAD) {
@@ -454,7 +446,7 @@ impl Grid {
 
     /// tmux's `format_grid_word`: the word around `(x, y)`, between
     /// `separators`, blanks and tabs, joined across wraps.
-    pub fn word(&self, mut x: usize, mut y: usize, separators: &str) -> String {
+    pub(crate) fn word(&self, mut x: usize, mut y: usize, separators: &str) -> String {
         let is_sep = |gc: &GridCell| separators.contains(gc.c) || gc.tab > 0 || gc.c == ' ';
         let mut found = false;
         loop {
@@ -509,7 +501,7 @@ impl Grid {
 impl Grid {
     /// tmux's `format_grid_line`: row `y` up to its used width, a tab as
     /// itself.
-    pub fn line_text(&self, y: usize) -> String {
+    pub(crate) fn line_text(&self, y: usize) -> String {
         let mut out = String::new();
         for x in 0..self.line_length(y) {
             let gc = self.get(x, y);
@@ -530,7 +522,7 @@ impl Grid {
 
     /// tmux's `format_grid_hyperlink`: the target of the link at `(x, y)`,
     /// looking left over the second half of a wide character.
-    pub fn hyperlink_at(&self, mut x: usize, y: usize) -> Option<String> {
+    pub(crate) fn hyperlink_at(&self, mut x: usize, y: usize) -> Option<String> {
         while self.get(x, y).padding {
             x = x.checked_sub(1)?;
         }
@@ -834,7 +826,7 @@ impl Reader<'_> {
 
 /// `lineflag`: which way a line selection (TM.2's `select-line`) runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LineSel {
+pub(crate) enum LineSel {
     #[default]
     None,
     LeftRight,
@@ -843,7 +835,7 @@ pub enum LineSel {
 
 /// One pane's copy mode (tmux's `window_copy_mode_data`).
 #[derive(Debug)]
-pub struct Mode {
+pub(crate) struct Mode {
     /// The copy of the pane, taken on entry (`backing`); shared with a
     /// search running off the actor.
     pub grid: Arc<Grid>,
@@ -914,7 +906,7 @@ enum Recentre {
 /// What a command asks of the mode afterwards (tmux's
 /// `window_copy_cmd_action`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Action {
+pub(crate) enum Action {
     Nothing,
     Redraw,
     /// Leave copy mode.
@@ -922,7 +914,7 @@ pub enum Action {
 }
 
 /// What a command reads from outside the mode.
-pub struct Ctx<'a> {
+pub(crate) struct Ctx<'a> {
     /// The session's `word-separators`.
     pub separators: &'a str,
 }
@@ -930,7 +922,7 @@ pub struct Ctx<'a> {
 impl Mode {
     /// Copy mode over `grid` with the cursor at screen cell `cursor`, as
     /// tmux's `window_copy_init` starts it.
-    pub fn new(grid: Grid, cursor: (usize, usize), vi: bool) -> Mode {
+    pub(crate) fn new(grid: Grid, cursor: (usize, usize), vi: bool) -> Mode {
         let (cx, row) = cursor;
         let cy = row.min(grid.sy.saturating_sub(1));
         let my = grid.hsize + cy;
@@ -966,7 +958,7 @@ impl Mode {
     }
 
     /// The copy's row under the cursor.
-    pub fn py(&self) -> usize {
+    pub(crate) fn py(&self) -> usize {
         self.grid.hsize + self.cy - self.oy
     }
 
@@ -1640,7 +1632,7 @@ impl Mode {
 
     /// `refresh-from-pane`: a new copy, keeping the view's distance from
     /// the top of history.
-    pub fn refresh(&mut self, grid: Grid) {
+    pub(crate) fn refresh(&mut self, grid: Grid) {
         let hsize = self.grid.hsize;
         self.oy = self.oy.min(hsize);
         let from_top = hsize - self.oy;
@@ -1668,13 +1660,13 @@ impl Mode {
 
     /// `#{copy_cursor_word}`: the word under the cursor, by `separators`
     /// (the global `word-separators`, as tmux reads it).
-    pub fn cursor_word(&self, separators: &str) -> String {
+    pub(crate) fn cursor_word(&self, separators: &str) -> String {
         self.grid.word(self.cx, self.py(), separators)
     }
 }
 
 /// tmux's `strtonum`: a decimal in `min..=max`, else its reason.
-pub fn strtonum(s: &str, min: i64, max: i64) -> Result<i64, &'static str> {
+pub(crate) fn strtonum(s: &str, min: i64, max: i64) -> Result<i64, &'static str> {
     let t = s.trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c']);
     let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
@@ -1731,7 +1723,7 @@ fn note_ignored(name: &str) {
 /// mode's count, then resets the count, as tmux's `window_copy_command`.
 /// A command it does not know, or whose arguments do not fit, does
 /// nothing, as in tmux.
-pub fn run(mode: &mut Mode, args: &[String], ctx: &Ctx<'_>) -> Action {
+pub(crate) fn run(mode: &mut Mode, args: &[String], ctx: &Ctx<'_>) -> Action {
     let Some((name, rest)) = args.split_first() else {
         return Action::Nothing;
     };
@@ -1951,7 +1943,7 @@ fn command(mode: &mut Mode, name: &str, rest: &[String], ctx: &Ctx<'_>) -> Optio
 // ---- Entering, leaving, formats --------------------------------------------
 
 /// The copy-mode key table for `pane`'s window (`mode-keys`).
-pub fn key_table(state: &State, pane: PaneId) -> &'static str {
+pub(crate) fn key_table(state: &State, pane: PaneId) -> &'static str {
     if vi_keys(state, pane) {
         VI_TABLE
     } else {
@@ -1969,7 +1961,7 @@ fn vi_keys(state: &State, pane: PaneId) -> bool {
 }
 
 /// `word-separators` for `pane`'s session.
-pub fn separators(state: &State, pane: PaneId) -> String {
+pub(crate) fn separators(state: &State, pane: PaneId) -> String {
     let model = &state.model;
     model
         .options
@@ -1980,7 +1972,7 @@ pub fn separators(state: &State, pane: PaneId) -> String {
 
 /// Enters copy mode in `pane` with a fresh copy of it, unless it is
 /// already in it; whether it entered.
-pub fn enter(state: &mut State, pane: PaneId, source: PaneId, scroll_exit: bool) -> bool {
+pub(crate) fn enter(state: &mut State, pane: PaneId, source: PaneId, scroll_exit: bool) -> bool {
     if state.copy.is_active(pane) {
         return false;
     }
@@ -2011,7 +2003,7 @@ pub fn enter(state: &mut State, pane: PaneId, source: PaneId, scroll_exit: bool)
 }
 
 /// `copy-mode -u`: a page up, as tmux's `window_copy_pageup`.
-pub fn page_up(state: &mut State, pane: PaneId) {
+pub(crate) fn page_up(state: &mut State, pane: PaneId) {
     if let Some(mode) = state.copy.get_mut(pane) {
         mode.pageup(false);
     }
@@ -2019,7 +2011,7 @@ pub fn page_up(state: &mut State, pane: PaneId) {
 
 /// `copy-mode -d`: a page down; with `scroll_exit` reaching the bottom
 /// leaves the mode, as tmux's `window_copy_pagedown`.
-pub fn page_down(state: &mut State, pane: PaneId, scroll_exit: bool) {
+pub(crate) fn page_down(state: &mut State, pane: PaneId, scroll_exit: bool) {
     if state
         .copy
         .get_mut(pane)
@@ -2030,7 +2022,7 @@ pub fn page_down(state: &mut State, pane: PaneId, scroll_exit: bool) {
 }
 
 /// A fresh copy of `pane` for its mode (`refresh-from-pane`).
-pub fn refresh(state: &mut State, pane: PaneId) {
+pub(crate) fn refresh(state: &mut State, pane: PaneId) {
     // A view mode's text is not the pane's.
     if state.copy.get(pane).is_some_and(|m| m.view) {
         return;
@@ -2059,7 +2051,7 @@ pub fn refresh(state: &mut State, pane: PaneId) {
 /// Runs `send-keys -X` `args` in `pane`'s mode; the pane leaves the mode
 /// if the command says so. `Err` when the pane is in no mode, with tmux's
 /// text.
-pub fn command_in(state: &mut State, pane: PaneId, args: &[String]) -> Result<(), String> {
+pub(crate) fn command_in(state: &mut State, pane: PaneId, args: &[String]) -> Result<(), String> {
     if !state.copy.is_active(pane) {
         return Err("not in a mode".to_string());
     }
@@ -2113,7 +2105,7 @@ fn command_now(state: &mut State, pane: PaneId, args: &[String]) -> Result<(), S
 /// would see it. `None` outside the mode or while a search is in flight.
 // ponytail: a mouse change waiting behind a search is dropped rather than
 // queued after it.
-pub fn edit_now<R>(
+pub(crate) fn edit_now<R>(
     state: &mut State,
     pane: PaneId,
     f: impl FnOnce(&mut Mode, &str) -> R,
@@ -2131,7 +2123,7 @@ pub fn edit_now<R>(
 
 /// Sets the count the next command in `pane`'s mode runs with (`send-keys
 /// -N` with no keys); `Err` when the pane is in no mode.
-pub fn set_prefix(state: &mut State, pane: PaneId, count: u32) -> Result<(), String> {
+pub(crate) fn set_prefix(state: &mut State, pane: PaneId, count: u32) -> Result<(), String> {
     let mode = state
         .copy
         .get_mut(pane)
@@ -2176,7 +2168,7 @@ const MOTIONS: &[&str] = &[
 ];
 
 /// Whether a bound command is `send-keys -X` with a motion and nothing else.
-pub fn is_motion(argv: &[String]) -> bool {
+pub(crate) fn is_motion(argv: &[String]) -> bool {
     match argv {
         [send, x, name] => {
             matches!(send.as_str(), "send-keys" | "send")
@@ -2191,7 +2183,7 @@ pub fn is_motion(argv: &[String]) -> bool {
 /// itself and the options; `None` outside the mode, or while its next
 /// command would wait for a search or take a fresh copy first.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Position {
+pub(crate) struct Position {
     /// Which copy (a fresh one is another).
     grid: usize,
     cursor: (usize, usize, usize),
@@ -2201,7 +2193,7 @@ pub struct Position {
     prefix: u32,
 }
 
-pub fn position(state: &State, pane: PaneId) -> Option<Position> {
+pub(crate) fn position(state: &State, pane: PaneId) -> Option<Position> {
     if search::busy(state, pane) || resize_pending(state, pane) {
         return None;
     }
@@ -2249,7 +2241,7 @@ fn resize_to_pane(state: &mut State, pane: PaneId) {
 /// The format variables copy mode answers for `pane`: `pane_in_mode` and
 /// `pane_mode` while it is in the mode, and the mode's own (tmux's
 /// `window_copy_formats`). `None` lets the caller's own variables answer.
-pub fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
+pub(crate) fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
     // The pane's last search, in the mode or after it (`wp->searchstr`).
     if name == "pane_search_string" {
         let last = match state.copy.get(pane) {
@@ -2291,7 +2283,7 @@ pub fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
 /// usual; otherwise a key bound in the mode's table runs, else one bound
 /// in `root`, else it is dropped (the pane never gets it). A paste is
 /// dropped too.
-pub struct CopyHook;
+pub(crate) struct CopyHook;
 
 impl InputHook for CopyHook {
     fn on_input(
@@ -2339,7 +2331,7 @@ impl InputHook for CopyHook {
 /// `copy-mode -h`: labels the matches of `copy-hint-patterns` on the
 /// visible text of `pane`'s mode. `entered` when the command started the
 /// mode, which then ends with the hints (also when nothing matches).
-pub fn start_hints(state: &mut State, pane: PaneId, entered: bool) {
+pub(crate) fn start_hints(state: &mut State, pane: PaneId, entered: bool) {
     let chain = options::chain(&state.model, pane);
     // An invalid pattern is skipped.
     let patterns: Vec<regex::Regex> = state
@@ -2427,7 +2419,7 @@ fn paste_hint(state: &State, pane: PaneId, data: &[u8]) {
 
 /// The binding `send-keys` runs for `key` typed into `pane`'s mode: the
 /// mode table's only, as tmux's `cmd_send_keys_inject_key`.
-pub fn binding_for(
+pub(crate) fn binding_for(
     state: &State,
     pane: PaneId,
     key: &crate::server::input::Key,
@@ -2453,7 +2445,7 @@ fn active_pane(state: &State, id: ClientId) -> Option<PaneId> {
 /// indicator at the top right in `mode-style` (unless
 /// `toggle-position` hid it), and the cursor where the mode's is when the
 /// pane is the client's active one.
-pub struct CopyOverlay;
+pub(crate) struct CopyOverlay;
 
 impl Overlay for CopyOverlay {
     fn draw(&self, state: &State, client: ClientId, cx: &OverlayCtx, screen: &mut Screen) {
@@ -2557,7 +2549,14 @@ impl Overlay for CopyOverlay {
                             .flags
                             .contains(CellFlags::WIDE_CHAR_SPACER)
                     {
-                        put(end, y, SnapCell { c: ' ', ..blank() });
+                        put(
+                            end,
+                            y,
+                            SnapCell {
+                                c: ' ',
+                                ..SnapCell::blank()
+                            },
+                        );
                     }
                 }
             }
@@ -2565,7 +2564,10 @@ impl Overlay for CopyOverlay {
                 put(
                     cols.saturating_sub(1),
                     mode.cy,
-                    SnapCell { c: '$', ..blank() },
+                    SnapCell {
+                        c: '$',
+                        ..SnapCell::blank()
+                    },
                 );
             }
             if pane == w.active
@@ -2682,28 +2684,8 @@ fn position_label(
     }
 }
 
-const STYLE_FLAGS: CellFlags = CellFlags::BOLD
-    .union(CellFlags::DIM)
-    .union(CellFlags::ITALIC)
-    .union(CellFlags::ALL_UNDERLINES)
-    .union(CellFlags::INVERSE)
-    .union(CellFlags::HIDDEN)
-    .union(CellFlags::STRIKEOUT);
-
-fn styled(c: char, style: &Style) -> SnapCell {
-    SnapCell {
-        c,
-        fg: style.fg,
-        bg: style.bg,
-        flags: style.attrs & STYLE_FLAGS,
-        zerowidth: Vec::new(),
-        underline_color: style.underline_color,
-        hyperlink: None,
-    }
-}
-
 /// Registers copy mode's input hook and overlay (`server::register_builtins`).
-pub fn register(state: &mut State) {
+pub(crate) fn register(state: &mut State) {
     crate::server::register_input_hook(state, Arc::new(CopyHook));
     crate::server::register_overlay(state, Arc::new(CopyOverlay));
 }
@@ -3034,7 +3016,7 @@ mod tests {
     fn a_full_history_copy_is_bounded() {
         let red = SnapCell {
             fg: Color::Named(NamedColor::Red),
-            ..blank()
+            ..SnapCell::blank()
         };
         let mut g = Grid::empty(80, 0, 0);
         for y in 0..100_000usize {
@@ -3043,7 +3025,7 @@ mod tests {
                     let look = if (x / 4 + y) % 2 == 0 {
                         red.clone()
                     } else {
-                        blank()
+                        SnapCell::blank()
                     };
                     SnapCell { c: 'x', ..look }
                 })
@@ -3061,7 +3043,7 @@ mod tests {
         // Blank rows cost no cells.
         let mut blank_rows = Grid::empty(80, 0, 0);
         for _ in 0..1000 {
-            blank_rows.push_row(&mut vec![blank(); 80], &[]);
+            blank_rows.push_row(&mut vec![SnapCell::blank(); 80], &[]);
         }
         assert!(blank_rows.rows.iter().all(|r| r.cells.capacity() == 0));
     }

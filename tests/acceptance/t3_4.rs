@@ -5,9 +5,8 @@
 //! server, answers the CLI with its stdout and runs in the CLI's cwd from
 //! the CLI and the session's cwd from a binding (R23).
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{attach_status, last_row, start};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,37 +18,6 @@ use common::{TestServer, try_wait_until};
 use crate::harness::Harness;
 
 const WAIT: Duration = Duration::from_secs(10);
-
-/// A server with one session `main` running `cat`, sized for an 80x24
-/// client with a status line.
-fn start() -> TestServer {
-    let srv = TestServer::start();
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        "cat",
-    ])
-    .expect("new-session");
-    srv
-}
-
-fn attach(srv: &TestServer) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
-    a.wait_until("the status row", WAIT, |text| {
-        last_row(text).starts_with("[main]")
-    });
-    a
-}
-
-fn last_row(text: &str) -> &str {
-    text.lines().last().unwrap_or_default()
-}
 
 /// Waits until the client's last row is `want` (trailing blanks ignored).
 fn wait_last_row(a: &mut Harness, want: &str) {
@@ -86,8 +54,8 @@ fn canonical_dir(path: &Path) -> PathBuf {
 
 #[test]
 fn prefix_colon_runs_a_command_typed_in_the_prompt() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     a.send("\x02:");
     wait_last_row(&mut a, ":");
     a.send("split-window -h");
@@ -110,9 +78,9 @@ fn prefix_colon_runs_a_command_typed_in_the_prompt() {
 /// and its keys still reach the pane.
 #[test]
 fn a_prompt_leaves_other_clients_alone() {
-    let srv = start();
-    let mut a = attach(&srv);
-    let mut b = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
+    let mut b = attach_status(&srv);
     a.send("\x02:");
     wait_last_row(&mut a, ":");
     b.send("typed-in-b\r");
@@ -131,8 +99,8 @@ fn a_prompt_leaves_other_clients_alone() {
 /// the last command run.
 #[test]
 fn line_editing_and_history() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     a.send("\x02:");
     wait_last_row(&mut a, ":");
     a.send("split-window -v");
@@ -171,8 +139,8 @@ fn line_editing_and_history() {
 /// With `status off` the prompt takes the last row, as tmux draws it.
 #[test]
 fn the_prompt_takes_the_last_row_with_status_off() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     srv.cmd(&["set", "-g", "status", "off"])
         .expect("status off");
     a.wait_until("the status row gone", WAIT, |text| {
@@ -188,8 +156,8 @@ fn the_prompt_takes_the_last_row_with_status_off() {
 
 #[test]
 fn escape_cancels_the_prompt() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     a.send("\x02:");
     wait_last_row(&mut a, ":");
     a.send("new-window");
@@ -208,8 +176,8 @@ fn escape_cancels_the_prompt() {
 
 #[test]
 fn a_failing_prompt_command_shows_its_error() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     a.send("\x02:");
     wait_last_row(&mut a, ":");
     a.send("no-such-command\r");
@@ -223,12 +191,12 @@ fn a_failing_prompt_command_shows_its_error() {
 
 #[test]
 fn a_binding_runs_a_shell_command() {
-    let srv = start();
+    let srv = start("cat");
     let file = srv.home.join("x");
     let script = format!("touch '{}'", file.display());
     srv.cmd(&["bind-key", "X", "run-shell", &script])
         .expect("bind-key");
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02X");
     try_wait_until(|| file.exists(), Duration::from_secs(2))
         .unwrap_or_else(|e| panic!("C-b X: {e}"));
@@ -236,7 +204,7 @@ fn a_binding_runs_a_shell_command() {
 
 #[test]
 fn run_shell_answers_with_stdout_and_fails_on_nonzero_exit() {
-    let srv = start();
+    let srv = start("cat");
     let out = srv.run(&["run-shell", "echo hi; echo two"]);
     assert!(out.status.success(), "{out:?}");
     assert_eq!(out.stdout, "hi\ntwo\n");
@@ -267,7 +235,7 @@ fn run_shell_answers_with_stdout_and_fails_on_nonzero_exit() {
 /// D8: a long `run-shell` holds its own CLI, not the server.
 #[test]
 fn run_shell_does_not_block_other_commands() {
-    let srv = start();
+    let srv = start("cat");
     let marker = srv.home.join("slow-started");
     let script = format!("touch '{}'; sleep 5", marker.display());
     let mut slow = srv.command();
@@ -295,8 +263,8 @@ fn run_shell_does_not_block_other_commands() {
 /// tmux's does.
 #[test]
 fn command_prompt_template_and_initial_text() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     let mut cli = srv.command();
     cli.args(["command-prompt", "-I", "old", "rename-window \"%%\""])
         .stdin(Stdio::null())
@@ -338,8 +306,8 @@ fn command_prompt_template_and_initial_text() {
 /// (tmux 3.7b leaks it until the server exits; grofe answers at once).
 #[test]
 fn a_waiting_command_prompt_returns_when_its_client_goes() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     let mut cli = srv.command();
     cli.args(["command-prompt", "display-message x"])
         .stdin(Stdio::null())
@@ -357,8 +325,8 @@ fn a_waiting_command_prompt_returns_when_its_client_goes() {
 /// The stock `prefix ,` and `prefix $` prompts, prefilled with the names.
 #[test]
 fn stock_rename_bindings_prompt_with_the_current_name() {
-    let srv = start();
-    let mut a = attach(&srv);
+    let srv = start("cat");
+    let mut a = attach_status(&srv);
     let name = srv
         .cmd(&["display-message", "-p", "-t", "main", "#{window_name}"])
         .expect("window name");
@@ -412,7 +380,7 @@ fn run_shell_cwd_follows_the_caller() {
     let script = format!("pwd > '{}'", file.display());
     srv.cmd(&["bind-key", "Y", "run-shell", &script])
         .expect("bind-key");
-    let mut a = attach(&srv);
+    let mut a = attach_status(&srv);
     a.send("\x02Y");
     try_wait_until(
         || fs::read_to_string(&file).is_ok_and(|s| s.ends_with('\n')),

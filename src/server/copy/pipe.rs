@@ -55,7 +55,7 @@ const PLAIN_PIPES: &[&str] = &["pipe", "pipe-no-clear", "pipe-and-cancel"];
 // ponytail: tmux never kills a copy-pipe job. A clipboard tool that stays
 // to serve the selection (`xclip`, `wl-copy`) forks and lets the shell
 // exit first, so only a hung command reaches this.
-pub const PIPE_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const PIPE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A pipe command, or `None` if `name` is not one (or its arguments do
 /// not fit, which tmux ignores). The copy is queued with its command for
@@ -155,7 +155,7 @@ pub fn expand(state: &State, pane: PaneId, args: &[String]) -> Vec<String> {
 }
 
 /// Starts the commands `copied` carries, for `pane`'s copy.
-pub fn run_pipes(state: &State, pane: PaneId, copied: &[Copied]) {
+pub(crate) fn run_pipes(state: &State, pane: PaneId, copied: &[Copied]) {
     for c in copied {
         let Some(command) = &c.pipe else {
             continue;
@@ -200,7 +200,7 @@ fn job_env(state: &State, pane: PaneId) -> Vec<(String, String)> {
 /// `data` on stdin, then closes it; waits for the shell, killing its group
 /// at `timeout`. The exit status, or `None` if it could not run. `jobs`
 /// tracks the shell while it runs.
-pub async fn run(
+pub(crate) async fn run(
     command: &str,
     env: Vec<(String, String)>,
     data: Vec<u8>,

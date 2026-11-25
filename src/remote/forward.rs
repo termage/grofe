@@ -30,21 +30,21 @@ pub use hook::ForwardHook;
 pub use ports::{Forward, Forwarder, format_forwards, forwards_dir, list_forwards};
 pub use settings::{ForwardMode, Settings, UploadMode};
 use text::count_files;
-pub use text::{forward_prompt, human_size, parse_paths, upload_prompt};
+pub(crate) use text::{forward_prompt, human_size, parse_paths, upload_prompt};
 
 /// The bracketed paste start marker.
-pub const PASTE_START: &[u8] = b"\x1b[200~";
+pub(crate) const PASTE_START: &[u8] = b"\x1b[200~";
 /// The bracketed paste end marker.
-pub const PASTE_END: &[u8] = b"\x1b[201~";
+pub(crate) const PASTE_END: &[u8] = b"\x1b[201~";
 /// The longest paste held back to look for file paths; a longer one passes
 /// through as it is.
-pub const MAX_PASTE: usize = 64 * 1024;
+pub(crate) const MAX_PASTE: usize = 64 * 1024;
 /// How long a paste may go without its end marker before it passes through.
 const PASTE_TIMEOUT: Duration = Duration::from_secs(1);
 /// How long a split start marker (`ESC [` at the end of a read) is held.
 const HOLD_TIMEOUT: Duration = Duration::from_millis(30);
 /// Where uploads go when the pane's directory is unknown.
-pub const FALLBACK_UPLOAD_DIR: &str = "~/.cache/grofe/uploads";
+pub(crate) const FALLBACK_UPLOAD_DIR: &str = "~/.cache/grofe/uploads";
 
 /// A bracketed paste of local files, waiting for its upload.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,18 +225,19 @@ impl Forwarding {
         }
     }
 
-    pub fn settings(&self) -> &Settings {
+    #[cfg(test)]
+    pub(crate) fn settings(&self) -> &Settings {
         &self.settings
     }
 
     /// The prompt on screen went unanswered (see [`Forwarding::reshow`]).
-    pub fn dropped(&mut self) {
+    pub(crate) fn dropped(&mut self) {
         self.showing = false;
     }
 
     /// The question waiting, shown again after [`Forwarding::dropped`]; call
     /// it when no prompt is up, so it never takes another one's place.
-    pub fn reshow(&mut self) -> Vec<Action> {
+    pub(crate) fn reshow(&mut self) -> Vec<Action> {
         let mut out = Vec::new();
         if !self.showing {
             self.show_next(&mut out);
@@ -245,7 +246,8 @@ impl Forwarding {
     }
 
     /// The remote ports being forwarded.
-    pub fn forwarded(&self) -> Vec<u16> {
+    #[cfg(test)]
+    pub(crate) fn forwarded(&self) -> Vec<u16> {
         self.forwarded.iter().copied().collect()
     }
 

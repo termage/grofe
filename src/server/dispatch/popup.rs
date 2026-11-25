@@ -9,6 +9,7 @@ use crate::protocol::ClientCtx;
 use crate::server::dispatch::pane::print_pane;
 use crate::server::dispatch::{resolve_cwd, spawn_pane};
 use crate::server::layout::Insert;
+use crate::server::menu::strtol;
 use crate::server::model::{Floating, HOLE};
 use crate::server::pane::{PaneSpawn, pane_shell, usable_cwd};
 use crate::server::popup::{self, Frame, Lines, Position};
@@ -27,7 +28,7 @@ use crate::types::{ClientId, Dir, PaneId, Rect, SplitSize};
 /// `GROFE_PANE` names the client's current pane, so grofe commands run from
 /// the popup act where the popup was opened. From the CLI the reply waits
 /// until the popup closes, with its command's exit status.
-pub fn display_popup(
+pub(crate) fn display_popup(
     state: &mut State,
     ctx: &ClientCtx,
     c: DisplayPopup,
@@ -169,7 +170,7 @@ pub fn display_popup(
 /// is listed and counted with the window's panes, and closes as a pane
 /// does. `-P` prints it (`-F`, else tmux's `session:window.pane`).
 // ponytail: a floating pane does not move when its window is resized.
-pub fn new_pane(state: &mut State, ctx: &ClientCtx, c: NewPane) -> Result<String, String> {
+pub(crate) fn new_pane(state: &mut State, ctx: &ClientCtx, c: NewPane) -> Result<String, String> {
     let model = &state.model;
     let target = model.resolve_pane(&c.target, ctx)?;
     let window = model.panes[&target].window;
@@ -497,19 +498,6 @@ fn position(
         spot.client,
         spot.pane,
     )))
-}
-
-/// C's `strtol(s, NULL, 10)`: blanks, a sign, then digits; 0 without any.
-fn strtol(s: &str) -> i64 {
-    let s = s.trim_start();
-    let (sign, digits) = match s.strip_prefix('-') {
-        Some(rest) => (-1, rest),
-        None => (1, s.strip_prefix('+').unwrap_or(s)),
-    };
-    let end = digits
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(digits.len());
-    digits[..end].parse::<i64>().map_or(0, |n| sign * n)
 }
 
 #[cfg(test)]

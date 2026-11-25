@@ -7,9 +7,8 @@
 //! under sessions, and Enter switches; `find-window -Z foo` lists only
 //! matching windows; `wait-for -S` releases a waiting `wait-for`.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::display;
 
 use std::process::Stdio;
 use std::thread::sleep;
@@ -80,13 +79,6 @@ fn clients(srv: &TestServer) -> Vec<String> {
 fn wait_clients(srv: &TestServer, want: &[&str]) {
     try_wait_until(|| clients(srv) == want, WAIT)
         .unwrap_or_else(|e| panic!("clients {want:?}: {e}, got {:?}", clients(srv)));
-}
-
-fn display(srv: &TestServer, target: &str, format: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, format])
-        .unwrap_or_default()
-        .trim_end()
-        .to_string()
 }
 
 /// Case 1: a second `new-session -A -s x` attaches to `x` instead of

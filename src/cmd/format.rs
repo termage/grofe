@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 
 mod modify;
 mod names;
-pub mod time;
+pub(crate) mod time;
 mod x11;
 
 /// A [`FormatVars`] that names nothing, for formats expanded with no context.
@@ -22,7 +22,7 @@ impl FormatVars for NoVars {
 }
 
 /// Terminal columns of one character: 0 for control and combining marks, 2 for wide.
-pub fn char_width(c: char) -> usize {
+pub(crate) fn char_width(c: char) -> usize {
     unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)
 }
 
@@ -132,7 +132,7 @@ pub enum Inner<'a> {
 }
 
 impl Inner<'_> {
-    pub fn vars(&self) -> &dyn FormatVars {
+    pub(crate) fn vars(&self) -> &dyn FormatVars {
         match self {
             Inner::Ref(v) => *v,
             Inner::Own(v) => v.as_ref(),
@@ -144,11 +144,11 @@ impl Inner<'_> {
 /// nothing, so `#{!:x}` nested 100 deep reads its innermost `x` as empty
 /// (recorded: 99 levels give `0`, 100 and more give `0` whatever their
 /// parity).
-pub const LOOP_LIMIT: usize = 100;
+pub(crate) const LOOP_LIMIT: usize = 100;
 
 /// tmux 3.7b's one-letter short forms (`format_upper`, `format_lower`):
 /// `#S` is `#{session_name}`.
-pub const SHORT_FORMS: &[(char, &str)] = &[
+pub(crate) const SHORT_FORMS: &[(char, &str)] = &[
     ('D', "pane_id"),
     ('F', "window_flags"),
     ('H', "host"),
@@ -190,7 +190,7 @@ pub fn expand(fmt: &str, vars: &dyn FormatVars) -> String {
 /// `format_expand_time` leaves it: every format a modifier expands again
 /// inside it (`#{E:@opt}`) goes through strftime too, as in tmux, where
 /// the time flag stays set for the whole expansion.
-pub fn expand_after_time(fmt: &str, vars: &dyn FormatVars) -> String {
+pub(crate) fn expand_after_time(fmt: &str, vars: &dyn FormatVars) -> String {
     let closers = scan_closers(fmt);
     let shared = Shared::default();
     shared.expand_time.set(true);
@@ -1060,7 +1060,7 @@ fn regex_match(pattern: &str, s: &str, icase: bool) -> bool {
 /// and a backslash quotes the next character. An unclosed `[` is an
 /// ordinary character, as in glibc. Iterative, backtracking only to the
 /// last `*`, so it takes O(pattern x string) steps whatever the input.
-pub fn fnmatch(p: &[u8], s: &[u8]) -> bool {
+pub(crate) fn fnmatch(p: &[u8], s: &[u8]) -> bool {
     let (mut pi, mut si) = (0, 0);
     // Where to resume after the last `*`: the pattern after it, and the
     // string position it has absorbed up to.
@@ -1155,7 +1155,7 @@ fn bracket(p: &[u8]) -> Option<(Bracket<'_>, &[u8])> {
 /// tmux's `window_pane_search`: the 1-based number of the first of `lines`
 /// that has `term` in it (a glob pattern as `*term*`, or with `regex` a
 /// regular expression), 0 for none. Trailing blanks of a line do not count.
-pub fn search_lines<'l>(
+pub(crate) fn search_lines<'l>(
     lines: impl Iterator<Item = &'l str>,
     term: &str,
     regex: bool,

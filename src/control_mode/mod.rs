@@ -33,10 +33,9 @@ use conn::{ctx, exchange, subscribe};
 use flow::Flow;
 use subscribe::Subs;
 
-pub use flow::escape_output;
-pub use notify::{
-    BUFFERS_FORMAT, CLIENTS_FORMAT, PANES_FORMAT, SESSIONS_FORMAT, Snapshot, WINDOWS_FORMAT,
-    WindowInfo, diff, pairs,
+pub(crate) use notify::{
+    BUFFERS_FORMAT, CLIENTS_FORMAT, PANES_FORMAT, SESSIONS_FORMAT, Snapshot, WINDOWS_FORMAT, diff,
+    pairs,
 };
 
 /// How often the bridge looks at the server when nothing woke it, for

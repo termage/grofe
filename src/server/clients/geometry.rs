@@ -278,7 +278,7 @@ pub(super) fn sync_pane_status(model: &mut Model) {
 /// Moves a viewport of `visible` cells over a `window`, along one axis at
 /// a time, as little as needed to keep `cursor` inside (spec D6 crop). A
 /// window that fits has viewport 0.
-pub fn follow(
+pub(crate) fn follow(
     viewport: (u16, u16),
     cursor: Option<(u16, u16)>,
     window: (u16, u16),

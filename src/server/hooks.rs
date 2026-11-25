@@ -61,12 +61,12 @@ use crate::event::Event;
 use crate::protocol::{ClientCtx, Dialect, Failure, RequestCtx};
 use crate::server::dispatch;
 use crate::server::{Job, State};
-pub use watch::{track, track_focus};
+pub(crate) use watch::{track, track_focus};
 
 use crate::types::{ClientId, PaneId, SessionId, WindowId};
 
 /// One grofe event a hook can be bound to.
-pub struct EventSpec {
+pub(crate) struct EventSpec {
     pub name: &'static str,
     /// The tmux 3.7b hook FE.3's table maps onto this event; empty for
     /// grofe's own events, which no tmux hook name reaches.
@@ -78,7 +78,7 @@ pub struct EventSpec {
 /// The tmux option table a hook lives in, which decides the scopes it can
 /// be set at and how a firing hook is looked up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HookKind {
+pub(crate) enum HookKind {
     /// A session hook: the session's own commands, else the global ones.
     Session,
     /// A window or pane hook (`pane-*`): the pane's, else the window's,
@@ -89,7 +89,7 @@ pub enum HookKind {
 }
 
 /// Every grofe event.
-pub const EVENTS: &[EventSpec] = &[
+pub(crate) const EVENTS: &[EventSpec] = &[
     EventSpec {
         name: "pane-focused",
         tmux: "after-select-pane",
@@ -452,14 +452,14 @@ pub const EVENTS: &[EventSpec] = &[
 ];
 
 /// The event named `name`.
-pub fn event(name: &str) -> Option<&'static EventSpec> {
+pub(crate) fn event(name: &str) -> Option<&'static EventSpec> {
     EVENTS.iter().find(|e| e.name == name)
 }
 
 /// Where a hook is set: tmux's global options, or a session's, window's
 /// or pane's own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Scope {
+pub(crate) enum Scope {
     Global,
     Session(SessionId),
     Window(WindowId),
@@ -583,7 +583,7 @@ impl Default for Hooks {
 impl Hooks {
     /// The server's hooks: as [`Hooks::default`], and `$NAME` in command
     /// strings expands from this global environment from now on.
-    pub fn for_server() -> Hooks {
+    pub(crate) fn for_server() -> Hooks {
         let hooks = Hooks::default();
         let global = Arc::clone(&hooks.global);
         cmd::parse::set_variable_source(Box::new(move |name| {
@@ -604,7 +604,8 @@ impl Hooks {
 /// command must parse natively, with its formats (`-t #{hook_pane}` is not
 /// a valid target until expanded) expanded to nothing. An empty string is
 /// no commands (the hook is removed).
-pub fn check_command(command: &str) -> Result<Vec<Vec<String>>, String> {
+#[cfg(test)]
+pub(crate) fn check_command(command: &str) -> Result<Vec<Vec<String>>, String> {
     check_command_with(command, &[])
 }
 
@@ -634,7 +635,7 @@ fn unformatted(argv: &[String]) -> Vec<String> {
 /// its options: each event `set-hook` has not touched gets the config's
 /// command, or none. The loader already checked every command, and a
 /// reload with any error changes nothing (T3.5).
-pub fn configure(state: &mut State, config: &Resolved) {
+pub(crate) fn configure(state: &mut State, config: &Resolved) {
     let hooks = &mut state.hooks;
     let runtime = &hooks.runtime;
     hooks.bound.retain(|(scope, event), elems| {
@@ -665,7 +666,7 @@ pub fn configure(state: &mut State, config: &Resolved) {
 /// Which of tmux's three option tables a `set-hook` or `show-hooks` flag
 /// set reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Table {
+pub(crate) enum Table {
     Session,
     Window,
     Pane,
@@ -674,7 +675,7 @@ pub enum Table {
 /// The scope `-g`, `-t` and the table pick: `-g` the global one, else the
 /// target's own session, window or pane; a pane table ignores `-g`. A
 /// target that is not there is an error naming it, as tmux's.
-pub fn scope_in(
+pub(crate) fn scope_in(
     state: &State,
     ctx: &ClientCtx,
     table: Table,
@@ -706,7 +707,7 @@ pub fn scope_in(
 
 /// The table `event`'s hook lives in, as `set-hook` picks it: a pane hook
 /// is a pane's only with `-p`, a window's otherwise.
-pub fn table_of(spec: &EventSpec, pane: bool) -> Table {
+pub(crate) fn table_of(spec: &EventSpec, pane: bool) -> Table {
     match spec.kind {
         HookKind::Session => Table::Session,
         HookKind::WindowPane if pane => Table::Pane,
@@ -743,7 +744,7 @@ fn parse_command(
 /// command takes the first free index (an empty string adds none); with
 /// an index that element is replaced. A command that does not parse
 /// leaves the array emptied, as tmux does.
-pub fn assign(
+pub(crate) fn assign(
     state: &mut State,
     ctx: &ClientCtx,
     scope: Scope,
@@ -812,7 +813,7 @@ fn prune(state: &mut State) {
 
 /// `show-hooks` and its flags: `name` alone, or the hooks of the table the
 /// flags pick. In the tmux dialect tmux 3.7b's listing ([`show_tmux`]).
-pub fn show(
+pub(crate) fn show(
     state: &State,
     ctx: &ClientCtx,
     c: &crate::cmd::ShowHooks,
@@ -926,7 +927,7 @@ struct Fired {
 /// `#{hook}` and the `#{hook_*}` variables, set only where tmux 3.7b
 /// sets them (recorded), else empty.
 #[derive(Clone, Default)]
-pub struct HookFormats {
+pub(crate) struct HookFormats {
     hook: &'static str,
     hook_pane: Option<PaneId>,
     hook_window: Option<WindowId>,
@@ -1011,7 +1012,7 @@ fn notify(state: &mut State, f: Fired) {
 
 /// `session-created`: new-session made `session`. Its pane is the new
 /// session's.
-pub fn session_created(state: &mut State, session: SessionId) {
+pub(crate) fn session_created(state: &mut State, session: SessionId) {
     if let Some(s) = state.model.sessions.get(&session) {
         let name = s.name.clone();
         state.events.emit(Event::SessionCreated { session, name });
@@ -1029,7 +1030,7 @@ pub fn session_created(state: &mut State, session: SessionId) {
 /// carries it from T6.1.
 /// `agent-changed`: pane `pane`'s agent state changed (spec §10). grofe's own
 /// hook, no tmux name; the `subscribe` stream carries it too.
-pub fn agent_changed(state: &mut State, pane: PaneId) {
+pub(crate) fn agent_changed(state: &mut State, pane: PaneId) {
     if !wanted(state, "agent-changed") {
         return;
     }
@@ -1038,7 +1039,7 @@ pub fn agent_changed(state: &mut State, pane: PaneId) {
     notify(state, f);
 }
 
-pub fn resume_changed(state: &mut State, pane: PaneId) {
+pub(crate) fn resume_changed(state: &mut State, pane: PaneId) {
     if !wanted(state, "resume-changed") {
         return;
     }
@@ -1049,7 +1050,7 @@ pub fn resume_changed(state: &mut State, pane: PaneId) {
 
 /// `restore-done`: a restore from the snapshot finished (T4.3). It is
 /// about the whole server, so only the global hook runs.
-pub fn restore_done(state: &mut State) {
+pub(crate) fn restore_done(state: &mut State) {
     if !wanted(state, "restore-done") {
         return;
     }
@@ -1059,13 +1060,13 @@ pub fn restore_done(state: &mut State) {
 /// `client-session-changed` for client `id`, which now shows its session
 /// (attach, switch-client, attach-session; tmux fires it even when the
 /// session is the same one).
-pub fn client_session_changed(state: &mut State, id: ClientId) {
+pub(crate) fn client_session_changed(state: &mut State, id: ClientId) {
     client_event(state, id, "client-session-changed");
 }
 
 /// `client-resized`: client `id` attached or reported a size (tmux fires
 /// it for every report, even of the same size).
-pub fn client_resized(state: &mut State, id: ClientId) {
+pub(crate) fn client_resized(state: &mut State, id: ClientId) {
     client_event(state, id, "client-resized");
 }
 
@@ -1106,7 +1107,7 @@ fn client_event(state: &mut State, id: ClientId, name: &'static str) {
 }
 
 /// `pane-set-clipboard`: `pane` set the clipboard (OSC 52).
-pub fn pane_set_clipboard(state: &mut State, pane: PaneId) {
+pub(crate) fn pane_set_clipboard(state: &mut State, pane: PaneId) {
     if !wanted(state, "pane-set-clipboard") {
         return;
     }
@@ -1116,13 +1117,13 @@ pub fn pane_set_clipboard(state: &mut State, pane: PaneId) {
 }
 
 /// `client-attached`: client `id` attached.
-pub fn client_attached(state: &mut State, id: ClientId) {
+pub(crate) fn client_attached(state: &mut State, id: ClientId) {
     client_event(state, id, "client-attached");
 }
 
 /// `client-detached`: the attached client `name`, which showed `session`,
 /// is gone. The hook runs in that session.
-pub fn client_detached(state: &mut State, name: &str, session: SessionId) {
+pub(crate) fn client_detached(state: &mut State, name: &str, session: SessionId) {
     if !wanted(state, "client-detached") {
         return;
     }
@@ -1135,7 +1136,7 @@ pub fn client_detached(state: &mut State, name: &str, session: SessionId) {
 /// reported that it gained or lost focus (while `focus-events` is on). The
 /// panes' focus hooks come before the client's on losing it, after it on
 /// gaining it, as tmux orders them.
-pub fn client_focus(state: &mut State, id: ClientId, focused: bool) {
+pub(crate) fn client_focus(state: &mut State, id: ClientId, focused: bool) {
     if focused {
         client_event(state, id, "client-focus-in");
         track_focus(state);
@@ -1147,7 +1148,7 @@ pub fn client_focus(state: &mut State, id: ClientId, focused: bool) {
 
 /// `alert-bell`, `alert-activity` or `alert-silence` in `window`
 /// (`server::alerts`): run in the window, its active pane current.
-pub fn window_alert(state: &mut State, name: &'static str, window: WindowId) {
+pub(crate) fn window_alert(state: &mut State, name: &'static str, window: WindowId) {
     let Some(w) = state.model.windows.get(&window) else {
         return;
     };
@@ -1188,7 +1189,7 @@ pub fn window_alert(state: &mut State, name: &'static str, window: WindowId) {
 /// remain-on-exit kept the pane (its own pane as context), else
 /// `pane-exited` (the current pane as context, the gone one as
 /// `#{hook_pane}`).
-pub fn pane_exited(state: &mut State, pane: PaneId, window: WindowId) {
+pub(crate) fn pane_exited(state: &mut State, pane: PaneId, window: WindowId) {
     let kept = state.model.panes.contains_key(&pane);
     if let Some(p) = state.model.panes.get(&pane) {
         let died = Event::PaneDied {
@@ -1217,7 +1218,7 @@ pub fn pane_exited(state: &mut State, pane: PaneId, window: WindowId) {
 /// request queue still waiting on a shell holds the reply
 /// ([`take_reply_hold`]). A nested command's hook is on the request's one
 /// queue, so the reply waits for every hook the request fired.
-pub fn run_pending(state: &mut State) {
+pub(crate) fn run_pending(state: &mut State) {
     prune(state);
     crate::server::alerts::drain(state);
     for (session, name) in std::mem::take(&mut state.model.closed_sessions) {
@@ -1448,7 +1449,7 @@ fn streamed(name: &str) -> bool {
 /// attached client's for a binding, else the CLI request's own. What the
 /// hook's commands print joins the command's output, as in tmux. Commands
 /// a hook runs fire no command-shaped hooks.
-pub fn run_command(
+pub(crate) fn run_command(
     state: &mut State,
     ctx: &ClientCtx,
     cmd: Command,
@@ -1569,7 +1570,7 @@ fn fire_now(state: &mut State, ctx: &ClientCtx, f: &Fired) -> (String, Vec<Strin
 
 /// `set-hook -R`: runs `spec`'s hook now as if it had fired for `pane`,
 /// with only `#{hook}` set. What the hook printed is the reply.
-pub fn run_now(
+pub(crate) fn run_now(
     state: &mut State,
     ctx: &ClientCtx,
     spec: &'static EventSpec,
@@ -1765,7 +1766,7 @@ fn drain(state: &mut State, origin: Origin) {
 /// queue, where a `run-shell` holds the rest until its shell exits, as
 /// tmux's queue runs a config file's commands. They run in grofe's own
 /// grammar with no current pane; an error ends them and goes to the log.
-pub fn run_at_load(state: &mut State, cmds: Vec<Vec<String>>) {
+pub(crate) fn run_at_load(state: &mut State, cmds: Vec<Vec<String>>) {
     if cmds.is_empty() {
         return;
     }
@@ -1787,17 +1788,17 @@ pub fn run_at_load(state: &mut State, cmds: Vec<Vec<String>>) {
 
 /// `run_commands` starts: a request's commands nest (`if -F`), and only
 /// the outermost ends its request ([`run_pending`]).
-pub fn enter(state: &mut State) {
+pub(crate) fn enter(state: &mut State) {
     state.hooks.depth += 1;
 }
 
 /// How deep `run_commands` is nested now.
-pub fn depth(state: &State) -> u32 {
+pub(crate) fn depth(state: &State) -> u32 {
     state.hooks.depth
 }
 
 /// `run_commands` ends.
-pub fn leave(state: &mut State) {
+pub(crate) fn leave(state: &mut State) {
     state.hooks.depth = state.hooks.depth.saturating_sub(1);
 }
 
@@ -1805,7 +1806,7 @@ pub fn leave(state: &mut State) {
 /// waiting on a shell: its next command waits, at any depth, as tmux
 /// 3.7b runs an `after-*` hook before the next command of its queue
 /// (recorded: `select-pane ; run-shell`, inside `if -F` too).
-pub fn request_waiting(state: &State) -> bool {
+pub(crate) fn request_waiting(state: &State) -> bool {
     let hooks = &state.hooks;
     !hooks.running
         && hooks.request.is_some_and(|r| {
@@ -1862,19 +1863,19 @@ pub fn take_client_wait(state: &mut State, id: ClientId) -> Option<oneshot::Rece
 /// `after-*` hooks finish), a receiver that answers, with the rest of
 /// the hooks' output, once that queue is idle. Only this request's hooks
 /// hold it.
-pub fn take_reply_hold(state: &mut State) -> Option<oneshot::Receiver<String>> {
+pub(crate) fn take_reply_hold(state: &mut State) -> Option<oneshot::Receiver<String>> {
     state.hooks.reply_hold.take()
 }
 
 /// Inside a hook's command: a `run-shell` there waits for its shell even
 /// from a binding, so the hook's queue can hold what comes after it.
-pub fn in_hook(state: &State) -> bool {
+pub(crate) fn in_hook(state: &State) -> bool {
     state.hooks.running
 }
 
 /// The running hook's variables, for commands that expand formats
 /// (`run-shell`).
-pub fn current_formats(state: &State) -> Option<&HookFormats> {
+pub(crate) fn current_formats(state: &State) -> Option<&HookFormats> {
     state.hooks.current.as_ref()
 }
 
@@ -1896,7 +1897,7 @@ fn context_pane(state: &State, pane: Option<PaneId>) -> Option<PaneId> {
 }
 
 /// A hook's own variables over `inner`.
-pub struct HookVars<'a> {
+pub(crate) struct HookVars<'a> {
     pub formats: &'a HookFormats,
     pub inner: Inner<'a>,
 }
@@ -1939,7 +1940,7 @@ impl FormatVars for HookVars<'_> {
 
 impl HookFormats {
     /// `#{hook}` or a `#{hook_*}` variable; `None` for any other name.
-    pub fn get(&self, name: &str) -> Option<String> {
+    pub(crate) fn get(&self, name: &str) -> Option<String> {
         let text = |v: Option<String>| Some(v.unwrap_or_default());
         match name {
             "hook" => Some(self.hook.to_string()),
@@ -1961,7 +1962,7 @@ impl HookFormats {
 /// ones and those the session marks removed (`-NAME`). A pane gets nothing
 /// else from the server's own environment, so `set-environment -gu`
 /// removes even a variable the server started with.
-pub fn pane_env(state: &State, session: SessionId) -> Vec<(String, String)> {
+pub(crate) fn pane_env(state: &State, session: SessionId) -> Vec<(String, String)> {
     let removed = state.hooks.session_removed.get(&session);
     visible(&state.hooks.global())
         .into_iter()
@@ -1974,7 +1975,7 @@ pub fn pane_env(state: &State, session: SessionId) -> Vec<(String, String)> {
 /// environment under the session's, without hidden variables, as tmux
 /// 3.7b's `run-shell`.
 /// Over it, the variables tmux sets for every job (`compat::job_env`).
-pub fn shell_env(state: &State, session: Option<SessionId>) -> Vec<(String, String)> {
+pub(crate) fn shell_env(state: &State, session: Option<SessionId>) -> Vec<(String, String)> {
     let session = session.filter(|s| state.model.sessions.contains_key(s));
     let mut env = match session {
         Some(s) => {
@@ -1992,7 +1993,7 @@ pub fn shell_env(state: &State, session: Option<SessionId>) -> Vec<(String, Stri
 }
 
 /// The global environment's `name`, unless unset or hidden.
-pub fn global_var(state: &State, name: &str) -> Option<String> {
+pub(crate) fn global_var(state: &State, name: &str) -> Option<String> {
     let global = state.hooks.global();
     global.get(name).filter(|v| !v.hidden)?.value.clone()
 }
@@ -2020,7 +2021,7 @@ fn update_names(state: &State, session: SessionId) -> Vec<String> {
 /// `client_env`, as tmux 3.7b: only the variables `update-environment`
 /// names; one the client lacks is marked removed (`-NAME`), which hides
 /// a global value of it.
-pub fn session_environment(
+pub(crate) fn session_environment(
     state: &mut State,
     session: SessionId,
     client_env: &[(String, String)],
@@ -2073,7 +2074,7 @@ pub fn update_environment(state: &mut State, session: SessionId, client_env: &[(
 }
 
 /// `set-environment -g [-h] name value`, or `-gu name` (`value` `None`).
-pub fn set_global(state: &mut State, name: &str, value: Option<String>, hidden: bool) {
+pub(crate) fn set_global(state: &mut State, name: &str, value: Option<String>, hidden: bool) {
     let mut env = state
         .hooks
         .global
@@ -2099,7 +2100,7 @@ pub fn set_global(state: &mut State, name: &str, value: Option<String>, hidden: 
 /// (`-NAME`), so a new pane lacks it, as tmux's `environ_clear`: an entry
 /// that is there keeps its hidden mark and loses its value, else a new one
 /// is made.
-pub fn clear_global(state: &mut State, name: &str) {
+pub(crate) fn clear_global(state: &mut State, name: &str) {
     state
         .hooks
         .global
@@ -2114,7 +2115,7 @@ pub fn clear_global(state: &mut State, name: &str) {
 }
 
 /// `set-environment -t session -r name`: as [`clear_global`] for a session.
-pub fn clear_session(state: &mut State, session: SessionId, name: &str) {
+pub(crate) fn clear_session(state: &mut State, session: SessionId, name: &str) {
     let Some(s) = state.model.sessions.get_mut(&session) else {
         return;
     };
@@ -2135,7 +2136,7 @@ pub fn clear_session(state: &mut State, session: SessionId, name: &str) {
 /// `set-environment -t session [-h] name value`, or `-u` (`value` `None`),
 /// which removes the variable from the session altogether (a removed
 /// mark included).
-pub fn set_session(
+pub(crate) fn set_session(
     state: &mut State,
     session: SessionId,
     name: &str,
@@ -2165,7 +2166,7 @@ pub fn set_session(
 }
 
 /// One variable as `show-environment` sees it.
-pub struct Variable {
+pub(crate) struct Variable {
     pub name: String,
     /// `None`: marked removed (`-NAME`).
     pub value: Option<String>,
@@ -2174,7 +2175,7 @@ pub struct Variable {
 
 /// Every variable of the global environment (`session` `None`) or of a
 /// session, by name. A session variable set twice shows its last value.
-pub fn variables(state: &State, session: Option<SessionId>) -> Vec<Variable> {
+pub(crate) fn variables(state: &State, session: Option<SessionId>) -> Vec<Variable> {
     let Some(session) = session else {
         return state
             .hooks

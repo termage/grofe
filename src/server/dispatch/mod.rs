@@ -24,24 +24,24 @@
 pub(crate) mod agent;
 mod agent_cmd;
 pub(crate) mod agent_new;
-pub mod bindings;
-pub mod buffers;
-pub mod client;
-pub mod copy;
-pub mod hooks;
-pub mod lock;
-pub mod menu;
+pub(crate) mod bindings;
+pub(crate) mod buffers;
+pub(crate) mod client;
+pub(crate) mod copy;
+pub(crate) mod hooks;
+pub(crate) mod lock;
+pub(crate) mod menu;
 pub(crate) mod notify;
 pub mod options;
-pub mod pane;
-pub mod persist;
-pub mod plugins;
-pub mod popup;
-pub mod scratch;
-pub mod session;
-pub mod sorting;
-pub mod structure;
-pub mod window;
+pub(crate) mod pane;
+pub(crate) mod persist;
+pub(crate) mod plugins;
+pub(crate) mod popup;
+pub(crate) mod scratch;
+pub(crate) mod session;
+pub(crate) mod sorting;
+pub(crate) mod structure;
+pub(crate) mod window;
 
 use crate::cmd::NoVars;
 use std::path::{Path, PathBuf};
@@ -84,7 +84,7 @@ pub fn parse(state: &State, ctx: &ClientCtx, argv: &[String]) -> Result<Parsed, 
 
 /// Runs a request's argv against the server state, returning its stdout
 /// or its error message: [`parse`], then [`run_parsed`].
-pub fn run(state: &mut State, ctx: &ClientCtx, argv: &[String]) -> Result<String, String> {
+pub(crate) fn run(state: &mut State, ctx: &ClientCtx, argv: &[String]) -> Result<String, String> {
     let parsed = parse(state, ctx, argv);
     run_parsed(state, ctx, parsed, &mut CommandLog::new())
 }
@@ -94,7 +94,7 @@ pub fn run(state: &mut State, ctx: &ClientCtx, argv: &[String]) -> Result<String
 /// run in order and the first error stops the rest; what the commands
 /// before it printed goes out with the error (`State::failed_out`). `log`
 /// is the request's log plan, logged as its commands fire.
-pub fn run_parsed(
+pub(crate) fn run_parsed(
     state: &mut State,
     ctx: &ClientCtx,
     parsed: Result<Parsed, String>,
@@ -256,7 +256,7 @@ fn run_commands_logged(
 /// requests count as changing something.
 // ponytail: an explicit list. The upgrade path is a per-command "changed"
 // result from dispatch, so each handler says what it touched.
-pub fn read_only(parsed: &Result<Parsed, String>) -> bool {
+pub(crate) fn read_only(parsed: &Result<Parsed, String>) -> bool {
     let cmds = match parsed {
         Ok(Parsed::AttachCheck(_)) => return true,
         Ok(Parsed::Commands(cmds)) => cmds,
@@ -400,7 +400,10 @@ fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, Str
             server::sources::prune_unreferenced(state);
             out
         }
-        Command::ConfigFile => Ok(options::config_files()),
+        Command::ConfigFile => Ok(crate::config::config_file_reply(
+            options::config_files(),
+            options::config_env().config_dir.as_deref(),
+        )),
         Command::CommandPrompt(c) => prompt::command_prompt(state, ctx, c),
         Command::RunShell(c) => prompt::run_shell(state, ctx, c),
         Command::SelectLayout(c) => window::select_layout(state, ctx, c),

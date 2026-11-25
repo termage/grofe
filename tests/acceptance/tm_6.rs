@@ -10,76 +10,27 @@
 //! tests from T3.2 and TC.10 that exercised the old read-only scrollback
 //! view moved here, rewritten for copy mode.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{attach_sized, indicator, pane_var, side_by_side, start};
 
 use std::fs;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use common::{CMD_TIMEOUT, TestServer, try_wait_until};
 
+use crate::golden::{Step, fixtures, split_words};
 use crate::harness::{Harness, require_tool};
 
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const WAIT: Duration = Duration::from_secs(10);
 
 /// The golden recorder's pause after each `keys` step (`replay.rs`).
 const KEYS_PAUSE: Duration = Duration::from_millis(200);
-
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/compat")
-}
 
 fn golden_text(name: &str) -> String {
     fs::read_to_string(fixtures().join(format!("golden/tm_6/{name}.golden"))).unwrap()
 }
 
 // ---- Golden replay -----------------------------------------------------------
-
-/// A scenario line's words, split as the replayer splits them.
-fn split_words(s: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut word: Option<String> = None;
-    let mut it = s.chars();
-    while let Some(c) = it.next() {
-        match c {
-            ' ' | '\t' if word.is_some() => words.extend(word.take()),
-            ' ' | '\t' => {}
-            '\'' => {
-                let w = word.get_or_insert_default();
-                for c in it.by_ref() {
-                    if c == '\'' {
-                        break;
-                    }
-                    w.push(c);
-                }
-            }
-            '"' => {
-                let w = word.get_or_insert_default();
-                while let Some(c) = it.next() {
-                    match c {
-                        '"' => break,
-                        '\\' => match it.next() {
-                            Some(n @ ('"' | '\\' | '$' | '`')) => w.push(n),
-                            Some(n) => {
-                                w.push('\\');
-                                w.push(n);
-                            }
-                            None => w.push('\\'),
-                        },
-                        c => w.push(c),
-                    }
-                }
-            }
-            '\\' => word.get_or_insert_default().extend(it.next()),
-            c => word.get_or_insert_default().push(c),
-        }
-    }
-    words.extend(word);
-    words
-}
 
 /// The bytes a `keys` step types (the recorder's `key_bytes`).
 fn key_bytes(words: &[String]) -> Vec<u8> {
@@ -93,16 +44,6 @@ fn key_bytes(words: &[String]) -> Vec<u8> {
         }
     }
     out
-}
-
-enum Step {
-    Run {
-        line: String,
-        args: Vec<String>,
-        want: (String, String, i32),
-    },
-    Client(u16, u16),
-    Keys(Vec<u8>),
 }
 
 fn load(name: &str) -> Vec<Step> {
@@ -247,31 +188,6 @@ fn a_click_in_copy_mode_matches_the_golden() {
 /// 200 lines of history, then a pane that shows every byte it gets.
 const HISTORY: &str = "seq 1 200; stty -echo; exec cat -v";
 
-/// A server with one session `main` running `cmd`, sized for an 80x24
-/// client with a status line.
-fn start(cmd: &str) -> TestServer {
-    let srv = TestServer::start();
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        cmd,
-    ])
-    .expect("new-session");
-    srv
-}
-
-fn attach(srv: &TestServer, cols: u16, rows: u16) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], cols, rows);
-    a.wait_for_output(MOUSE_ON, 0);
-    a
-}
-
 /// An SGR 1006 report as the outer terminal sends it: `x` and `y` are
 /// 1-based client cells.
 fn sgr(button: u8, x: u16, y: u16, release: bool) -> String {
@@ -287,24 +203,6 @@ fn top_line(text: &str) -> String {
     text.lines().next().unwrap_or_default().to_string()
 }
 
-/// The `[offset/history]` indicator anywhere on screen.
-fn indicator(text: &str) -> Option<String> {
-    text.match_indices('[').find_map(|(i, _)| {
-        let rest = &text[i + 1..];
-        let end = rest.find(']')?;
-        let (a, b) = rest[..end].split_once('/')?;
-        let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
-        (digits(a) && digits(b)).then(|| format!("[{a}/{b}]"))
-    })
-}
-
-fn pane_var(srv: &TestServer, target: &str, var: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, var])
-        .unwrap_or_default()
-        .trim()
-        .to_string()
-}
-
 /// Case 1 on screen (moved from T3.2's `wheel_in_a_shell_scrolls_history`,
 /// where one tick opened the view five lines up): the first tick shows
 /// `[0/178]`, the second scrolls to `[5/178]` with line 174 on top, and
@@ -312,7 +210,7 @@ fn pane_var(srv: &TestServer, target: &str, var: &str) -> String {
 #[test]
 fn the_wheel_in_a_shell_shows_the_indicator_and_history() {
     let srv = start(HISTORY);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     // 200 lines and the cursor's empty line on 23 rows: 178 in history.
     a.wait_until("179 on top", WAIT, |t| top_line(t).trim_end() == "179");
 
@@ -348,7 +246,7 @@ fn the_wheel_in_a_shell_shows_the_indicator_and_history() {
 #[test]
 fn the_wheel_over_an_open_chooser_does_not_enter_copy_mode() {
     let srv = start(HISTORY);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("179 on top", WAIT, |t| top_line(t).trim_end() == "179");
     srv.cmd(&["choose-tree"]).expect("choose-tree");
     a.wait_for("(sort: index)");
@@ -365,7 +263,7 @@ fn the_wheel_over_an_open_chooser_does_not_enter_copy_mode() {
 fn the_mouse_over_a_mode_never_reaches_the_app_below() {
     let tui = "stty -echo; printf '\\033[?1000h\\033[?1006hready'; exec cat -v";
     let srv = start(tui);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     try_wait_until(|| srv.capture("main").contains("ready"), WAIT).expect("the fake TUI");
     for mode in ["choose-tree", "clock-mode"] {
         srv.cmd(&[mode]).expect(mode);
@@ -400,7 +298,7 @@ fn the_wheel_in_neovim_scrolls_neovim() {
         "exec nvim --clean -c 'set mouse=a' '{}'",
         file.display()
     ));
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("nvim showing line 1", WAIT, |t| {
         top_line(t).trim_end() == "1" && t.lines().any(|l| l.trim_end() == "21")
     });
@@ -459,7 +357,7 @@ fn a_drag_release_runs_its_binding_with_the_text() {
         &format!("cat > '{}'", out.display()),
     ])
     .expect("bind");
-    let mut a = attach(&srv, 80, 25);
+    let mut a = attach_sized(&srv, 80, 25);
     a.wait_for("stray close");
     a.send(sgr(0, 3, 4, false));
     a.send(sgr(DRAG, 5, 4, false));
@@ -480,7 +378,7 @@ fn a_drag_release_runs_its_binding_with_the_text() {
 #[test]
 fn a_drag_held_on_the_top_row_scrolls_up() {
     let srv = fixture_server();
-    let mut a = attach(&srv, 80, 25);
+    let mut a = attach_sized(&srv, 80, 25);
     a.wait_for("stray close");
     a.send(sgr(0, 3, 6, false));
     a.send(sgr(DRAG, 4, 6, false));
@@ -501,17 +399,6 @@ fn a_drag_held_on_the_top_row_scrolls_up() {
     assert!(copied.lines().count() >= 8, "{copied:?}");
 }
 
-/// Two panes side by side; the right one runs `cmd` and is active.
-fn side_by_side(left: &str, right: &str) -> (TestServer, String, String) {
-    let srv = start(left);
-    let left_id = pane_var(&srv, "main", "#{pane_id}");
-    srv.cmd(&["split-window", "-h", "-t", "main", right])
-        .expect("split");
-    let right_id = pane_var(&srv, "main", "#{pane_id}");
-    assert_ne!(left_id, right_id);
-    (srv, left_id, right_id)
-}
-
 /// Case 6 with two panes (moved from T3.2's
 /// `a_click_inside_the_view_focuses_and_keeps_it`): a click in a pane in
 /// copy mode focuses it and keeps the mode, its view and its cursor; the
@@ -519,7 +406,7 @@ fn side_by_side(left: &str, right: &str) -> (TestServer, String, String) {
 #[test]
 fn a_click_in_copy_mode_focuses_and_keeps_it() {
     let (srv, left, right) = side_by_side(HISTORY, "cat");
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("both panes drawn", WAIT, |t| t.contains('│'));
     try_wait_until(|| srv.capture(&left).contains("200"), WAIT).expect("history");
     a.send(sgr(WHEEL_UP, 5, 5, false));
@@ -568,7 +455,7 @@ fn output_does_not_move_copy_mode() {
         go.display(),
         dir.path().display()
     ));
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("179 on top", WAIT, |t| top_line(t).trim_end() == "179");
     a.send(sgr(WHEEL_UP, 10, 5, false));
     a.send(sgr(WHEEL_UP, 10, 5, false));
@@ -596,7 +483,7 @@ fn output_does_not_move_copy_mode() {
 #[test]
 fn keys_in_copy_mode_from_the_wheel_follow_copy_mode_vi() {
     let srv = start(HISTORY);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("179 on top", WAIT, |t| top_line(t).trim_end() == "179");
     a.send(sgr(WHEEL_UP, 10, 5, false));
     a.wait_until("copy mode", WAIT, |t| indicator(t).is_some());
@@ -640,7 +527,7 @@ fn copy_mode_draws_below_a_status_line_on_top() {
     let srv = start("seq 1 200; exec cat");
     srv.cmd(&["set", "-g", "status-position", "top"])
         .expect("top");
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("200 shown", WAIT, |t| {
         t.lines().any(|l| l.trim_end() == "200")
     });
@@ -700,7 +587,7 @@ fn a_bindings_shell_and_its_hooks_shell_hold_the_client() {
         until(&go)
     );
     srv.cmd(&["bind-key", "-n", "F5", &f5]).expect("bind F5");
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.send("\x1b[15~z\r");
     try_wait_until(|| opt(&srv, "@log") == "A", WAIT).expect("the binding started");
     // Whatever the client sent next is behind the shell: a round trip
@@ -748,7 +635,7 @@ fn a_prompt_a_held_binding_opens_still_takes_the_keys() {
         env!("CARGO_BIN_EXE_grofe")
     );
     srv.cmd(&["bind-key", "-n", "F9", &f9]).expect("bind F9");
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.send("\x1b[20~");
     a.wait_until("the prompt", WAIT, |t| t.contains("go"));
     a.send("x\r");
@@ -771,7 +658,7 @@ fn bindings_wait_for_prompts_menus_and_popups_as_the_golden() {
 #[test]
 fn a_count_prompt_passes_its_key_on_in_order() {
     let srv = fixture_server();
-    let mut a = attach(&srv, 80, 25);
+    let mut a = attach_sized(&srv, 80, 25);
     a.wait_for("stray close");
     srv.cmd(&["copy-mode", "-t", "main"]).expect("copy-mode");
     let y = |srv: &TestServer| pane_var(srv, "main", "#{copy_cursor_y}");
@@ -787,7 +674,7 @@ fn a_count_prompt_passes_its_key_on_in_order() {
 #[test]
 fn a_client_gone_mid_drag_stops_its_drag() {
     let srv = fixture_server();
-    let mut a = attach(&srv, 80, 25);
+    let mut a = attach_sized(&srv, 80, 25);
     a.wait_for("stray close");
     a.send(sgr(0, 3, 6, false));
     a.send(sgr(DRAG, 4, 6, false));
@@ -821,7 +708,7 @@ fn a_client_held_by_a_hung_shell_can_be_detached_from_the_cli() {
     let srv = start("stty -echo; exec cat");
     let f5 = format!("run-shell \"{}\"", until(&never));
     srv.cmd(&["bind-key", "-n", "F5", &f5]).expect("bind F5");
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.send("\x1b[15~");
     a.send("\x02d");
     srv.cmd(&["refresh-client"]).ok();
@@ -852,7 +739,7 @@ fn send_keys_into_copy_mode_answers_once_its_prompt_ends() {
     assert_eq!(out.stderr, "no current client\n");
     assert_eq!(out.status.code(), Some(1));
 
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     let spawn = |args: &[&str]| {
         let mut c = srv.command();
         c.args(args)
@@ -894,7 +781,7 @@ fn send_keys_into_copy_mode_answers_once_its_prompt_ends() {
 #[test]
 fn a_middle_click_pastes_the_newest_buffer() {
     let (srv, left, right) = side_by_side(HISTORY, "stty -echo; exec cat -v");
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("179 on the left", WAIT, |t| {
         t.lines().any(|l| l.starts_with("179"))
     });

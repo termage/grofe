@@ -14,17 +14,17 @@ use super::ssh::{self, MISSING_MARKER, MISSING_STATUS, SshOpts, Target};
 use crate::protocol::{Reply, Request};
 
 /// How often the client pings.
-pub const PING_INTERVAL: Duration = Duration::from_secs(5);
+pub(crate) const PING_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Test hook: the ping interval in milliseconds, so a missed-ping drop
 /// shows up in a test's time. Test-only.
-pub const TEST_PING_ENV: &str = "GROFE_TEST_PING_MS";
+pub(crate) const TEST_PING_ENV: &str = "GROFE_TEST_PING_MS";
 
 /// Missed pings in a row that make a drop.
-pub const MISSED_PINGS: u32 = 2;
+pub(crate) const MISSED_PINGS: u32 = 2;
 
 /// What ends a link's transport; see [`Link::over`].
-pub type End = Box<dyn FnOnce() + Send>;
+pub(crate) type End = Box<dyn FnOnce() + Send>;
 
 /// How the bytes reach the proxy.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,7 +180,7 @@ impl Link {
     }
 
     /// A v1 attach connection to the remote server.
-    pub fn open_attach(&self) -> io::Result<Channel> {
+    pub(crate) fn open_attach(&self) -> io::Result<Channel> {
         self.open(&OpenSpec::Attach)
     }
 
@@ -195,7 +195,7 @@ impl Link {
     }
 
     /// The smoothed round trip time, once a ping came back.
-    pub fn rtt(&self) -> Option<Duration> {
+    pub(crate) fn rtt(&self) -> Option<Duration> {
         *lock(&self.shared.rtt)
     }
 
@@ -211,7 +211,7 @@ impl Link {
 
     /// One control request on a fresh control channel: `hello`, then
     /// `argv`; the command's output, or its error.
-    pub fn request(&self, hello: &str, argv: &[String]) -> Result<String, String> {
+    pub(crate) fn request(&self, hello: &str, argv: &[String]) -> Result<String, String> {
         let chan = self.open_control().map_err(|e| e.to_string())?;
         match request_on(chan, hello, argv)? {
             Reply::Ok { out, .. } => Ok(out),
@@ -223,7 +223,7 @@ impl Link {
 
 /// Sends `hello` and one request for `argv` on `stream`, and reads until
 /// its reply (events before it are skipped).
-pub fn request_on<S: Read + Write>(
+pub(crate) fn request_on<S: Read + Write>(
     mut stream: S,
     hello: &str,
     argv: &[String],
@@ -313,7 +313,7 @@ fn ping_loop(shared: std::sync::Weak<Shared>, every: Duration) {
 
 /// How long an unattended ([`ConnectOpts::batch`]) connect waits for the
 /// proxy's hello once ssh runs.
-pub const HELLO_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const HELLO_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Test hook: [`HELLO_TIMEOUT`] in milliseconds. Test-only.
 pub const TEST_HELLO_ENV: &str = "GROFE_TEST_HELLO_MS";
@@ -433,7 +433,7 @@ fn exit_status(child: &mut Child) -> Option<i32> {
 }
 
 /// An [`End`] that kills and reaps `child`.
-pub fn kill_child(mut child: Child) -> End {
+pub(crate) fn kill_child(mut child: Child) -> End {
     Box::new(move || {
         let _ = child.kill();
         let _ = child.wait();
@@ -442,7 +442,7 @@ pub fn kill_child(mut child: Child) -> End {
 
 /// What a connect that got no usable hello means, from the hello error,
 /// ssh's exit status and its stderr.
-pub fn classify(err: ConnectError, status: Option<i32>, stderr: &str) -> ConnectError {
+pub(crate) fn classify(err: ConnectError, status: Option<i32>, stderr: &str) -> ConnectError {
     // Remote-controlled: shown on the terminal only once made safe.
     let stderr = &ssh::sanitize(stderr);
     if status == Some(MISSING_STATUS) && stderr.contains(MISSING_MARKER) {
@@ -546,7 +546,12 @@ mod tests {
     /// that sends nothing at all still drops after two.
     #[test]
     fn data_still_arriving_keeps_a_link_whose_pongs_are_late() {
-        let every = Duration::from_millis(100);
+        // Two missed pings are a silence of 2 * every, which drops the link
+        // by design; at 100 ms a 200 ms scheduler stall of the sending
+        // thread on a loaded runner was enough. 250 ms tolerates 500 ms.
+        // ponytail: a stall of the sending thread over 500 ms still drops
+        // the link here; only a fake clock would remove the bound.
+        let every = Duration::from_millis(250);
         // Flowing: the peer answers no ping but keeps sending frames.
         let (a, b) = fake_proxy(&ProxyHello::current(&[]));
         let link = Link::over(a.try_clone().unwrap(), a, None).unwrap();
@@ -567,7 +572,7 @@ mod tests {
         };
         ping_with(&link, every);
         assert!(
-            !wait_dropped_within(&link, every * 10),
+            !wait_dropped_within(&link, every * 6),
             "dropped while data flowed: {:?}",
             link.dropped()
         );

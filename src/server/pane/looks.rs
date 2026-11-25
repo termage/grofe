@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 
 use alacritty_terminal::term::cell::Hyperlink;
-use alacritty_terminal::vte::ansi::{Color, NamedColor};
+use alacritty_terminal::vte::ansi::Color;
 
-use super::{CellFlags, SnapCell};
+use super::SnapCell;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct LookKey {
@@ -39,37 +39,27 @@ fn look_key(cell: &SnapCell) -> LookKey {
 }
 
 /// Each distinct look once; id 0 is the default blank.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub struct Looks {
+pub(crate) struct Looks {
     looks: Vec<SnapCell>,
     ids: HashMap<LookKey, u32>,
     /// Calls to [`Looks::intern`].
     lookups: usize,
 }
 
-#[allow(dead_code)]
 impl Looks {
-    pub fn new() -> Looks {
+    pub(crate) fn new() -> Looks {
         let mut looks = Looks {
             looks: Vec::new(),
             ids: HashMap::new(),
             lookups: 0,
         };
-        looks.intern(&SnapCell {
-            c: ' ',
-            fg: Color::Named(NamedColor::Foreground),
-            bg: Color::Named(NamedColor::Background),
-            flags: CellFlags::empty(),
-            zerowidth: Vec::new(),
-            underline_color: None,
-            hyperlink: None,
-        });
+        looks.intern(&SnapCell::blank());
         looks
     }
 
     /// The id of `cell`'s look; its character is ignored.
-    pub fn intern(&mut self, cell: &SnapCell) -> u32 {
+    pub(crate) fn intern(&mut self, cell: &SnapCell) -> u32 {
         self.lookups += 1;
         let key = look_key(cell);
         if let Some(&id) = self.ids.get(&key) {
@@ -83,15 +73,16 @@ impl Looks {
         id
     }
 
-    pub fn get(&self, id: u32) -> &SnapCell {
+    pub(crate) fn get(&self, id: u32) -> &SnapCell {
         &self.looks[id as usize]
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.looks.len()
     }
 
-    pub fn lookups(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn lookups(&self) -> usize {
         self.lookups
     }
 }

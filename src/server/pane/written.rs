@@ -38,10 +38,10 @@ use crate::server::imgstore::{Cursor, Erase, Probe, ScrollOp, Store};
 
 /// A cell the program wrote. Bit 15 is free in alacritty 0.26's flags;
 /// nothing but `capture-pane -J` reads it.
-pub const WRITTEN: CellFlags = CellFlags::from_bits_retain(1 << 15);
+pub(crate) const WRITTEN: CellFlags = CellFlags::from_bits_retain(1 << 15);
 
 /// The used width of `row`: its last written cell's end, 0 if none.
-pub fn used(row: &alacritty_terminal::grid::Row<Cell>) -> usize {
+pub(crate) fn used(row: &alacritty_terminal::grid::Row<Cell>) -> usize {
     (0..row.len())
         .rev()
         .find(|&c| row[Column(c)].flags.contains(WRITTEN))
@@ -52,7 +52,7 @@ pub fn used(row: &alacritty_terminal::grid::Row<Cell>) -> usize {
 /// and the pane's [`Marks`]. With a [`Store`] (the pane's images are on) it
 /// also tells it what the parser does to the screen: scrolls, erases and
 /// writes over its images.
-pub struct Written<'a, L: EventListener>(
+pub(crate) struct Written<'a, L: EventListener>(
     pub &'a mut Term<L>,
     pub &'a mut Marks,
     pub Option<&'a mut Store>,

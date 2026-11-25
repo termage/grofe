@@ -5,7 +5,7 @@ pub(super) const MODE_STYLE: &str = "bg=yellow,fg=black";
 
 /// What `find-window` looks for and where (`-C`, `-N`, `-T`, `-r`, `-i`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Find {
+pub(crate) struct Find {
     pub pattern: String,
     /// `-C`: the text of the pane.
     pub content: bool,
@@ -20,7 +20,7 @@ pub struct Find {
 }
 
 /// What `choose-tree` and `find-window` open with.
-pub struct Opts {
+pub(crate) struct Opts {
     /// `-Z`.
     pub zoom: bool,
     /// `-s`: sessions collapsed.
@@ -38,7 +38,7 @@ pub struct Opts {
 }
 
 impl Opts {
-    pub fn new(dialect: Dialect) -> Opts {
+    pub(crate) fn new(dialect: Dialect) -> Opts {
         Opts {
             zoom: false,
             sessions: false,
@@ -57,20 +57,20 @@ pub struct Trees {
 }
 
 impl Trees {
-    pub fn is_open(&self, id: ClientId) -> bool {
+    pub(crate) fn is_open(&self, id: ClientId) -> bool {
         self.open.contains_key(&id)
     }
 }
 
 /// Whether a chooser is open over the pane, which puts it in a mode.
-pub fn is_over(state: &State, pane: PaneId) -> bool {
+pub(crate) fn is_over(state: &State, pane: PaneId) -> bool {
     state.trees.open.values().any(|t| t.pane == pane)
 }
 
 /// `pane_in_mode` and `pane_mode` for a pane a chooser is open over, as
 /// tmux's mode names it (`window-tree.c`, `window-client.c`,
 /// `window-buffer.c`). `None` for any other pane or variable.
-pub fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
+pub(crate) fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
     let tree = state.trees.open.values().find(|t| t.pane == pane)?;
     match name {
         "pane_in_mode" => Some("1".to_string()),
@@ -410,7 +410,7 @@ impl Tree {
 /// Opens the tree chooser on the current client, over the `target` pane.
 /// Nothing happens without a client, or when one is open there already
 /// (tmux does nothing for a pane already in the mode).
-pub fn open_tree(
+pub(crate) fn open_tree(
     state: &mut State,
     ctx: &ClientCtx,
     target: &Target,
@@ -453,7 +453,7 @@ pub fn open_tree(
 }
 
 /// Opens the client chooser on the current client, over its pane.
-pub fn open_clients(
+pub(crate) fn open_clients(
     state: &mut State,
     ctx: &ClientCtx,
     zoom: bool,
@@ -465,7 +465,7 @@ pub fn open_clients(
 
 /// Opens the buffer chooser on the current client, over its pane (TM.4).
 /// With no buffers nothing opens, as in tmux.
-pub fn open_buffers(
+pub(crate) fn open_buffers(
     state: &mut State,
     ctx: &ClientCtx,
     zoom: bool,
@@ -482,7 +482,7 @@ pub fn open_buffers(
 }
 
 /// Opens customize-mode on the current client, over the target pane.
-pub fn open_customize(
+pub(crate) fn open_customize(
     state: &mut State,
     ctx: &ClientCtx,
     zoom: bool,
@@ -579,7 +579,7 @@ pub(super) fn close(state: &mut State, id: ClientId) {
 }
 
 /// Closes every chooser open over `pane` (it leaves its modes).
-pub fn close_over(state: &mut State, pane: PaneId) {
+pub(crate) fn close_over(state: &mut State, pane: PaneId) {
     let ids: Vec<ClientId> = state
         .trees
         .open
@@ -593,6 +593,6 @@ pub fn close_over(state: &mut State, pane: PaneId) {
 }
 
 /// Client `id` went away: its chooser closes.
-pub fn client_gone(state: &mut State, id: ClientId) {
+pub(crate) fn client_gone(state: &mut State, id: ClientId) {
     close(state, id);
 }

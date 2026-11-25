@@ -5,9 +5,7 @@
 //! `clients::tests::names_are_checked_with_no_client_attached` and
 //! t2_5b's `automatic_rename_works_without_a_client`.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use common::TestServer;
 

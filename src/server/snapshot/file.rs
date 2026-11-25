@@ -13,7 +13,7 @@ use crate::paths;
 /// moves the file to `state.json.v<N>`, and one that does not parse to
 /// `state.json.corrupt-<unix time>`, each with one log line, so the next
 /// write never overwrites another grofe's state.
-pub fn read(path: &Path) -> Result<Snapshot, SnapshotError> {
+pub(crate) fn read(path: &Path) -> Result<Snapshot, SnapshotError> {
     let bytes = fs::read(path).map_err(SnapshotError::Io)?;
     let value: serde_json::Value = match serde_json::from_slice(&bytes) {
         Ok(value) => value,
@@ -71,7 +71,7 @@ fn move_aside(path: &Path, aside: &Path, why: &str) {
 /// Writes `snap` to `path` atomically: a temp file in the same directory
 /// (mode `0600`), `fsync`, `rename` over `path`, `fsync` of the directory.
 /// A crash at any point leaves either the old file or the new one.
-pub fn write_atomic(path: &Path, snap: &Snapshot) -> io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, snap: &Snapshot) -> io::Result<()> {
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::other("snapshot path has no directory"))?;

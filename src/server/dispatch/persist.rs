@@ -16,7 +16,7 @@ use crate::server::snapshot::{self, SNAPSHOT_VERSION, Snapshot};
 
 /// `pane-set-resume [-t pane] [-u] [--expect <reason>] [-- argv...]`: the
 /// logic is `server::resume`'s.
-pub fn pane_set_resume(
+pub(crate) fn pane_set_resume(
     state: &mut State,
     ctx: &ClientCtx,
     c: PaneSetResume,

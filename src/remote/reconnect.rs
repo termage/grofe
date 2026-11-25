@@ -9,19 +9,19 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::server::input::{Decoder, Input as Decoded, Key, KeyCode};
 
 /// The first delay.
-pub const FIRST: Duration = Duration::from_millis(500);
+pub(crate) const FIRST: Duration = Duration::from_millis(500);
 /// No delay is longer.
-pub const CAP: Duration = Duration::from_secs(30);
+pub(crate) const CAP: Duration = Duration::from_secs(30);
 /// A connection up this long resets the backoff.
-pub const STABLE: Duration = Duration::from_secs(60);
+pub(crate) const STABLE: Duration = Duration::from_secs(60);
 /// A wall clock jump past the monotonic clock this big is a wake.
-pub const WAKE_JUMP: Duration = Duration::from_secs(5);
+pub(crate) const WAKE_JUMP: Duration = Duration::from_secs(5);
 /// Jitter, as a fraction of the delay.
-pub const JITTER: f64 = 0.2;
+pub(crate) const JITTER: f64 = 0.2;
 
 /// The retry schedule of one remote attach.
 #[derive(Debug, Default)]
-pub struct Backoff {
+pub(crate) struct Backoff {
     /// Failed attempts since the last reset.
     failures: u32,
     /// When the current connection came up.
@@ -29,18 +29,18 @@ pub struct Backoff {
 }
 
 impl Backoff {
-    pub fn new() -> Backoff {
+    pub(crate) fn new() -> Backoff {
         Backoff::default()
     }
 
     /// A connection came up at `now`.
-    pub fn connected(&mut self, now: Instant) {
+    pub(crate) fn connected(&mut self, now: Instant) {
         self.up_since = Some(now);
     }
 
     /// The connection dropped at `now`: one that stayed up [`STABLE`]
     /// starts the schedule over.
-    pub fn dropped(&mut self, now: Instant) {
+    pub(crate) fn dropped(&mut self, now: Instant) {
         if let Some(up) = self.up_since.take()
             && now.saturating_duration_since(up) >= STABLE
         {
@@ -49,13 +49,13 @@ impl Backoff {
     }
 
     /// The attempt about to be made, counting from 1.
-    pub fn attempt(&self) -> u32 {
+    pub(crate) fn attempt(&self) -> u32 {
         self.failures + 1
     }
 
     /// The wait before the next attempt, then counts it. `jitter` is in
     /// `[-1, 1]` and scales the ±20%.
-    pub fn next_delay(&mut self, jitter: f64) -> Duration {
+    pub(crate) fn next_delay(&mut self, jitter: f64) -> Duration {
         let base = FIRST
             .checked_mul(1u32 << self.failures.min(16))
             .unwrap_or(CAP)
@@ -68,13 +68,13 @@ impl Backoff {
 
 /// One reading of both clocks.
 #[derive(Debug, Clone, Copy)]
-pub struct Clocks {
+pub(crate) struct Clocks {
     pub mono: Instant,
     pub wall: SystemTime,
 }
 
 impl Clocks {
-    pub fn now() -> Clocks {
+    pub(crate) fn now() -> Clocks {
         Clocks {
             mono: Instant::now(),
             wall: SystemTime::now(),
@@ -84,7 +84,7 @@ impl Clocks {
 
 /// Whether the machine slept between `before` and `after`: the monotonic
 /// clock stops in sleep, the wall clock does not.
-pub fn woke(before: Clocks, after: Clocks) -> bool {
+pub(crate) fn woke(before: Clocks, after: Clocks) -> bool {
     let mono = after.mono.saturating_duration_since(before.mono);
     let wall = after.wall.duration_since(before.wall).unwrap_or_default();
     wall.saturating_sub(mono) > WAKE_JUMP
@@ -93,17 +93,17 @@ pub fn woke(before: Clocks, after: Clocks) -> bool {
 /// A small xorshift jitter source in `[-1, 1]`, seeded from the clock and
 /// the pid; jitter needs no better randomness.
 #[derive(Debug)]
-pub struct Jitter(u64);
+pub(crate) struct Jitter(u64);
 
 impl Jitter {
-    pub fn new() -> Jitter {
+    pub(crate) fn new() -> Jitter {
         let nanos = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos() as u64);
         Jitter((nanos ^ (u64::from(std::process::id()) << 32)) | 1)
     }
 
-    pub fn sample(&mut self) -> f64 {
+    pub(crate) fn sample(&mut self) -> f64 {
         let mut x = self.0;
         x ^= x << 13;
         x ^= x >> 7;
@@ -120,7 +120,7 @@ impl Default for Jitter {
 }
 
 /// The reconnect bar.
-pub fn bar_text(host: &str, attempt: u32, next_secs: Option<u64>) -> String {
+pub(crate) fn bar_text(host: &str, attempt: u32, next_secs: Option<u64>) -> String {
     let when = match next_secs {
         Some(s) => format!("next in {s}s"),
         None => "connecting".to_string(),
@@ -130,7 +130,7 @@ pub fn bar_text(host: &str, attempt: u32, next_secs: Option<u64>) -> String {
 
 /// `text` on the bottom row in reverse video, padded or cut to the width,
 /// with the cursor and its attributes saved and restored around it.
-pub fn bottom_row(text: &str, cols: u16, rows: u16) -> Vec<u8> {
+pub(crate) fn bottom_row(text: &str, cols: u16, rows: u16) -> Vec<u8> {
     let mut line = String::new();
     let mut width = 0;
     for ch in text.chars() {
@@ -149,7 +149,7 @@ pub fn bottom_row(text: &str, cols: u16, rows: u16) -> Vec<u8> {
 
 /// Spots the detach key (the prefix, then `d`) in input typed while
 /// offline.
-pub struct DetachKey {
+pub(crate) struct DetachKey {
     prefix: Key,
     decoder: Decoder,
     armed: bool,
@@ -157,7 +157,7 @@ pub struct DetachKey {
 }
 
 impl DetachKey {
-    pub fn new(prefix: Key) -> DetachKey {
+    pub(crate) fn new(prefix: Key) -> DetachKey {
         DetachKey {
             prefix,
             decoder: Decoder::new(),
@@ -167,7 +167,7 @@ impl DetachKey {
     }
 
     /// Feeds typed bytes; true once the detach key was typed.
-    pub fn feed(&mut self, bytes: &[u8]) -> bool {
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> bool {
         for input in self.decoder.feed(bytes, Instant::now(), Duration::ZERO) {
             let Decoded::Key(key) = input else {
                 continue;

@@ -5,7 +5,6 @@
 //! width are not stored.
 
 use std::collections::VecDeque;
-use std::mem::size_of;
 
 use alacritty_terminal::term::cell::{Cell, CellExtra};
 use alacritty_terminal::vte::ansi::{Color, NamedColor};
@@ -127,8 +126,7 @@ struct Row {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
-pub struct Cold {
+pub(crate) struct Cold {
     rows: VecDeque<Row>,
     looks: Looks,
     limit: usize,
@@ -136,9 +134,8 @@ pub struct Cold {
     runs: Vec<(u16, u32)>,
 }
 
-#[allow(dead_code)]
 impl Cold {
-    pub fn new(limit: usize) -> Cold {
+    pub(crate) fn new(limit: usize) -> Cold {
         Cold {
             rows: VecDeque::new(),
             looks: Looks::new(),
@@ -148,7 +145,7 @@ impl Cold {
     }
 
     /// Stores a row; returns how many of the oldest rows the limit dropped.
-    pub fn push(&mut self, cells: &[SnapCell], used: usize, wrapped: bool) -> usize {
+    pub(crate) fn push(&mut self, cells: &[SnapCell], used: usize, wrapped: bool) -> usize {
         let row = self.encode(cells, used, wrapped);
         self.rows.push_back(row);
         self.trim()
@@ -157,44 +154,39 @@ impl Cold {
     /// [`Self::push`] for an emulator row, read in place. Its used width
     /// is where its last cell that is not a default blank ends, which
     /// covers every [`super::written::WRITTEN`] cell.
-    pub fn push_cells(&mut self, cells: &[Cell], wrapped: bool) -> usize {
+    pub(crate) fn push_cells(&mut self, cells: &[Cell], wrapped: bool) -> usize {
         let row = self.encode(cells, 0, wrapped);
         self.rows.push_back(row);
         self.trim()
     }
 
     /// Looks interned so far (a hash lookup each), for tests that count them.
-    pub fn lookups(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn lookups(&self) -> usize {
         self.looks.lookups()
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.rows.len()
     }
 
     /// Row `i` (0 is the oldest) into `out`, padded with default blanks to
     /// `cols` cells.
-    pub fn row(&self, i: usize, cols: usize, out: &mut Vec<SnapCell>) -> ColdMeta {
+    pub(crate) fn row(&self, i: usize, cols: usize, out: &mut Vec<SnapCell>) -> ColdMeta {
         self.decode(&self.rows[i], cols, out)
     }
 
-    pub fn pop_newest(&mut self, cols: usize, out: &mut Vec<SnapCell>) -> Option<ColdMeta> {
+    pub(crate) fn pop_newest(&mut self, cols: usize, out: &mut Vec<SnapCell>) -> Option<ColdMeta> {
         let row = self.rows.pop_back()?;
         Some(self.decode(&row, cols, out))
     }
 
-    /// Returns how many of the oldest rows the new limit dropped.
-    pub fn set_limit(&mut self, limit: usize) -> usize {
-        self.limit = limit;
-        self.trim()
-    }
-
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.rows.clear();
         self.looks = Looks::new();
     }
 
-    pub fn shapes(&self) -> Vec<RowShape> {
+    pub(crate) fn shapes(&self) -> Vec<RowShape> {
         self.rows
             .iter()
             .map(|r| RowShape {
@@ -206,7 +198,7 @@ impl Cold {
 
     /// The newest rows that hold the last `lines` logical lines (the last
     /// of them may run on past the store, into the screen).
-    pub fn tail_rows(&self, lines: usize) -> usize {
+    pub(crate) fn tail_rows(&self, lines: usize) -> usize {
         let len = self.rows.len();
         let mut seen = 0;
         for i in (0..len).rev() {
@@ -222,7 +214,7 @@ impl Cold {
 
     /// Re-lays the rows out `cols` wide; returns how many of the oldest
     /// rows the limit then dropped.
-    pub fn reflow(&mut self, cols: usize) -> usize {
+    pub(crate) fn reflow(&mut self, cols: usize) -> usize {
         let rows: Vec<(Vec<SnapCell>, ColdMeta)> = (0..self.rows.len())
             .map(|i| {
                 let mut cells = Vec::new();
@@ -239,7 +231,8 @@ impl Cold {
     }
 
     /// Heap bytes of the rows and the looks table.
-    pub fn bytes(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn bytes(&self) -> usize {
         let rows: usize = self
             .rows
             .iter()

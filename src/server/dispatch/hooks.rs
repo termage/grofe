@@ -30,7 +30,7 @@ fn split_index(name: &str) -> Result<(&str, Option<u32>), String> {
 /// pane; a firing hook runs the nearest scope that has any. `-a` adds a
 /// command, `[N]` sets one element, `-u` removes a hook or an element, and
 /// `-R` runs the hook now.
-pub fn set_hook(state: &mut State, ctx: &ClientCtx, c: SetHook) -> Result<String, String> {
+pub(crate) fn set_hook(state: &mut State, ctx: &ClientCtx, c: SetHook) -> Result<String, String> {
     let name = c.hook.clone().ok_or_else(|| too_few("set-hook"))?;
     if c.run {
         // tmux runs whatever the name finds and says nothing of the rest.
@@ -77,7 +77,7 @@ pub fn show_hooks(state: &mut State, ctx: &ClientCtx, c: ShowHooks) -> Result<St
 /// name`, or `-r name`: the global environment with `-g`, else the target
 /// session's. `-u` removes the variable, `-r` marks it removed (`-NAME`),
 /// `-F` expands the value as a format. Texts are tmux 3.7b's (recorded).
-pub fn set_environment(
+pub(crate) fn set_environment(
     state: &mut State,
     ctx: &ClientCtx,
     c: SetEnvironment,
@@ -132,7 +132,7 @@ pub fn set_environment(
 /// instead: `NAME="value"; export NAME;`, and `unset NAME;` for a removed
 /// one. A named variable that does not exist is an error; one of the other
 /// kind shows nothing, as in tmux 3.7b.
-pub fn show_environment(
+pub(crate) fn show_environment(
     state: &mut State,
     ctx: &ClientCtx,
     c: ShowEnvironment,

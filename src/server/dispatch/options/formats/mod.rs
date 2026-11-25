@@ -5,8 +5,8 @@ mod ctx;
 mod server;
 mod vars;
 
-pub use self::ctx::*;
-pub use self::server::*;
+pub(crate) use self::ctx::*;
+pub(crate) use self::server::*;
 
 /// tmux's default `display-message` text.
 pub(super) const DEFAULT_MESSAGE: &str = "[#{session_name}] #{window_index}:#{window_name}, current pane #{pane_index} - (%H:%M %d-%b-%y)";

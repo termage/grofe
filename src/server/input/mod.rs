@@ -41,9 +41,9 @@ mod keys;
 mod state;
 mod tables;
 
-pub use self::decoder::*;
+pub(crate) use self::decoder::*;
 pub use self::defaults::*;
-pub use self::encoder::*;
+pub(crate) use self::encoder::*;
 pub use self::keys::*;
 pub use self::state::*;
 pub use self::tables::*;

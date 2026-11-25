@@ -10,12 +10,9 @@
 //! `.golden`: the recorder's normalizer rewrites the recording user's
 //! name, which is also a directory in the fixture's path.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::fs;
-use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -30,79 +27,14 @@ use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor, Processor, R
 
 use common::{CMD_TIMEOUT, TestServer, try_wait_until};
 
+use crate::golden::{fixtures, key_bytes, split_words};
 use crate::harness::Harness;
 
 const READOUT: &str = "#{copy_cursor_x},#{copy_cursor_y},#{scroll_position} \
     #{search_present} #{search_count} #{search_match}";
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/compat")
-}
-
 fn read(name: &str, ext: &str) -> String {
     fs::read_to_string(fixtures().join(format!("golden/tm_3/{name}.{ext}"))).unwrap()
-}
-
-/// A scenario line's words, split as the replayer splits them.
-fn split_words(s: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut word: Option<String> = None;
-    let mut it = s.chars();
-    while let Some(c) = it.next() {
-        match c {
-            ' ' | '\t' if word.is_some() => words.extend(word.take()),
-            ' ' | '\t' => {}
-            '\'' => {
-                let w = word.get_or_insert_default();
-                for c in it.by_ref() {
-                    if c == '\'' {
-                        break;
-                    }
-                    w.push(c);
-                }
-            }
-            '"' => {
-                let w = word.get_or_insert_default();
-                while let Some(c) = it.next() {
-                    match c {
-                        '"' => break,
-                        '\\' => match it.next() {
-                            Some(n @ ('"' | '\\' | '$' | '`')) => w.push(n),
-                            Some(n) => {
-                                w.push('\\');
-                                w.push(n);
-                            }
-                            None => w.push('\\'),
-                        },
-                        c => w.push(c),
-                    }
-                }
-            }
-            '\\' => word.get_or_insert_default().extend(it.next()),
-            c => word.get_or_insert_default().push(c),
-        }
-    }
-    words.extend(word);
-    words
-}
-
-/// The bytes a `keys` step types (the recorder's `key_bytes`).
-fn key_bytes(words: &[String]) -> Vec<u8> {
-    let mut out = Vec::new();
-    for word in words {
-        match word.as_str() {
-            "Space" => out.push(b' '),
-            "Escape" => out.push(0x1b),
-            "Enter" => out.push(b'\r'),
-            "Tab" => out.push(b'\t'),
-            "BSpace" => out.push(0x7f),
-            w => match w.strip_prefix("C-").map(str::as_bytes) {
-                Some([c]) => out.push(c.to_ascii_lowercase() - b'a' + 1),
-                _ => out.extend_from_slice(w.as_bytes()),
-            },
-        }
-    }
-    out
 }
 
 enum Step {

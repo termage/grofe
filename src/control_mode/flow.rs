@@ -10,7 +10,7 @@ const HELD_MAX: usize = 1 << 20;
 
 /// `data` as `%output` writes it: bytes below 0x20 and `\` as `\ooo` octal,
 /// everything else as it is.
-pub fn escape_output(data: &[u8]) -> Vec<u8> {
+pub(crate) fn escape_output(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());
     for &b in data {
         if b < b' ' || b == b'\\' {

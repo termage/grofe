@@ -2,7 +2,9 @@
 //!
 //! The config is TOML, read in layers (spec §5.1): built-in defaults,
 //! `config.toml` (or the `--file` layers that replace it, R5),
-//! `conf.d/*.toml` in lexical order, then `user.toml`. Later layers win,
+//! `conf.d/*.toml` in lexical order, then `user.toml`, then `settings.toml`.
+//! The folder comes from `--config-dir`, `$GROFE_CONFIG_DIR`, the `--config`
+//! file's parent or XDG, in that order ([`Env::from_process`]). Later layers win,
 //! and every resolved value records the file that set it.
 //!
 //! Loading needs no server. [`load`] reads every layer and reports every
@@ -113,8 +115,9 @@ pub fn toml_key(tmux_name: &str) -> Option<&'static str> {
 /// environment; tests build one pointing at a tempdir.
 #[derive(Debug, Clone)]
 pub struct Env {
-    /// `$XDG_CONFIG_HOME/grofe`, else `$HOME/.config/grofe` (R5), or the
-    /// folder of the `--config` file. `None` when neither is set: only the
+    /// The folder of `--config-dir` / `$GROFE_CONFIG_DIR`, else the folder of
+    /// the `--config` / `$GROFE_CONFIG` file, else `$XDG_CONFIG_HOME/grofe`,
+    /// else `$HOME/.config/grofe` (R5). `None` when none is set: only the
     /// built-in defaults load.
     pub config_dir: Option<PathBuf>,
     /// The file read in place of `config.toml`'s layer: `<config_dir>/config.toml`,
@@ -139,19 +142,55 @@ pub fn process_config() -> Option<PathBuf> {
     PROCESS_CONFIG.get().cloned()
 }
 
+/// The absolute `--config-dir` folder of this process, set once at start.
+static PROCESS_CONFIG_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Makes `dir` (absolute) this process's config folder for every
+/// [`Env::from_process`] after it, like [`set_process_config`].
+pub fn set_process_config_dir(dir: PathBuf) {
+    let _ = PROCESS_CONFIG_DIR.set(dir);
+}
+
+/// The folder [`set_process_config_dir`] set.
+pub fn process_config_dir() -> Option<PathBuf> {
+    PROCESS_CONFIG_DIR.get().cloned()
+}
+
 impl Env {
-    /// With the file [`set_process_config`] set, else `$GROFE_CONFIG`.
+    /// With the folder [`set_process_config_dir`] set (else
+    /// `$GROFE_CONFIG_DIR`) and the file [`set_process_config`] set (else
+    /// `$GROFE_CONFIG`), in the precedence of spec 2026-11-25 A2.
     pub fn from_process() -> Env {
-        let config = process_config();
         let mut env = Env::from_vars(
             std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
             std::env::var("HOME").ok().as_deref(),
         );
-        if let Some(file) = config.or_else(env_config_file) {
-            env.config_dir = file.parent().map(Path::to_path_buf);
+        let dir = process_config_dir().or_else(env_config_dir);
+        if let Some(dir) = &dir {
+            env.config_file = Some(dir.join("config.toml"));
+            env.config_dir = Some(dir.clone());
+        }
+        if let Some(file) = process_config().or_else(env_config_file) {
+            if dir.is_none() {
+                env.config_dir = file.parent().map(Path::to_path_buf);
+            }
             env.config_file = Some(file);
         }
         env
+    }
+
+    /// The config in folder `dir`: `dir/config.toml` and the other layers
+    /// next to it. A missing folder is fine (the first write creates it);
+    /// a path that is not a folder is an error naming it.
+    pub fn from_dir(dir: &Path, home: Option<&Path>) -> Result<Env, String> {
+        if dir.exists() && !dir.is_dir() {
+            return Err(format!("{} is not a directory", dir.display()));
+        }
+        Ok(Env {
+            config_dir: Some(dir.to_path_buf()),
+            config_file: Some(dir.join("config.toml")),
+            home: home.map(Path::to_path_buf),
+        })
     }
 
     /// From the two variables' values; an empty value counts as unset.
@@ -167,6 +206,19 @@ impl Env {
             config_file,
             home,
         }
+    }
+}
+
+/// The line of a `__config-file` reply that names the server's config
+/// folder. Every file line is an absolute path, so none starts so.
+pub const CONFIG_DIR_LINE: &str = "dir:";
+
+/// The `__config-file` reply: `files` (one per line), then the folder
+/// line when there is a config folder (spec 2026-11-25 A3).
+pub fn config_file_reply(files: String, dir: Option<&Path>) -> String {
+    match dir {
+        Some(dir) => format!("{files}{CONFIG_DIR_LINE}{}\n", dir.display()),
+        None => files,
     }
 }
 
@@ -211,6 +263,25 @@ pub fn env_config_checked() -> Result<Option<PathBuf>, String> {
 /// [`env_config_checked`], an unresolvable path counting as unset.
 fn env_config_file() -> Option<PathBuf> {
     env_config_checked().ok().flatten()
+}
+
+/// `$GROFE_CONFIG_DIR` as an absolute path, when set and not empty. One
+/// that names a file is an error naming it.
+pub fn env_config_dir_checked() -> Result<Option<PathBuf>, String> {
+    let Some(arg) = std::env::var("GROFE_CONFIG_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(None);
+    };
+    let path = resolve_from_process(&arg)?;
+    Env::from_dir(&path, None).map_err(|e| format!("GROFE_CONFIG_DIR: {e}"))?;
+    Ok(Some(path))
+}
+
+/// [`env_config_dir_checked`], a bad path counting as unset.
+fn env_config_dir() -> Option<PathBuf> {
+    env_config_dir_checked().ok().flatten()
 }
 
 /// One config mistake. `Display` is `<file>:<line>: <key>: <message>`,
@@ -601,5 +672,29 @@ mod tests {
             errors.iter().any(|e| e.key == "scratchpad-history"),
             "the error names the key: {errors:?}"
         );
+    }
+
+    /// t4 (A4): a missing folder is a fine `--config-dir`, and the first
+    /// write creates it.
+    #[test]
+    fn a_missing_config_dir_is_created_on_the_first_write() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Kønfig dir").join("new");
+        let env = Env::from_dir(&dir, None).expect("a missing folder is fine");
+        assert_eq!(env.config_dir, Some(dir.clone()));
+        assert_eq!(env.config_file, Some(dir.join("config.toml")));
+        assert!(!dir.exists());
+        write::set(&dir, "status.left", toml_edit::value("A")).expect("write");
+        assert!(dir.join("settings.toml").is_file());
+    }
+
+    /// t4 (A4): a folder path that is a file is an error naming the path.
+    #[test]
+    fn a_config_dir_that_is_a_file_is_an_error_naming_the_path() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("afile");
+        std::fs::write(&file, "x").unwrap();
+        let e = Env::from_dir(&file, None).expect_err("a file is not a folder");
+        assert!(e.contains(&file.display().to_string()), "{e}");
     }
 }

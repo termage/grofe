@@ -4,19 +4,19 @@ use std::path::Path;
 use super::spec::valid_name;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Locked {
+pub(crate) struct Locked {
     pub src: String,
     pub rev: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Lock {
+pub(crate) struct Lock {
     pub plugins: BTreeMap<String, Locked>,
 }
 
 impl Lock {
     /// A missing file is an empty lock.
-    pub fn read(path: &Path) -> Result<Lock, String> {
+    pub(crate) fn read(path: &Path) -> Result<Lock, String> {
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Lock::default()),
@@ -56,7 +56,7 @@ impl Lock {
     }
 
     /// Write sorted by name through a temp file in the same dir, then rename.
-    pub fn write(&self, path: &Path) -> Result<(), String> {
+    pub(crate) fn write(&self, path: &Path) -> Result<(), String> {
         let mut plugins = toml::Table::new();
         for (name, l) in &self.plugins {
             let mut t = toml::Table::new();

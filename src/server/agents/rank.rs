@@ -5,7 +5,7 @@ use crate::types::PaneId;
 
 /// Most urgent first; derived `Ord` follows declaration order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Rank {
+pub(crate) enum Rank {
     Blocked,
     Error,
     Unseen,
@@ -15,7 +15,7 @@ pub enum Rank {
 }
 
 impl Rank {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Rank::Blocked => "blocked",
             Rank::Error => "error",
@@ -27,7 +27,7 @@ impl Rank {
     }
 }
 
-pub fn rank(a: &Agent) -> Rank {
+pub(crate) fn rank(a: &Agent) -> Rank {
     match a.state {
         AgentState::Blocked => Rank::Blocked,
         AgentState::Error => Rank::Error,
@@ -40,7 +40,7 @@ pub fn rank(a: &Agent) -> Rank {
 
 impl Agents {
     /// Panes ordered by rank, then oldest `since` first.
-    pub fn by_urgency(&self) -> Vec<PaneId> {
+    pub(crate) fn by_urgency(&self) -> Vec<PaneId> {
         let mut v: Vec<_> = self.iter().map(|(p, a)| (rank(a), a.since, p)).collect();
         v.sort_by_key(|&(r, s, _)| (r, s));
         v.into_iter().map(|(_, _, p)| p).collect()

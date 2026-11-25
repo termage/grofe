@@ -26,7 +26,7 @@ const WORK_LIMIT: u64 = 64 * 1024 * 1024;
 
 /// tmux's `DEFAULT_XPIXEL` and `DEFAULT_YPIXEL`: a cell's size in pixels
 /// until a terminal says otherwise.
-pub const DEFAULT_CELL_PX: (u32, u32) = (16, 32);
+pub(crate) const DEFAULT_CELL_PX: (u32, u32) = (16, 32);
 
 /// A parsed sixel image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,7 +78,7 @@ impl Sixel {
     }
 
     /// Bytes held by the pixels, for the store's cap.
-    pub fn bytes(&self) -> usize {
+    pub(crate) fn bytes(&self) -> usize {
         self.lines.iter().map(|l| l.len() * 2).sum::<usize>() + self.colours.len() * 4
     }
 
@@ -303,7 +303,7 @@ impl Sixel {
     /// The part of the image at cell `ox,oy` and `sx` by `sy` cells big
     /// (the second tuple), mapped onto cells of `xpixel` by `ypixel` pixels
     /// (the first; 0 keeps the image's own), as `sixel_scale`. With `colours` the palette is kept.
-    pub fn scale(
+    pub(crate) fn scale(
         &self,
         (xpixel, ypixel): (u32, u32),
         (ox, oy, mut sx, mut sy): (u32, u32, u32, u32),
@@ -492,7 +492,7 @@ fn strtoul(s: &[u8], at: usize) -> (u64, usize) {
 /// tmux's text stand-in for an image a terminal cannot show
 /// (`image_fallback`): `sy` rows of `sx` plus signs, the first headed
 /// `SIXEL IMAGE (SXxSY)` when that fits, rows split by `\r\n`.
-pub fn fallback(sx: u32, sy: u32) -> Vec<u8> {
+pub(crate) fn fallback(sx: u32, sy: u32) -> Vec<u8> {
     let label = format!("SIXEL IMAGE ({sx}x{sy})\r\n");
     let lsize = label.len() as u32 + 1;
     let mut out = Vec::new();

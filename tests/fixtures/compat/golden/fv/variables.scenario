@@ -23,8 +23,8 @@ $ set -w -t main:5 remain-on-exit on
 $ run-shell -t main:5 'kill -TERM #{pane_pid}'
 $ run-shell 'sleep 0.5'
 $ display-message -p -t main:5 'dead=[#{pane_dead}] signal=[#{pane_dead_signal}] status=[#{pane_dead_status}]'
-$ new-window -d -t main:6 'while :; do printf "\033[?2026h"; sleep 0.05; done'
-$ run-shell 'sleep 0.5'
+$ new-window -d -t main:6 'while :; do printf "\033[?2026h"; : > "$HOME/sync6"; sleep 0.02; done'
+$ run-shell 'for i in $(seq 100); do [ -e "$HOME/sync6" ] && break; sleep 0.1; done; sleep 0.2'
 $ display-message -p -t main:6 'sync=[#{synchronized_output_flag}]'
 $ display-message -p -t main:2 'sync=[#{synchronized_output_flag}]'
 $ kill-window -t main:6

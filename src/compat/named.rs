@@ -8,7 +8,7 @@ use crate::cmd::{self, Command, ParseError};
 use crate::protocol::{ClientCtx, Dialect};
 
 /// A command and the verb it was parsed from.
-pub type Named = (&'static str, Command);
+pub(crate) type Named = (&'static str, Command);
 
 /// The canonical name of the verb `name`, in `ctx`'s dialect.
 fn verb(ctx: &ClientCtx, name: &str) -> &'static str {
@@ -27,7 +27,7 @@ fn named(ctx: &ClientCtx, argv: &[String], cmds: Vec<Command>) -> Vec<Named> {
 /// [`super::parse_request`], named: the request split at `;` arguments,
 /// each command translated before any runs, a failure logged once for the
 /// whole request.
-pub fn request(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Named>, String> {
+pub(crate) fn request(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Named>, String> {
     let mut out = Vec::new();
     for words in cmd::parse::split_argv(argv) {
         let cmds = match ctx.dialect {
@@ -45,7 +45,7 @@ pub fn request(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Named>, String> {
 }
 
 /// [`super::parse_split`], named.
-pub fn split(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Named>, String> {
+pub(crate) fn split(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Named>, String> {
     Ok(named(ctx, argv, super::parse_split(ctx, argv)?))
 }
 

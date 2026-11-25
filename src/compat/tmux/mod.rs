@@ -116,12 +116,12 @@ pub enum GrofeTarget {
 }
 
 /// A row's translation: the native commands a tmux command means.
-pub type Translate = fn(&Invocation<'_>) -> Result<Vec<Command>, TmuxError>;
+pub(crate) type Translate = fn(&Invocation<'_>) -> Result<Vec<Command>, TmuxError>;
 
 impl Row {
     /// The verb the row's form is for (`tmux` or empty for a form that is
     /// not a verb's).
-    pub fn verb(&self) -> &'static str {
+    pub(crate) fn verb(&self) -> &'static str {
         match self.tmux_form.split(' ').next() {
             Some(v) if !v.starts_with('-') => v,
             _ => "",
@@ -129,7 +129,7 @@ impl Row {
     }
 
     /// Each flag of the form with its value restriction (`-x[V]`).
-    pub fn form_flags(&self) -> Vec<(char, Option<&'static str>)> {
+    pub(crate) fn form_flags(&self) -> Vec<(char, Option<&'static str>)> {
         self.tmux_form
             .split(' ')
             .skip(usize::from(!self.verb().is_empty()))
@@ -146,7 +146,7 @@ impl Row {
 
     /// The positionals the form pins, in order: its words after the verb
     /// that are not flags (`list-commands new-pane`).
-    pub fn form_positionals(&self) -> Vec<&'static str> {
+    pub(crate) fn form_positionals(&self) -> Vec<&'static str> {
         self.tmux_form
             .split(' ')
             .skip(1)
@@ -155,13 +155,13 @@ impl Row {
     }
 
     /// How much of a command the form pins: its flags and positionals.
-    pub fn specificity(&self) -> usize {
+    pub(crate) fn specificity(&self) -> usize {
         self.form_flags().len() + self.form_positionals().len()
     }
 
     /// How many exact values the form pins: flag values (`-x[M]`) and
     /// positionals, each more than a bare flag.
-    pub fn pinned_values(&self) -> usize {
+    pub(crate) fn pinned_values(&self) -> usize {
         self.form_flags()
             .iter()
             .filter(|(_, v)| v.is_some())
@@ -174,7 +174,7 @@ impl Row {
     /// scope forms). A refusal until a later milestone (M5's
     /// copy verbs) ranks as a mapping does, so that milestone can map the
     /// form.
-    pub fn refuses(&self) -> bool {
+    pub(crate) fn refuses(&self) -> bool {
         matches!(self.target, GrofeTarget::Unsupported(_)) && self.milestone.is_empty()
     }
 
@@ -253,7 +253,7 @@ pub fn row_for(argv: &[String]) -> Option<&'static Row> {
 /// own. [`select`] decides between the rows a command matches (a refusal
 /// first, then pinned values, then specificity, then this order), so an
 /// area row can take over a core mapping by naming its form.
-pub fn table() -> &'static [Row] {
+pub(crate) fn table() -> &'static [Row] {
     static TABLE: OnceLock<Vec<Row>> = OnceLock::new();
     TABLE.get_or_init(|| {
         let mut rows = structure::rows();
@@ -269,7 +269,7 @@ pub fn table() -> &'static [Row] {
 
 /// Which argument of a command a [`Rewrite`] applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Arg {
+pub(crate) enum Arg {
     /// The value of this flag (`-F`).
     Flag(char),
     /// The positional at this index (`set`'s value is 1).
@@ -291,7 +291,7 @@ pub enum Arg {
 /// to run before the command itself ([`Rewritten::before`], such as
 /// [`cmd::RegisterSource`] for a `#(cmd)`).
 #[derive(Debug, Clone, Copy)]
-pub struct Rewrite {
+pub(crate) struct Rewrite {
     /// The verb's full tmux name.
     pub verb: &'static str,
     pub arg: Arg,
@@ -300,7 +300,7 @@ pub struct Rewrite {
 
 /// What a [`Rewrite`] makes of one argument.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Rewritten {
+pub(crate) struct Rewritten {
     pub value: String,
     /// Native commands run before the rewritten command, in order.
     pub before: Vec<Command>,
@@ -308,7 +308,7 @@ pub struct Rewritten {
 
 impl Rewritten {
     /// Just a new value.
-    pub fn value(value: impl Into<String>) -> Rewritten {
+    pub(crate) fn value(value: impl Into<String>) -> Rewritten {
         Rewritten {
             value: value.into(),
             before: Vec::new(),
@@ -317,7 +317,7 @@ impl Rewritten {
 }
 
 /// Every rewrite: only the formats area has any.
-pub fn rewrites() -> &'static [Rewrite] {
+pub(crate) fn rewrites() -> &'static [Rewrite] {
     static REWRITES: OnceLock<Vec<Rewrite>> = OnceLock::new();
     REWRITES.get_or_init(formats::rewrites)
 }
@@ -376,13 +376,13 @@ pub struct Invocation<'a> {
 }
 
 impl<'a> Invocation<'a> {
-    pub fn getopt(&self) -> Getopt<'a> {
+    pub(crate) fn getopt(&self) -> Getopt<'a> {
         self.spec.getopt(self.args)
     }
 
     /// The option a `set`/`show` (or `setw`/`showw`) names: its first
     /// positional, as sent.
-    pub fn option_name(&self) -> Option<&'a str> {
+    pub(crate) fn option_name(&self) -> Option<&'a str> {
         matches!(
             self.verb,
             "set-option" | "show-options" | "set-window-option" | "show-window-options"
@@ -392,14 +392,14 @@ impl<'a> Invocation<'a> {
     }
 
     /// The positionals, after the flags.
-    pub fn positionals(&self) -> &'a [String] {
+    pub(crate) fn positionals(&self) -> &'a [String] {
         &self.args[self.getopt().rest.min(self.args.len())..]
     }
 
     /// The native command `verb args` means, targets read the tmux way.
     /// An error names this command's tmux verb where the native parser
     /// named `verb` (`command set-window-option: ...`).
-    pub fn native(&self, verb: &str, args: &[String]) -> Result<Vec<Command>, TmuxError> {
+    pub(crate) fn native(&self, verb: &str, args: &[String]) -> Result<Vec<Command>, TmuxError> {
         let mut argv = Vec::with_capacity(args.len() + 1);
         argv.push(verb.to_string());
         argv.extend_from_slice(args);
@@ -430,7 +430,7 @@ impl<'a> Invocation<'a> {
     }
 
     /// Notes in `compat-miss.log` that a cosmetic flag was ignored.
-    pub fn ignored(&self, flag: char) {
+    pub(crate) fn ignored(&self, flag: char) {
         crate::compat::note_miss(&format!("{} -{flag}: cosmetic, ignored", self.verb));
     }
 }
@@ -503,7 +503,7 @@ pub fn form_of(argv: &[String]) -> Option<String> {
 /// command carries is logged. An unknown verb is `<unknown>`, and each
 /// leading flag word keeps only its first letter, since its value flags
 /// are unknown.
-pub fn miss_form(argv: &[String]) -> String {
+pub(crate) fn miss_form(argv: &[String]) -> String {
     let Some((name, args)) = argv.split_first() else {
         return String::new();
     };
@@ -551,7 +551,8 @@ pub fn miss_form(argv: &[String]) -> String {
 /// commands at `;` arguments as tmux's CLI splits them (T3.5's
 /// `cmd::parse::split_argv`), and the whole of it is translated before
 /// anything runs, as tmux parses a whole chain first.
-pub fn dispatch(argv: &[String], ctx: &ClientCtx) -> Result<Vec<Command>, TmuxError> {
+#[cfg(test)]
+pub(crate) fn dispatch(argv: &[String], ctx: &ClientCtx) -> Result<Vec<Command>, TmuxError> {
     // A request of nothing but `;` is no command, which tmux runs as such
     // (recorded: `tmux \;` exits 0).
     let mut out = Vec::new();
@@ -563,7 +564,7 @@ pub fn dispatch(argv: &[String], ctx: &ClientCtx) -> Result<Vec<Command>, TmuxEr
 
 /// Why [`dispatch_checked`] could not translate a command.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Refusal {
+pub(crate) enum Refusal {
     /// tmux 3.7b refuses the command itself, while parsing it: an unknown
     /// command, a flag its usage lacks, a missing flag value, or the wrong
     /// number of arguments.
@@ -576,7 +577,7 @@ pub enum Refusal {
 /// [`dispatch_command`], telling tmux's own parse errors from commands
 /// grofe merely cannot run. A sourced file stops at the first kind and goes
 /// on past the second.
-pub fn dispatch_checked(argv: &[String], ctx: &ClientCtx) -> Result<Vec<Command>, Refusal> {
+pub(crate) fn dispatch_checked(argv: &[String], ctx: &ClientCtx) -> Result<Vec<Command>, Refusal> {
     let (name, args) = argv
         .split_first()
         .ok_or_else(|| Refusal::Syntax(ParseError::EmptyCommand.into()))?;
@@ -619,7 +620,7 @@ thread_local! {
 /// translation, so the converter spells a command exactly as the front end
 /// reads it and keeps no table of its own. Nothing is noted in
 /// `compat-miss.log`.
-pub fn spell(argv: &[String]) -> Result<(Vec<Command>, Vec<Vec<String>>), TmuxError> {
+pub(crate) fn spell(argv: &[String]) -> Result<(Vec<Command>, Vec<Vec<String>>), TmuxError> {
     let ctx = ClientCtx {
         cwd: PathBuf::from("/"),
         pane: None,

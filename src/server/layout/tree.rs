@@ -127,7 +127,7 @@ impl LayoutTree {
 
     /// The window size the tree's weights are exact for, if any: after
     /// [`Self::apply_tmux_layout`], the layout string's own size.
-    pub fn exact_size(&self) -> Option<(u16, u16)> {
+    pub(crate) fn exact_size(&self) -> Option<(u16, u16)> {
         let pad = self.exact_pad;
         self.exact_for.map(|(cols, rows)| {
             let rows = rows.saturating_add(pad).saturating_sub(self.exact_trim);
@@ -145,12 +145,12 @@ impl LayoutTree {
     /// Leaves `top` and `bottom` rows of the outer gap out, at most all of
     /// it: the frames there meet the window's edge. Like [`Self::set_pad`],
     /// nothing is rescaled.
-    pub fn set_trim(&mut self, top: u16, bottom: u16) {
+    pub(crate) fn set_trim(&mut self, top: u16, bottom: u16) {
         self.trim = (top, bottom);
     }
 
     /// What [`Self::set_trim`] last gave.
-    pub fn trim(&self) -> (u16, u16) {
+    pub(crate) fn trim(&self) -> (u16, u16) {
         self.trim
     }
 
@@ -161,7 +161,7 @@ impl LayoutTree {
     }
 
     /// The pad [`Self::set_pad`] last gave.
-    pub fn pad(&self) -> u16 {
+    pub(crate) fn pad(&self) -> u16 {
         self.pad
     }
 
@@ -169,7 +169,7 @@ impl LayoutTree {
     /// unless some pane would have no content cell, when it is 0.
     // ponytail: a window too small to frame every pane is laid out
     // unframed as a whole, not framed where it fits.
-    pub fn pad_on(&self, area: Rect) -> u16 {
+    pub(crate) fn pad_on(&self, area: Rect) -> u16 {
         match inner(area, self.pad, self.trim_on(self.pad)) {
             Some(inner) if self.pad > 0 && self.fits(inner, self.pad) => self.pad,
             _ => 0,
@@ -419,7 +419,7 @@ impl LayoutTree {
     /// not in the tree, or is the tree's only pane (nothing to collapse into;
     /// callers discard the window instead in that case). Takes no area: it
     /// works on the stored sizes, which stay exact on `exact_for`.
-    pub fn remove(&mut self, pane: PaneId) {
+    pub(crate) fn remove(&mut self, pane: PaneId) {
         let mut path = Vec::new();
         if !find_path(&self.root, pane, &mut path) {
             return;
@@ -475,7 +475,7 @@ impl LayoutTree {
     /// clamp reduces the requested delta to zero, or `area` is below the
     /// floor (module docs). In a framed window the clamp also keeps every
     /// pane a content cell.
-    pub fn resize(&mut self, area: Rect, pane: PaneId, edge: Edge, delta: i32) {
+    pub(crate) fn resize(&mut self, area: Rect, pane: PaneId, edge: Edge, delta: i32) {
         if self.pad_on(area) == 0 {
             self.resize_inner(area, pane, edge, delta);
             return;
@@ -552,7 +552,7 @@ impl LayoutTree {
     ///
     /// In a framed window a main pane's size in cells is its content size,
     /// and a preset that would leave a pane no content cell is not applied.
-    pub fn preset_bordered(
+    pub(crate) fn preset_bordered(
         &mut self,
         area: Rect,
         preset: Preset,
@@ -631,7 +631,7 @@ impl LayoutTree {
 
     /// The last preset [`Self::preset`] was asked for, as a
     /// [`Preset::index`].
-    pub fn last_preset(&self) -> Option<usize> {
+    pub(crate) fn last_preset(&self) -> Option<usize> {
         self.last_preset
     }
 
@@ -639,7 +639,7 @@ impl LayoutTree {
     /// nearest ancestor split on that axis, chosen by overlap with `pane`'s
     /// centre line (deterministic: the far subtree's leaf whose span on the
     /// cross axis contains that centre coordinate).
-    pub fn neighbour(&self, area: Rect, pane: PaneId, edge: Edge) -> Option<PaneId> {
+    pub(crate) fn neighbour(&self, area: Rect, pane: PaneId, edge: Edge) -> Option<PaneId> {
         let pad = self.pad_on(area);
         let area = inner(area, pad, self.trim_on(pad))?;
         let mut path = Vec::new();
@@ -700,14 +700,14 @@ impl LayoutTree {
     }
 
     /// Whether `pane` is one of this tree's panes.
-    pub fn contains(&self, pane: PaneId) -> bool {
+    pub(crate) fn contains(&self, pane: PaneId) -> bool {
         self.order.contains(&pane)
     }
 
     /// Moves `pane` to position `index` in index order (clamped to the
     /// end), leaving every cell where it is: `split-window` places a new
     /// pane in tmux's list apart from its cell.
-    pub fn reorder(&mut self, pane: PaneId, index: usize) {
+    pub(crate) fn reorder(&mut self, pane: PaneId, index: usize) {
         if let Some(pos) = self.order.iter().position(|p| *p == pane) {
             self.order.remove(pos);
             self.order.insert(index.min(self.order.len()), pane);
@@ -716,7 +716,7 @@ impl LayoutTree {
 
     /// Swaps two panes' cells and index positions (`swap-pane` within a
     /// window). False, changing nothing, unless both are in the tree.
-    pub fn swap(&mut self, a: PaneId, b: PaneId) -> bool {
+    pub(crate) fn swap(&mut self, a: PaneId, b: PaneId) -> bool {
         if !self.contains(a) || !self.contains(b) {
             return false;
         }
@@ -731,7 +731,7 @@ impl LayoutTree {
     /// Puts `new` in `old`'s cell and index position (`swap-pane` between
     /// windows). False, changing nothing, unless `old` is in the tree and
     /// `new` is not.
-    pub fn replace(&mut self, old: PaneId, new: PaneId) -> bool {
+    pub(crate) fn replace(&mut self, old: PaneId, new: PaneId) -> bool {
         if !self.contains(old) || self.contains(new) {
             return false;
         }
@@ -742,7 +742,7 @@ impl LayoutTree {
     /// `rotate-window`: every pane moves one index position up (the first
     /// goes last) or, with `down`, down, taking over that position's cell,
     /// as tmux 3.7b does.
-    pub fn rotate(&mut self, down: bool) {
+    pub(crate) fn rotate(&mut self, down: bool) {
         let mut next = self.order.clone();
         if down {
             next.rotate_right(1);
@@ -1679,7 +1679,7 @@ pub(super) fn collect_borders(node: &Node, area: Rect, out: &mut Vec<BorderSegme
 /// (`point` is tmux's `active_point`; the first in list order on a tie).
 /// `panes` are the content rects in the window's pane order, `area` the
 /// window.
-pub fn find_adjacent(
+pub(crate) fn find_adjacent(
     panes: &[(PaneId, Rect)],
     area: Rect,
     status: PaneStatus,

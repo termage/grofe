@@ -6,7 +6,7 @@ use super::*;
 /// top-left content cell (which may be off the window), its size and its
 /// place in the stack (highest on top).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FloatingCell {
+pub(crate) struct FloatingCell {
     pub pane: PaneId,
     pub x: i32,
     pub y: i32,
@@ -76,7 +76,7 @@ pub(super) fn append_cell(g: &LayoutGeometry, out: &mut String) {
 }
 
 /// tmux's `layout_checksum`: a 16-bit rotate-and-add over the bytes.
-pub fn tmux_checksum(s: &str) -> u16 {
+pub(crate) fn tmux_checksum(s: &str) -> u16 {
     s.bytes().fold(0u16, |sum, b| {
         let sum = (sum >> 1).wrapping_add((sum & 1) << 15);
         sum.wrapping_add(u16::from(b))
@@ -88,7 +88,7 @@ pub fn tmux_checksum(s: &str) -> u16 {
 /// cells must nest and close. The panes are numbered in cell order from
 /// `%0`; the string's own pane numbers are not kept. `None` for tmux's
 /// `invalid layout`, and for cells nested past [`IMPORT_MAX_DEPTH`].
-pub fn parse_tmux_layout(s: &str) -> Option<LayoutGeometry> {
+pub(crate) fn parse_tmux_layout(s: &str) -> Option<LayoutGeometry> {
     let (sum, body) = (s.get(..4)?, s.get(4..)?.strip_prefix(',')?);
     if !sum.bytes().all(|b| b.is_ascii_hexdigit())
         || u16::from_str_radix(sum, 16).ok()? != tmux_checksum(body)

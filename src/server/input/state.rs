@@ -2,7 +2,7 @@ use super::*;
 
 /// The session options routing depends on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KeySettings {
+pub(crate) struct KeySettings {
     /// `prefix`; `None` is tmux's `None` (no prefix key).
     pub prefix: Option<Key>,
     /// `prefix2`, a second prefix key; `None` is tmux's `None`.
@@ -19,7 +19,7 @@ pub struct KeySettings {
 
 impl KeySettings {
     /// Whether `key` is the prefix or the second prefix.
-    pub fn is_prefix(&self, key: &Key) -> bool {
+    pub(crate) fn is_prefix(&self, key: &Key) -> bool {
         [self.prefix, self.prefix2]
             .into_iter()
             .flatten()
@@ -63,17 +63,17 @@ impl Default for KeyState {
 }
 
 impl KeyState {
-    pub fn new() -> KeyState {
+    pub(crate) fn new() -> KeyState {
         KeyState::default()
     }
 
     /// The current table (`client_key_table`).
-    pub fn table(&self) -> &str {
+    pub(crate) fn table(&self) -> &str {
         &self.table
     }
 
     /// Switch table (`switch-client -T`), ending any repeat.
-    pub fn set_table(&mut self, name: &str) {
+    pub(crate) fn set_table(&mut self, name: &str) {
         self.table = name.to_string();
         self.repeat_until = None;
         self.prefix_until = None;
@@ -81,7 +81,7 @@ impl KeyState {
 
     /// When the running repeat or the wait for a key after the prefix
     /// ends, if one is running.
-    pub fn deadline(&self) -> Option<Instant> {
+    pub(crate) fn deadline(&self) -> Option<Instant> {
         [self.repeat_until, self.prefix_until]
             .into_iter()
             .flatten()
@@ -90,7 +90,7 @@ impl KeyState {
 
     /// End an expired repeat, or a prefix nobody followed within
     /// `prefix-timeout`; whether the table changed (status redraw).
-    pub fn expire(&mut self, now: Instant) -> bool {
+    pub(crate) fn expire(&mut self, now: Instant) -> bool {
         let due = |t: Option<Instant>| t.is_some_and(|d| now >= d);
         if due(self.repeat_until) || due(self.prefix_until) {
             self.set_table(ROOT_TABLE);
@@ -101,7 +101,7 @@ impl KeyState {
     }
 
     /// Route one decoded input for a client whose active pane has `modes`.
-    pub fn route(
+    pub(crate) fn route(
         &mut self,
         input: &Input,
         now: Instant,

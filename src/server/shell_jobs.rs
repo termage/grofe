@@ -15,7 +15,7 @@ pub struct ShellJobs(Arc<Mutex<BTreeSet<i32>>>);
 impl ShellJobs {
     /// Tracks `child` until the guard drops; drop it only once the child
     /// is reaped, so its pid stays its own while it is tracked.
-    pub fn track(&self, child: &tokio::process::Child) -> Tracked {
+    pub(crate) fn track(&self, child: &tokio::process::Child) -> Tracked {
         let pid = child.id().and_then(|id| i32::try_from(id).ok());
         if let (Some(pid), Ok(mut set)) = (pid, self.0.lock()) {
             set.insert(pid);
@@ -30,7 +30,7 @@ impl ShellJobs {
     // ponytail: a shell reaped on a worker thread at this very moment is
     // still in the set, so its pid gets the signal; that pid being reused
     // in between would take a whole pid-space cycle.
-    pub fn kill_all(&self) {
+    pub(crate) fn kill_all(&self) {
         let Ok(set) = self.0.lock() else {
             return;
         };
@@ -40,17 +40,19 @@ impl ShellJobs {
     }
 
     /// How many shells are tracked.
-    pub fn len(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
         self.0.lock().map_or(0, |set| set.len())
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
 /// Removes its shell from the set when dropped.
-pub struct Tracked {
+pub(crate) struct Tracked {
     jobs: ShellJobs,
     pid: Option<i32>,
 }
@@ -65,7 +67,7 @@ impl Drop for Tracked {
 
 /// Stops the server's shell jobs when dropped: on the way out of `serve`,
 /// whether it returns or unwinds from a panic.
-pub struct KillOnExit(pub ShellJobs);
+pub(crate) struct KillOnExit(pub ShellJobs);
 
 impl Drop for KillOnExit {
     fn drop(&mut self) {

@@ -45,11 +45,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::server::layout::LayoutGeometry;
 
-pub use build::build;
+pub(crate) use build::build;
 pub(crate) use file::rfc3339;
-pub use file::{read, write_atomic};
+pub(crate) use file::{read, write_atomic};
 pub(crate) use writer::Writer;
-pub use writer::{pane_killed, pending_panes, track};
+pub(crate) use writer::{pane_killed, pending_panes, track};
 
 /// The `version` this grofe writes and understands.
 pub const SNAPSHOT_VERSION: u32 = 1;
@@ -111,7 +111,7 @@ pub struct OptionSnap {
 
 /// Why a snapshot could not be read.
 #[derive(Debug)]
-pub enum SnapshotError {
+pub(crate) enum SnapshotError {
     Io(io::Error),
     /// A `version` this grofe does not know.
     UnknownVersion(u32),

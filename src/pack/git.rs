@@ -8,7 +8,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Status {
+pub(crate) enum Status {
     Installed,
     Unchanged,
     Updated,
@@ -16,13 +16,13 @@ pub enum Status {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Outcome {
+pub(crate) struct Outcome {
     pub name: String,
     pub status: Status,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Change {
+pub(crate) struct Change {
     pub name: String,
     pub from: String,
     pub to: String,
@@ -31,6 +31,10 @@ pub struct Change {
 
 fn git(dir: Option<&Path>, args: &[&str]) -> Result<String, String> {
     let mut c = Command::new("git");
+    // Tests work on temp repos only: the user's git config files stay out.
+    #[cfg(test)]
+    c.env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null");
     if let Some(d) = dir {
         c.arg("-C").arg(d);
     }
@@ -120,7 +124,7 @@ fn sync_one(spec: &Spec, lock: &mut Lock, root: &Path) -> Result<Status, String>
     })
 }
 
-pub fn sync(specs: &[Spec], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
+pub(crate) fn sync(specs: &[Spec], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
     specs
         .iter()
         .filter(|s| s.enabled)
@@ -158,7 +162,7 @@ fn pending_one(spec: &Spec, locked: &Locked, root: &Path) -> Result<Option<Chang
     }))
 }
 
-pub fn pending(specs: &[Spec], lock: &Lock, root: &Path, only: Option<&str>) -> Vec<Change> {
+pub(crate) fn pending(specs: &[Spec], lock: &Lock, root: &Path, only: Option<&str>) -> Vec<Change> {
     specs
         .iter()
         .filter(|s| s.enabled && only.is_none_or(|o| o == s.name) && safe_name(&s.name))
@@ -169,7 +173,7 @@ pub fn pending(specs: &[Spec], lock: &Lock, root: &Path, only: Option<&str>) -> 
         .collect()
 }
 
-pub fn apply(changes: &[Change], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
+pub(crate) fn apply(changes: &[Change], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
     changes
         .iter()
         .map(|c| {
@@ -196,7 +200,7 @@ pub fn apply(changes: &[Change], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
 }
 
 /// Removes entries of `root` that no spec names. Symlinks are unlinked, never followed.
-pub fn clean(specs: &[Spec], root: &Path) -> Vec<String> {
+pub(crate) fn clean(specs: &[Spec], root: &Path) -> Vec<String> {
     let Ok(rd) = std::fs::read_dir(root) else {
         return Vec::new();
     };
@@ -265,8 +269,17 @@ mod tests {
         .unwrap();
         fs::write(work.join("init.luau"), "").unwrap();
         commit(&work, "one");
-        g(&work, &["push", "--quiet", &bare.to_string_lossy(), "main"]);
+        publish(&bare, &work);
         (bare, work)
+    }
+
+    /// Brings `work`'s main into the bare upstream. A fetch, not a push: a
+    /// pre-push hook of the user's (a guard against pushing main) never runs.
+    fn publish(bare: &Path, work: &Path) {
+        g(
+            bare,
+            &["fetch", "--quiet", &work.to_string_lossy(), "main:main"],
+        );
     }
 
     fn commit(work: &Path, msg: &str) {
@@ -310,7 +323,7 @@ mod tests {
         sync(&[spec(&bare)], &mut lock, &root);
         let locked = lock.plugins["p"].rev.clone();
         commit(&work, "two");
-        g(&work, &["push", "--quiet", &bare.to_string_lossy(), "main"]);
+        publish(&bare, &work);
         let out = sync(&[spec(&bare)], &mut lock, &root);
         assert_eq!(out[0].status, Status::Unchanged);
         assert_eq!(head(&root.join("p")).unwrap(), locked);
@@ -340,7 +353,7 @@ mod tests {
         sync(&specs, &mut lock, &root);
         assert!(pending(&specs, &lock, &root, None).is_empty());
         commit(&work, "two");
-        g(&work, &["push", "--quiet", &bare.to_string_lossy(), "main"]);
+        publish(&bare, &work);
         let ch = pending(&specs, &lock, &root, Some("p"));
         assert_eq!(ch.len(), 1);
         assert_eq!(ch[0].log.len(), 1);

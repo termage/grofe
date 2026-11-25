@@ -1,9 +1,7 @@
 //! `exit-unattached` and the CLI's hand-over from its target check to its
 //! attach connection.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::fs;
 

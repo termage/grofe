@@ -43,13 +43,13 @@ use crate::server::{State, clients};
 use crate::types::{ClientId, PaneId};
 
 /// The Unicode placeholder character.
-pub const PLACEHOLDER: char = '\u{10EEEE}';
+pub(crate) const PLACEHOLDER: char = '\u{10EEEE}';
 
 /// Most bytes of image commands kept for re-sending.
 // ponytail: a constant; it stays below `clients::RAW_CAP` (16 MiB) so a
 // full redraw's re-send fits a client's raw queue. An image bigger than
 // this is dropped, not forwarded without caching.
-pub const CACHE_CAP: usize = 12 * 1024 * 1024;
+pub(crate) const CACHE_CAP: usize = 12 * 1024 * 1024;
 
 /// Base64 bytes per forwarded chunk (kitty's limit).
 const CHUNK: usize = 4096;
@@ -88,7 +88,7 @@ pub struct Remap {
 
 impl Remap {
     /// The outer id for `pane`'s image `local`.
-    pub fn get(&self, pane: PaneId, local: u32) -> Option<u32> {
+    pub(crate) fn get(&self, pane: PaneId, local: u32) -> Option<u32> {
         self.ids.get(&(pane, local)).copied()
     }
 }
@@ -149,7 +149,7 @@ impl Pending {
 
 /// What one command from a pane leads to.
 #[derive(Debug, Default, PartialEq)]
-pub struct Outcome {
+pub(crate) struct Outcome {
     /// For every client with kitty graphics, ahead of its next frame.
     pub forward: Vec<u8>,
     /// For the pane (kitty's `OK` or error reply).
@@ -160,7 +160,7 @@ pub struct Outcome {
 
 impl Graphics {
     /// Empty, keeping at most `cap` bytes of image commands.
-    pub fn with_cap(cap: usize) -> Graphics {
+    pub(crate) fn with_cap(cap: usize) -> Graphics {
         Graphics {
             remap: Remap::default(),
             taken: HashSet::new(),
@@ -176,12 +176,12 @@ impl Graphics {
 
     /// What the renderer needs to rewrite placeholder cells; `None` while
     /// no pane has an image.
-    pub fn remap(&self) -> Option<&Remap> {
+    pub(crate) fn remap(&self) -> Option<&Remap> {
         (!self.remap.ids.is_empty()).then_some(&self.remap)
     }
 
     /// Handles one framed APC `_G` from `pane`.
-    pub fn handle(&mut self, pane: PaneId, apc: &[u8]) -> Outcome {
+    pub(crate) fn handle(&mut self, pane: PaneId, apc: &[u8]) -> Outcome {
         let mut out = Outcome::default();
         let Some(cmd) = Cmd::parse(apc) else {
             return out;
@@ -504,7 +504,7 @@ impl Graphics {
 
     /// Everything cached, oldest first, for a client that redraws from
     /// scratch.
-    pub fn resend(&self) -> Vec<u8> {
+    pub(crate) fn resend(&self) -> Vec<u8> {
         let mut out = Vec::new();
         for image in &self.cache {
             out.extend_from_slice(&image.data);
@@ -520,7 +520,7 @@ impl Graphics {
 
     /// Forgets the images of panes that are gone; returns the deletes to
     /// forward.
-    pub fn prune(&mut self, live: impl Fn(PaneId) -> bool) -> Vec<u8> {
+    pub(crate) fn prune(&mut self, live: impl Fn(PaneId) -> bool) -> Vec<u8> {
         self.pending.retain(|p, _| live(*p));
         let dead: Vec<((PaneId, u32), u32)> = self
             .remap
@@ -541,7 +541,7 @@ impl Graphics {
 }
 
 /// One framed APC `_G ... ESC \` from `pane` (T3.3's scanner).
-pub fn on_graphics(state: &mut State, pane: PaneId, bytes: Vec<u8>) {
+pub(crate) fn on_graphics(state: &mut State, pane: PaneId, bytes: Vec<u8>) {
     prune(state);
     state.graphics.direct = images_enabled(&state.model);
     let out = state.graphics.handle(pane, &bytes);
@@ -561,12 +561,12 @@ fn prune(state: &mut State) {
 }
 
 /// Whether the `graphics` option is on (G3).
-pub fn images_enabled(model: &crate::server::model::Model) -> bool {
+pub(crate) fn images_enabled(model: &crate::server::model::Model) -> bool {
     model.options.lookup("graphics", &[]) == Some("on")
 }
 
 /// The `graphics` option may have changed: tells every pane's reader.
-pub fn sync_option(model: &crate::server::model::Model) {
+pub(crate) fn sync_option(model: &crate::server::model::Model) {
     let on = images_enabled(model);
     for p in model.panes.values() {
         p.handle.set_images(on);
@@ -597,7 +597,7 @@ fn to_kitty_clients(state: &mut State, bytes: &[u8]) {
 /// `graphics_ok` says whether an attached client shows kitty graphics.
 /// Runs on the pane's reader task, never the actor. The query id is the
 /// pane's own; nothing is stored.
-pub fn answer_query(apc: &[u8], graphics_ok: &AtomicBool) -> Option<Vec<u8>> {
+pub(crate) fn answer_query(apc: &[u8], graphics_ok: &AtomicBool) -> Option<Vec<u8>> {
     let cmd = Cmd::parse(apc)?;
     if cmd.ch(b'a') != Some(b'q') {
         return None;
@@ -620,7 +620,7 @@ pub fn answer_query(apc: &[u8], graphics_ok: &AtomicBool) -> Option<Vec<u8>> {
 
 /// Whether a framed APC `_G` is a query (`a=q`), which only the pane's
 /// reader answers.
-pub fn is_query(apc: &[u8]) -> bool {
+pub(crate) fn is_query(apc: &[u8]) -> bool {
     Cmd::parse(apc).is_some_and(|c| c.ch(b'a') == Some(b'q'))
 }
 
@@ -636,7 +636,7 @@ fn reply(id: u32, q: u32, result: Result<(), String>) -> Option<Vec<u8>> {
 
 /// Whether a pane's graphics queries are answered: whether any attached
 /// client shows kitty graphics. New panes start with it (`PaneSpawn`).
-pub fn panes_graphics_ok(state: &State) -> bool {
+pub(crate) fn panes_graphics_ok(state: &State) -> bool {
     state.clients.values().any(|c| c.caps.kitty_graphics)
 }
 
@@ -644,7 +644,7 @@ pub fn panes_graphics_ok(state: &State) -> bool {
 /// detach, switch. Tells every pane's reader whether to answer graphics
 /// queries (`PaneHandle::set_graphics_ok`), and forgets the images of
 /// panes that are gone.
-pub fn on_clients_changed(state: &mut State) {
+pub(crate) fn on_clients_changed(state: &mut State) {
     let ok = panes_graphics_ok(state);
     for p in state.model.panes.values() {
         p.handle.set_graphics_ok(ok);
@@ -662,7 +662,7 @@ pub fn on_clients_changed(state: &mut State) {
 /// to this client as they came.
 // ponytail: forwarded bytes that `clients::RAW_CAP` dropped for a client
 // that stopped reading are not recovered until it attaches again.
-pub fn on_full_redraw(state: &mut State, id: ClientId) {
+pub(crate) fn on_full_redraw(state: &mut State, id: ClientId) {
     prune(state);
     if !state
         .clients
@@ -691,7 +691,7 @@ pub(crate) struct Cmd<'a> {
 }
 
 impl<'a> Cmd<'a> {
-    pub(crate) fn parse(apc: &'a [u8]) -> Option<Cmd<'a>> {
+    pub fn parse(apc: &'a [u8]) -> Option<Cmd<'a>> {
         let body = apc.strip_prefix(b"\x1b_G")?.strip_suffix(b"\x1b\\")?;
         let (head, payload) = match body.iter().position(|b| *b == b';') {
             Some(i) => (&body[..i], &body[i + 1..]),
@@ -1338,7 +1338,7 @@ fn resolve(cell: &SnapCell, left: Option<&Resolved>) -> Option<Resolved> {
 /// foreground, the high byte's diacritic written, replaced or dropped, and
 /// omitted diacritics kept omitted where the outer terminal infers the
 /// same values. A cell naming an image grofe does not know is a blank.
-pub fn rewrite_row(cells: &mut [SnapCell], pane: PaneId, remap: Option<&Remap>) {
+pub(crate) fn rewrite_row(cells: &mut [SnapCell], pane: PaneId, remap: Option<&Remap>) {
     let mut src_left: Option<Resolved> = None;
     let mut out_left: Option<Resolved> = None;
     for cell in cells.iter_mut() {
@@ -1397,7 +1397,7 @@ fn encode_cell(cell: &mut SnapCell, n: usize, want: Resolved, left: Option<&Reso
 /// The placeholder cell at `row[x]` with all its values explicit, for when
 /// the cell on its left is not shown (a cropped viewport). `None` when it
 /// is not a placeholder or already explicit.
-pub fn detach_left(row: &[SnapCell], x: usize) -> Option<SnapCell> {
+pub(crate) fn detach_left(row: &[SnapCell], x: usize) -> Option<SnapCell> {
     let cell = row.get(x)?;
     if cell.c != PLACEHOLDER || given(cell).0 >= 3 {
         return None;

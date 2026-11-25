@@ -28,7 +28,7 @@ fn kind(name: &str, resume: Option<&str>) -> Kind {
 }
 
 /// The built-in kinds (spec §8).
-pub fn builtin() -> Vec<Kind> {
+pub(crate) fn builtin() -> Vec<Kind> {
     vec![
         kind("claude", Some("claude --resume {id}")),
         kind("codex", Some("codex resume {id}")),
@@ -65,7 +65,7 @@ fn program(argv: &[String]) -> Option<&str> {
 }
 
 /// The name of the first kind whose `matches` contains the program of `argv`.
-pub fn match_argv<'a>(kinds: &'a [Kind], argv: &[String]) -> Option<&'a str> {
+pub(crate) fn match_argv<'a>(kinds: &'a [Kind], argv: &[String]) -> Option<&'a str> {
     let prog = program(argv)?;
     kinds
         .iter()
@@ -75,7 +75,7 @@ pub fn match_argv<'a>(kinds: &'a [Kind], argv: &[String]) -> Option<&'a str> {
 
 /// The resume argv: `template` split on spaces with `{id}` replaced. `None`
 /// for an empty template or an id outside `[A-Za-z0-9._:-]{1,128}`.
-pub fn resume_argv(template: &str, id: &str) -> Option<Vec<String>> {
+pub(crate) fn resume_argv(template: &str, id: &str) -> Option<Vec<String>> {
     let ok = (1..=128).contains(&id.len())
         && id
             .bytes()

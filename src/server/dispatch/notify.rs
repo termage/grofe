@@ -7,11 +7,11 @@ use crate::config::Resolved;
 use crate::protocol::ClientCtx;
 use crate::server::State;
 
-pub fn configure(state: &mut State, r: &Resolved) {
+pub(crate) fn configure(state: &mut State, r: &Resolved) {
     state.notify.cfg = r.notify.clone();
 }
 
-pub fn run(state: &mut State, _ctx: &ClientCtx, c: NotifyCmd) -> Result<String, String> {
+pub(crate) fn run(state: &mut State, _ctx: &ClientCtx, c: NotifyCmd) -> Result<String, String> {
     match c {
         NotifyCmd::List => Ok(state
             .notify

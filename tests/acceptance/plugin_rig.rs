@@ -15,9 +15,7 @@
 //! rig's PATH shows that one listing only this server's own process tree,
 //! as on a machine running no other tmux.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};

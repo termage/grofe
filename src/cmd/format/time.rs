@@ -5,14 +5,14 @@
 use nix::libc;
 
 /// Seconds since the epoch, 0 before it.
-pub fn now_secs() -> i64 {
+pub(crate) fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
 /// `t` as local broken-down time; `None` when it has none.
-pub fn localtime(t: i64) -> Option<libc::tm> {
+pub(crate) fn localtime(t: i64) -> Option<libc::tm> {
     let t = t as libc::time_t;
     // SAFETY: `tm` is plain old data, so all zeroes is a valid value.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
@@ -22,7 +22,7 @@ pub fn localtime(t: i64) -> Option<libc::tm> {
 
 /// `strftime(3)` of `fmt` for `tm`, with a buffer of `max` bytes: `None`
 /// when the result is empty or does not fit, as tmux reads a 0 return.
-pub fn strftime(fmt: &str, tm: &libc::tm, max: usize) -> Option<String> {
+pub(crate) fn strftime(fmt: &str, tm: &libc::tm, max: usize) -> Option<String> {
     let cfmt = std::ffi::CString::new(fmt).ok()?;
     let mut buf = vec![0u8; max];
     // SAFETY: `buf` is `max` bytes long and `cfmt` a NUL-terminated string;
@@ -33,14 +33,14 @@ pub fn strftime(fmt: &str, tm: &libc::tm, max: usize) -> Option<String> {
 
 /// `fmt` through `strftime` at the current local time (the first thing
 /// tmux's `format_expand_time` does).
-pub fn strftime_now(fmt: &str, max: usize) -> Option<String> {
+pub(crate) fn strftime_now(fmt: &str, max: usize) -> Option<String> {
     strftime(fmt, &localtime(now_secs())?, max)
 }
 
 /// tmux's `format_pretty_time` without seconds (`#{t/p:...}`): `HH:MM`
 /// within a day, `%a%d` within the month or 28 days, `%d%b` within the
 /// year, else `%b%y`. Empty when the time has no local form.
-pub fn pretty_time(t: i64) -> String {
+pub(crate) fn pretty_time(t: i64) -> String {
     pretty_time_at(t, now_secs())
 }
 

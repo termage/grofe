@@ -19,7 +19,7 @@ use crate::server::{State, buffers, clients, copy, graphics, prompt};
 use crate::types::{Dir, Edge, PaneId, SplitSize, WindowId};
 
 /// Runs a pane command routed here by `dispatch::route`.
-pub fn run(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, String> {
+pub(crate) fn run(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, String> {
     match cmd {
         Command::SplitWindow(c) => split_window(state, ctx, c),
         Command::KillPane(c) => kill_pane(state, ctx, c),

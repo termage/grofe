@@ -56,7 +56,7 @@ pub(super) fn point_at(state: &mut State, client: ClientId, line: usize) {
 /// line, a double click chooses it, a right press picks it and opens the
 /// mode's menu, and a press in the preview below the list picks a window
 /// or pane of its strip. The wheel does nothing (recorded).
-pub fn mouse(
+pub(crate) fn mouse(
     state: &mut State,
     client: ClientId,
     pane: PaneId,
@@ -328,7 +328,7 @@ pub(super) fn open_menu(
 /// Row `key` of the chooser's menu for `line` was chosen
 /// (`mode_tree_menu_callback`): that line becomes current, and the key is
 /// pressed.
-pub fn menu_done(state: &mut State, client: ClientId, line: usize, key: &str) -> Routed {
+pub(crate) fn menu_done(state: &mut State, client: ClientId, line: usize, key: &str) -> Routed {
     let Some(tree) = state.trees.open.get(&client) else {
         return Routed::Consumed;
     };

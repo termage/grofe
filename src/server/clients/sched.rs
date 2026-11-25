@@ -59,13 +59,13 @@ pub(crate) fn sync_mouse_modes(state: &mut State) {
 /// Queues `bytes` for client `id` ahead of its next frame (inside the same
 /// `Output` frame, before the synchronized-output begin), and schedules
 /// that frame.
-pub fn queue_raw(state: &mut State, id: ClientId, bytes: &[u8]) {
+pub(crate) fn queue_raw(state: &mut State, id: ClientId, bytes: &[u8]) {
     try_queue_raw(state, id, bytes);
 }
 
 /// [`queue_raw`], false if the client's held raw output was too full to
 /// take `bytes`, which were dropped.
-pub fn try_queue_raw(state: &mut State, id: ClientId, bytes: &[u8]) -> bool {
+pub(crate) fn try_queue_raw(state: &mut State, id: ClientId, bytes: &[u8]) -> bool {
     let queued = state
         .clients
         .get_mut(&id)
@@ -91,7 +91,7 @@ pub(crate) fn mark_all_dirty(state: &mut State) {
 }
 
 /// Pane output woke the actor: clients showing a pane that changed redraw.
-pub fn wake(state: &mut State) {
+pub(crate) fn wake(state: &mut State) {
     let dirty: BTreeSet<PaneId> = state
         .model
         .panes
@@ -134,7 +134,7 @@ pub fn wake(state: &mut State) {
 }
 
 /// Sets how often a busy pane is checked for an agent program.
-pub fn set_scan_interval(state: &mut State, interval: Duration) {
+pub(crate) fn set_scan_interval(state: &mut State, interval: Duration) {
     state.registry.scan_interval = interval;
 }
 
@@ -151,7 +151,7 @@ pub(super) fn leader_argv(p: &crate::server::model::Pane) -> Option<Leader> {
 /// Checks each of `panes` for an agent program (agents spec 3.1), at most
 /// once per `agents.scan-interval` per pane; a match with no record makes
 /// one, bound to the leader process.
-pub fn scan_agents(state: &mut State, panes: &BTreeSet<PaneId>) {
+pub(crate) fn scan_agents(state: &mut State, panes: &BTreeSet<PaneId>) {
     scan_agents_with(state, panes, Instant::now(), &mut leader_argv);
 }
 
@@ -227,7 +227,7 @@ pub(crate) fn request_render(state: &mut State, now: Instant) {
 
 /// The next time [`tick`] has work: a frame, the status clock, a size
 /// owner's debounce, or a client's escape-time or repeat-time.
-pub fn deadline(state: &State) -> Option<Instant> {
+pub(crate) fn deadline(state: &State) -> Option<Instant> {
     let escape = escape_time(&state.model);
     let r = &state.registry;
     let clients = state.clients.values().flat_map(|c| {
@@ -272,7 +272,7 @@ pub(crate) fn take_dirty(state: &mut State, id: ClientId) -> bool {
 }
 
 /// Runs whatever is due at `now` (see [`deadline`]).
-pub fn tick(state: &mut State, now: Instant) {
+pub(crate) fn tick(state: &mut State, now: Instant) {
     let mut resized = false;
     for c in state.clients.values_mut() {
         if let Some(size) = c.pending_size.take() {

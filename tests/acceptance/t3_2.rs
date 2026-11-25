@@ -4,47 +4,20 @@
 //! it asked, in its own coordinates. The read-only scrollback view the
 //! wheel opened became copy mode in M5; its tests moved to `tm_6.rs`.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{MOUSE_ON, attach_sized, indicator, pane_var, side_by_side, start};
 
 use std::time::Duration;
 
 use common::{TestServer, try_wait_until};
 
-use crate::harness::{Harness, require_tool};
+use crate::harness::require_tool;
 
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const MOUSE_OFF: &[u8] = b"\x1b[?1000l\x1b[?1002l\x1b[?1006l";
 const WAIT: Duration = Duration::from_secs(10);
 
 /// 200 lines of history, then a pane that shows every byte it gets.
 const HISTORY: &str = "seq 1 200; stty -echo; exec cat -v";
-
-/// A server with one session `main` running `cmd`, sized for an 80x24
-/// client with a status line.
-fn start(cmd: &str) -> TestServer {
-    let srv = TestServer::start();
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        cmd,
-    ])
-    .expect("new-session");
-    srv
-}
-
-fn attach(srv: &TestServer, cols: u16, rows: u16) -> Harness {
-    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], cols, rows);
-    a.wait_for_output(MOUSE_ON, 0);
-    a
-}
 
 /// An SGR 1006 report as the outer terminal sends it: `x` and `y` are
 /// 1-based client cells.
@@ -58,24 +31,6 @@ const WHEEL_DOWN: u8 = 65;
 
 fn top_line(text: &str) -> String {
     text.lines().next().unwrap_or_default().to_string()
-}
-
-/// The `[offset/history]` indicator anywhere on screen.
-fn indicator(text: &str) -> Option<String> {
-    text.match_indices('[').find_map(|(i, _)| {
-        let rest = &text[i + 1..];
-        let end = rest.find(']')?;
-        let (a, b) = rest[..end].split_once('/')?;
-        let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
-        (digits(a) && digits(b)).then(|| format!("[{a}/{b}]"))
-    })
-}
-
-fn pane_var(srv: &TestServer, target: &str, var: &str) -> String {
-    srv.cmd(&["display-message", "-p", "-t", target, var])
-        .unwrap_or_default()
-        .trim()
-        .to_string()
 }
 
 // Case 1 (the wheel over a shell) moved to `tm_6.rs` as
@@ -97,7 +52,7 @@ fn wheel_in_neovim_scrolls_neovim() {
         "exec nvim --clean -c 'set mouse=a' '{}'",
         file.display()
     ));
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("nvim showing line 1", WAIT, |t| {
         top_line(t).trim_end() == "1" && t.lines().any(|l| l.trim_end() == "21")
     });
@@ -110,17 +65,6 @@ fn wheel_in_neovim_scrolls_neovim() {
     assert_eq!(indicator(&text), None, "{text}");
 }
 
-/// Two panes side by side; the right one runs `cmd` and is active.
-fn side_by_side(left: &str, right: &str) -> (TestServer, String, String) {
-    let srv = start(left);
-    let left_id = pane_var(&srv, "main", "#{pane_id}");
-    srv.cmd(&["split-window", "-h", "-t", "main", right])
-        .expect("split");
-    let right_id = pane_var(&srv, "main", "#{pane_id}");
-    assert_ne!(left_id, right_id);
-    (srv, left_id, right_id)
-}
-
 /// Case 3: a pane that asked for SGR mouse reports gets the wheel as SGR,
 /// in pane coordinates; one that asked for mode 1000 alone gets X10 bytes.
 #[test]
@@ -131,7 +75,7 @@ fn a_pane_that_asked_for_the_mouse_gets_it_encoded_as_asked() {
     ] {
         let tui = format!("stty -echo; printf '{modes}ready'; exec cat -v");
         let (srv, _, right) = side_by_side("cat", &tui);
-        let mut a = attach(&srv, 80, 24);
+        let mut a = attach_sized(&srv, 80, 24);
         let left: u16 = pane_var(&srv, &right, "#{pane_left}")
             .parse()
             .expect("pane_left");
@@ -151,7 +95,7 @@ fn a_pane_that_asked_for_the_mouse_gets_it_encoded_as_asked() {
 fn a_click_focuses_the_pane() {
     let (srv, left, right) = side_by_side("cat", "cat");
     srv.cmd(&["select-pane", "-t", &left]).expect("select left");
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("both panes drawn", WAIT, |t| t.contains('│'));
     assert_eq!(pane_var(&srv, &right, "#{pane_active}"), "0");
     let x: u16 = pane_var(&srv, &right, "#{pane_left}")
@@ -174,7 +118,7 @@ fn a_click_focuses_the_pane() {
 #[test]
 fn mouse_off_ignores_the_wheel_and_keys_leave_the_view() {
     let srv = start(HISTORY);
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("179 on top", WAIT, |t| top_line(t).trim_end() == "179");
 
     srv.cmd(&["set", "-g", "mouse", "off"]).expect("mouse off");
@@ -230,8 +174,8 @@ fn a_click_on_a_cropped_client_maps_through_the_viewport() {
     let right = pane_var(&srv, "main", "#{pane_id}");
 
     // The small client first; the large one attaching last owns the size.
-    let mut small = attach(&srv, 40, 12);
-    let _large = attach(&srv, 80, 24);
+    let mut small = attach_sized(&srv, 40, 12);
+    let _large = attach_sized(&srv, 80, 24);
     try_wait_until(|| pane_var(&srv, &left, "#{pane_width}") == "59", WAIT)
         .unwrap_or_else(|e| panic!("left pane width: {e}"));
     assert_eq!(pane_var(&srv, &right, "#{pane_left}"), "60");
@@ -273,7 +217,7 @@ fn wheel_in_plain_less_does_nothing() {
         "seq 1 100; exec env -u LESS -u LESSOPEN less '{}'",
         file.display()
     ));
-    let mut a = attach(&srv, 80, 24);
+    let mut a = attach_sized(&srv, 80, 24);
     a.wait_until("less showing line 1", WAIT, |t| {
         top_line(t).trim_end() == "1" && t.lines().any(|l| l.trim_end() == "22")
     });

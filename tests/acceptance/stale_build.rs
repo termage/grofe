@@ -1,9 +1,7 @@
 //! A server whose binary was replaced on disk (an upgrade while it runs)
 //! tells each client that attaches that it is still the old build.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::fs;
 use std::process::Command;

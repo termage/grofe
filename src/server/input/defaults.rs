@@ -10,7 +10,7 @@ use super::*;
 /// grofe's settings menu, where tmux has customize-mode. Left unbound:
 /// `m`/`M` (marking), `t` (out of scope, spec §4.5), `<`/`>` (tmux's window
 /// and pane menus), `*` (`new-pane`). Copy mode binds `[`, `PPage` and the `copy-mode-vi` table.
-pub fn default_bindings() -> KeyTables {
+pub(crate) fn default_bindings() -> KeyTables {
     let mut t = KeyTables::default();
     let mut bind = |key: &str, argv: &[&str], repeat: bool, note: &str| {
         let argv = argv.iter().map(|s| s.to_string()).collect();
@@ -259,6 +259,19 @@ const GROUP_ORDER: &[&str] = &[
     "other",
 ];
 
+/// Sorts groups as the keys reference and the key menu list them: by
+/// [`GROUP_ORDER`], any other group after those in name order, `other` last.
+pub fn sort_groups(groups: &mut [String]) {
+    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
+    groups.sort_by_cached_key(|g| {
+        (
+            g == "other",
+            rank(g).unwrap_or(GROUP_ORDER.len()),
+            g.clone(),
+        )
+    });
+}
+
 /// The book's keys reference (`docs/book/src/keys.md`), generated from
 /// [`default_bindings`] so it cannot drift: every `prefix` binding of grofe
 /// identity by group, with its note and command, and how tmux's own key
@@ -275,9 +288,8 @@ pub fn keys_reference_markdown() -> String {
             groups.entry(group).or_default().push((key, b));
         }
     }
-    let rank = |g: &str| GROUP_ORDER.iter().position(|o| *o == g);
     let mut order: Vec<String> = groups.keys().cloned().collect();
-    order.sort_by_key(|g| (rank(g).unwrap_or(GROUP_ORDER.len()), g.clone()));
+    sort_groups(&mut order);
     let mut out = String::from(
         "# Keys
 
@@ -290,6 +302,12 @@ prefix key (`Ctrl-b`) first. The last column says how tmux's own default for
 that key compares: the same command, grofe's own key, or what tmux binds
 there instead. Under tmux identity (grofe run as `tmux`, or
 `compat-identity = \"tmux\"`) the keys are tmux's, with tmux's notes.
+
+In the key menu (`prefix Space`), press a listed key to run it, or `C-f` to
+search every binding by key, description, group and command. `/` searches
+too in a table where `/` is not bound; in the prefix table `/` is
+`Describe key binding`. `Enter` runs the selected row, `Escape` leaves search
+and then closes the menu.
 ",
     );
     for group in order {
@@ -334,19 +352,19 @@ there instead. Under tmux identity (grofe run as `tmux`, or
 
 /// grofe identity's `MouseDown1Control7`, the tab's float control: the
 /// pane clicked floats, or unfloats if it is floating.
-pub const GROFE_FLOAT_CONTROL: &str =
+pub(crate) const GROFE_FLOAT_CONTROL: &str =
     r##"if-shell -F -t = "#{pane_floating_flag}" { unfloat-pane -t = } { float-pane -t = }"##;
 
 /// grofe identity's `MouseDown1Status`: the agents badge opens the
 /// notification tray, any other range is tmux's `switch-client -t =`.
-pub const GROFE_STATUS_CLICK: &str = r##"if-shell -F "#{==:#{mouse_status_range},agents}" { choose-notification } { switch-client -t = }"##;
+pub(crate) const GROFE_STATUS_CLICK: &str = r##"if-shell -F "#{==:#{mouse_status_range},agents}" { choose-notification } { switch-client -t = }"##;
 
 /// grofe identity's `MouseDown3Pane` (FR.4): a pane that asked for the
 /// mouse is focused and gets the click, as tmux's stock row sends it on;
 /// any other opens
 /// the pane's menu at the pointer, its items acting on the pane clicked.
 /// Float shows on a tiled pane and Unfloat on a floating one.
-pub const GROFE_PANE_MENU: &str = concat!(
+pub(crate) const GROFE_PANE_MENU: &str = concat!(
     r##"if-shell -F "#{mouse_any_flag}" { select-pane -t = ; send-keys -M } { "##,
     r##"display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" "##,
     r##""#{?pane_floating_flag,,Float}" f { float-pane -t = } "##,
@@ -361,14 +379,14 @@ pub const GROFE_PANE_MENU: &str = concat!(
 );
 
 /// The copy-mode key table with `mode-keys vi`.
-pub const COPY_MODE_VI_TABLE: &str = "copy-mode-vi";
+pub(crate) const COPY_MODE_VI_TABLE: &str = "copy-mode-vi";
 
 /// tmux 3.7b's 88 stock `copy-mode-vi` bindings (`key-bindings.c`), in
 /// native spelling: the key, then its commands as a command string. The
 /// rows yank and the navigator add come from those plugins (TM.0's
 /// decision 5).
 #[rustfmt::skip]
-pub const COPY_MODE_VI: &[(&str, &str)] = &[
+pub(crate) const COPY_MODE_VI: &[(&str, &str)] = &[
     ("#", "send-keys -F -X search-backward -- '#{copy_cursor_word}'"),
     ("*", "send-keys -F -X search-forward -- '#{copy_cursor_word}'"),
     ("C-c", "send-keys -X cancel"),
@@ -460,12 +478,12 @@ pub const COPY_MODE_VI: &[(&str, &str)] = &[
 ];
 
 /// The copy-mode key table with `mode-keys emacs`.
-pub const COPY_MODE_TABLE: &str = "copy-mode";
+pub(crate) const COPY_MODE_TABLE: &str = "copy-mode";
 
 /// tmux 3.7b's 75 stock `copy-mode` (emacs) bindings (`key-bindings.c`), in
 /// native spelling like [`COPY_MODE_VI`].
 #[rustfmt::skip]
-pub const COPY_MODE_EMACS: &[(&str, &str)] = &[
+pub(crate) const COPY_MODE_EMACS: &[(&str, &str)] = &[
     ("Escape", "send-keys -X cancel"),
     ("Space", "send-keys -X page-down"),
     (",", "send-keys -X jump-reverse"),
@@ -547,7 +565,7 @@ pub const COPY_MODE_EMACS: &[(&str, &str)] = &[
 /// whose template is a `{ }` list (the `b2b/emacs-keys` golden), for a
 /// server with tmux identity ([`KeyTables::use_tmux_stock`]).
 #[rustfmt::skip]
-pub const TMUX_COPY_MODE_EMACS_SHOWN: &[(&str, &str)] = &[
+pub(crate) const TMUX_COPY_MODE_EMACS_SHOWN: &[(&str, &str)] = &[
     ("F", r#"command-prompt -1 -p "(jump backward)" { send-keys -X jump-backward -- "%%" }"#),
     ("T", r#"command-prompt -1 -p "(jump to backward)" { send-keys -X jump-to-backward -- "%%" }"#),
     ("f", r#"command-prompt -1 -p "(jump forward)" { send-keys -X jump-forward -- "%%" }"#),
@@ -570,7 +588,7 @@ pub const TMUX_COPY_MODE_EMACS_SHOWN: &[(&str, &str)] = &[
 /// template is a `{ }` list (the `tm_0/list-keys-copy-mode-vi` golden),
 /// for a server with tmux identity ([`KeyTables::use_tmux_stock`]).
 #[rustfmt::skip]
-pub const TMUX_COPY_MODE_VI_SHOWN: &[(&str, &str)] = &[
+pub(crate) const TMUX_COPY_MODE_VI_SHOWN: &[(&str, &str)] = &[
     ("/", r#"command-prompt -T search -p "(search down)" { send-keys -X search-forward -- "%%" }"#),
     ("?", r#"command-prompt -T search -p "(search up)" { send-keys -X search-backward -- "%%" }"#),
     (":", r#"command-prompt -p "(goto line)" { send-keys -X goto-line -- "%%" }"#),
@@ -624,7 +642,7 @@ pub const TMUX_STOCK_ROOT: &[(&str, &str)] = &[
 /// The stock `root` rows every server binds, whatever its identity: the
 /// pane, status line, border and wheel rows. The right-button menus, the
 /// Meta and Control variants and the scrollbar rows are tmux's alone.
-pub const NATIVE_STOCK_ROOT: &[&str] = &[
+pub(crate) const NATIVE_STOCK_ROOT: &[&str] = &[
     "MouseDown1Pane",
     "MouseDown1Status",
     "MouseDown1Border",
@@ -645,7 +663,7 @@ pub const NATIVE_STOCK_ROOT: &[&str] = &[
 /// `key-bindings.c`): the key, whether it repeats, its note, and its
 /// commands as tmux prints them.
 #[rustfmt::skip]
-pub const TMUX_STOCK: &[(&str, bool, &str, &str)] = &[
+pub(crate) const TMUX_STOCK: &[(&str, bool, &str, &str)] = &[
     ("Space", false, "Select next layout", "next-layout"),
     ("!", false, "Break pane to a new window", "break-pane"),
     (r#"""#, false, "Split window vertically", "split-window"),

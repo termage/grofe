@@ -44,11 +44,11 @@ pub const MAX_MESSAGE_LEN: usize = 16 * 1024 * 1024;
 /// so this sits above macOS's ARG_MAX (1 MiB) and Linux's default
 /// environment limit, while still bounding what a connection that has not
 /// said who it is can make the server buffer.
-pub const HELLO_MAX_LEN: usize = 4 * 1024 * 1024;
+pub(crate) const HELLO_MAX_LEN: usize = 4 * 1024 * 1024;
 
 /// Builds the [`LinesCodec`] used for control-mode JSON lines, capped at
 /// [`MAX_MESSAGE_LEN`].
-pub fn lines_codec() -> LinesCodec {
+pub(crate) fn lines_codec() -> LinesCodec {
     LinesCodec::new_with_max_length(MAX_MESSAGE_LEN)
 }
 
@@ -124,7 +124,7 @@ mod env_map {
     use serde::ser::SerializeMap;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(env: &[(String, String)], serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(env: &[(String, String)], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -135,7 +135,7 @@ mod env_map {
         map.end()
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<(String, String)>, D::Error>
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Vec<(String, String)>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -239,7 +239,7 @@ pub struct AttachExtras {
 }
 
 impl AttachExtras {
-    pub fn is_default(&self) -> bool {
+    pub(crate) fn is_default(&self) -> bool {
         *self == AttachExtras::default()
     }
 }
@@ -248,7 +248,7 @@ impl AttachExtras {
 /// line (spec §4.6). v1 is frozen (T6.2): `docs/protocol-v1.md` and the
 /// fixtures in `tests/fixtures/protocol/v1/` are its record, and spec §7.3
 /// holds the rules for any change.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub(crate) const PROTOCOL_VERSION: u32 = 1;
 
 /// The `id` of the one [`Reply`] line that answers an attach hello (a hello
 /// carries no request id of its own). See the module docs for the handshake.
@@ -413,7 +413,7 @@ impl Reply {
     }
 
     /// The reply for request `id` that failed with `f`.
-    pub fn failed(id: u64, f: Failure) -> Reply {
+    pub(crate) fn failed(id: u64, f: Failure) -> Reply {
         Reply::Err {
             id,
             err: f.err,

@@ -5,9 +5,8 @@
 //! `bind-key`, R25, which binds sequences); the new format variables work;
 //! and the server panics on cue for T3.6's report.
 
-#[allow(clippy::duplicate_mod)]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
+use crate::setup::{MOUSE_ON, start};
 
 use std::process::Stdio;
 use std::time::Duration;
@@ -17,27 +16,7 @@ use grofe::server::TEST_PANIC_ENV;
 
 use crate::harness::{Harness, require_tool};
 
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const MOUSE_OFF: &[u8] = b"\x1b[?1000l\x1b[?1002l\x1b[?1006l";
-
-/// A server with one session `main` running `cmd`, sized for an 80x24
-/// client with a status line.
-fn start(cmd: &str) -> TestServer {
-    let srv = TestServer::start();
-    srv.cmd(&[
-        "new-session",
-        "-d",
-        "-s",
-        "main",
-        "-x",
-        "80",
-        "-y",
-        "23",
-        cmd,
-    ])
-    .expect("new-session");
-    srv
-}
 
 fn attach(srv: &TestServer) -> Harness {
     Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24)

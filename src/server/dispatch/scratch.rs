@@ -15,7 +15,7 @@ use crate::types::SplitSize;
 
 /// `new-scratchpad`: a floating pane 60% of the window wide and 50% high,
 /// centred and active, that is a scratchpad.
-pub fn new(state: &mut State, ctx: &ClientCtx, c: NewScratchpad) -> Result<String, String> {
+pub(crate) fn new(state: &mut State, ctx: &ClientCtx, c: NewScratchpad) -> Result<String, String> {
     let model = &state.model;
     let target = model.resolve_pane(&c.target, ctx)?;
     let window = model.panes[&target].window;
@@ -118,7 +118,7 @@ fn menu_label(label: &str) -> String {
 
 /// `list-scratchpads`: one `<n>: <pane-id> <label>` line per hidden
 /// scratchpad, newest first.
-pub fn list(state: &mut State, _ctx: &ClientCtx) -> Result<String, String> {
+pub(crate) fn list(state: &mut State, _ctx: &ClientCtx) -> Result<String, String> {
     let mut out = String::new();
     for (n, s) in state.model.scratch.iter().enumerate() {
         out.push_str(&format!("{n}: {} {}\n", s.pane.id, label(&s.pane)));
@@ -142,7 +142,7 @@ pub(crate) fn menu_items(model: &Model) -> Vec<MenuEntry> {
 }
 
 /// `choose-scratchpad`: a menu of the hidden scratchpads.
-pub fn choose(state: &mut State, ctx: &ClientCtx) -> Result<String, String> {
+pub(crate) fn choose(state: &mut State, ctx: &ClientCtx) -> Result<String, String> {
     let items = menu_items(&state.model);
     if items.is_empty() {
         return match ctx.client {

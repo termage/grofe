@@ -177,12 +177,12 @@ impl Channel {
 
     /// Whether the peer sent `eof`: it finished sending, rather than
     /// closing the channel mid way.
-    pub fn got_eof(&self) -> bool {
+    pub(crate) fn got_eof(&self) -> bool {
         lock(&self.0.shared.st).eof_in
     }
 
     /// Whether the channel is closed, by either side or by the connection ending.
-    pub fn is_closed(&self) -> bool {
+    pub(crate) fn is_closed(&self) -> bool {
         lock(&self.0.shared.st).closed.is_some()
     }
 
@@ -389,13 +389,13 @@ impl Mux {
     }
 
     /// How long since the peer last sent a frame.
-    pub fn idle(&self) -> Duration {
+    pub(crate) fn idle(&self) -> Duration {
         lock(&self.inner.last_rx).elapsed()
     }
 
     /// Ends the connection here, without writing to the peer (which may
     /// not be reading): every channel fails with `reason`.
-    pub fn end(&self, reason: &str) {
+    pub(crate) fn end(&self, reason: &str) {
         self.inner.fail_all(reason);
     }
 

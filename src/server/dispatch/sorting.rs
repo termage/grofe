@@ -10,7 +10,7 @@ use crate::cmd::SortFlags;
 
 /// tmux's `enum sort_order`, minus its end marker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Order {
+pub(crate) enum Order {
     Activity,
     Creation,
     Index,
@@ -42,7 +42,7 @@ impl Order {
 
 /// A command's sort, checked.
 #[derive(Debug, Clone, Copy)]
-pub struct Sort {
+pub(crate) struct Sort {
     order: Option<Order>,
     reversed: bool,
 }
@@ -50,7 +50,7 @@ pub struct Sort {
 impl Sort {
     /// The flags as given; a `-O` that is no order is tmux's `invalid sort
     /// order`.
-    pub fn new(flags: &SortFlags) -> Result<Sort, String> {
+    pub(crate) fn new(flags: &SortFlags) -> Result<Sort, String> {
         let order = match flags.order.as_deref() {
             None => None,
             Some(name) => Some(Order::from_name(name).ok_or("invalid sort order")?),
@@ -63,7 +63,7 @@ impl Sort {
 
     /// As [`Sort::new`] for the commands that take a bad `-O` as no sort
     /// (`list-panes` checks it once, up front, and sorts each window).
-    pub fn lenient(flags: &SortFlags) -> Sort {
+    pub(crate) fn lenient(flags: &SortFlags) -> Sort {
         Sort {
             order: flags.order.as_deref().and_then(Order::from_name),
             reversed: flags.reversed,
@@ -71,18 +71,18 @@ impl Sort {
     }
 
     /// The order asked for, `None` for none.
-    pub fn order(&self) -> Option<Order> {
+    pub(crate) fn order(&self) -> Option<Order> {
         self.order
     }
 
     /// Whether `-r` was given.
-    pub fn reversed(&self) -> bool {
+    pub(crate) fn reversed(&self) -> bool {
         self.reversed
     }
 
     /// Sorts `items`; `cmp` compares two of them by an order other than
     /// [`Order::Natural`], its ties already settled.
-    pub fn apply<T>(&self, items: &mut [T], cmp: impl Fn(Order, &T, &T) -> Ordering) {
+    pub(crate) fn apply<T>(&self, items: &mut [T], cmp: impl Fn(Order, &T, &T) -> Ordering) {
         match self.order {
             None => {}
             Some(Order::Natural) => {
@@ -106,7 +106,7 @@ impl Sort {
 /// then merged taking the left item when `cmp` says it is not greater. Used
 /// where tmux's comparator is no total order (`list-keys -O`), so the
 /// result has to come from the same algorithm to be the same.
-pub fn merge_sort<T: Clone>(items: &mut [T], cmp: &impl Fn(&T, &T) -> i32) {
+pub(crate) fn merge_sort<T: Clone>(items: &mut [T], cmp: &impl Fn(&T, &T) -> i32) {
     let n = items.len();
     if n <= 1 {
         return;
@@ -132,7 +132,7 @@ pub fn merge_sort<T: Clone>(items: &mut [T], cmp: &impl Fn(&T, &T) -> i32) {
 }
 
 /// `strcmp` on names: by bytes.
-pub fn by_name(a: &str, b: &str) -> Ordering {
+pub(crate) fn by_name(a: &str, b: &str) -> Ordering {
     a.as_bytes().cmp(b.as_bytes())
 }
 

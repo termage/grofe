@@ -68,7 +68,7 @@ pub(crate) fn settings_dir() -> Result<PathBuf, String> {
 /// spelling (a command string spells tmux's ` \; ` as ` ; `), and its note,
 /// repeat flag, group and name.
 #[derive(Default)]
-pub struct Fields {
+pub(crate) struct Fields {
     pub(crate) cmd: String,
     pub(crate) desc: Option<String>,
     pub(crate) repeat: bool,
@@ -77,7 +77,7 @@ pub struct Fields {
 }
 
 impl Fields {
-    pub fn as_write(&self) -> write::BindingFields<'_> {
+    pub(crate) fn as_write(&self) -> write::BindingFields<'_> {
         write::BindingFields {
             desc: self.desc.as_deref(),
             repeat: self.repeat,

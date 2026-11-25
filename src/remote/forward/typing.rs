@@ -16,12 +16,12 @@ use crate::server::input::{Decoder, Input as Decoded, Key, KeyCode, parse_prefix
 /// The most typing held for after a paste; more is dropped (as the remote
 /// client's own offline hold does). A bracketed paste is kept or dropped
 /// whole.
-pub const MAX_QUEUED: usize = 64 * 1024;
+pub(crate) const MAX_QUEUED: usize = 64 * 1024;
 
 /// What becomes of part of the typing held; what is kept for after the
 /// pasted text is not listed.
 #[derive(Debug, PartialEq, Eq)]
-pub enum Typed {
+pub(crate) enum Typed {
     /// On to the server now: the prefix, or the key after it.
     Through(Vec<u8>),
     /// Esc or C-c: stop the upload, or before it give the paste up. `rest`
@@ -46,7 +46,7 @@ enum Paste {
 
 /// The keys typed while a paste is held.
 #[derive(Debug)]
-pub struct Held {
+pub(crate) struct Held {
     bytes: Vec<u8>,
     /// The paste's id ([`super::FilePaste::id`]).
     pub id: u64,
@@ -79,20 +79,20 @@ impl Held {
     }
 
     /// The default prefix, before the server says what the session's is.
-    pub fn default_prefix() -> Option<Key> {
+    pub(crate) fn default_prefix() -> Option<Key> {
         parse_prefix("C-b").ok().flatten()
     }
 
     /// One read typed at `now` while the paste is held: what goes through
     /// or cancels, in order; the rest is kept.
-    pub fn take(&mut self, bytes: &[u8], now: Instant) -> Vec<Typed> {
+    pub(crate) fn take(&mut self, bytes: &[u8], now: Instant) -> Vec<Typed> {
         let inputs = self.decoder.feed_spans(bytes, now, self.escape_time);
         self.handle(inputs)
     }
 
     /// Time passing: a sequence or a paste that waited long enough is
     /// decided.
-    pub fn tick(&mut self, now: Instant) -> Vec<Typed> {
+    pub(crate) fn tick(&mut self, now: Instant) -> Vec<Typed> {
         let inputs = self.decoder.flush_spans(now, self.escape_time);
         self.handle(inputs)
     }
@@ -100,7 +100,7 @@ impl Held {
     /// Everything held, as typed, for after the paste: kept keys, then what
     /// still waits (a sequence, an open paste: kept whole, or dropped whole
     /// past [`MAX_QUEUED`]); and whether something was dropped there.
-    pub fn into_bytes(mut self) -> (Vec<u8>, bool) {
+    pub(crate) fn into_bytes(mut self) -> (Vec<u8>, bool) {
         let mut out = std::mem::take(&mut self.bytes);
         let waiting = self.decoder.take_waiting();
         if self.overflowed {
@@ -124,7 +124,7 @@ impl Held {
     }
 
     #[cfg(test)]
-    pub fn kept(&self) -> &[u8] {
+    pub(crate) fn kept(&self) -> &[u8] {
         &self.bytes
     }
 

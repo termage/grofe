@@ -10,61 +10,62 @@
 //! control-mode requests into [`ServerMsg::Control`] and write the reply
 //! back. Commands run through the single [`dispatch::run`] seam.
 
-pub mod adopt;
-pub mod agents;
-pub mod alerts;
+pub(crate) mod adopt;
+pub(crate) mod agents;
+pub(crate) mod alerts;
 pub mod borders;
 pub mod buffers;
-pub mod build;
-pub mod clients;
-pub mod clock;
-pub mod copy;
-pub mod customize;
+pub(crate) mod build;
+pub(crate) mod clients;
+pub(crate) mod clock;
+pub(crate) mod copy;
+pub(crate) mod customize;
 pub mod dispatch;
 pub mod drop;
 pub mod events;
 pub mod floating;
+pub(crate) mod frameopts;
 pub mod graphics;
 pub(crate) mod grid;
-pub mod hooks;
-pub mod imgstore;
+pub(crate) mod hooks;
+pub(crate) mod imgstore;
 pub mod input;
 pub(crate) mod keymenu;
 pub mod layout;
-pub mod links;
+pub(crate) mod links;
 pub(crate) mod listdraw;
 pub(crate) mod listview;
-pub mod lua_async;
-pub mod lua_host;
-pub mod menu;
-pub mod model;
-pub mod mouse;
+pub(crate) mod lua_async;
+pub(crate) mod lua_host;
+pub(crate) mod menu;
+pub(crate) mod model;
+pub(crate) mod mouse;
 pub(crate) mod notify;
-pub mod pack_load;
+pub(crate) mod pack_load;
 pub mod pane;
 pub mod passthrough;
 pub(crate) mod picker;
-pub mod plugins;
-pub mod popup;
-pub mod prompt;
+pub(crate) mod plugins;
+pub(crate) mod popup;
+pub(crate) mod prompt;
 pub mod remote;
 pub mod render;
 pub mod restore;
-pub mod resume;
-pub mod screenimg;
+pub(crate) mod resume;
+pub(crate) mod screenimg;
 pub mod settings;
-pub mod shell_jobs;
+pub(crate) mod shell_jobs;
 pub(crate) mod sidebar;
 pub mod sixel;
 pub mod snapshot;
-pub mod sources;
-pub mod spawn;
+pub(crate) mod sources;
+pub(crate) mod spawn;
 pub mod status;
 pub(crate) mod toast;
 pub(crate) mod tray;
-pub mod tree;
-pub mod unseen;
-pub mod x11;
+pub(crate) mod tree;
+pub(crate) mod unseen;
+pub(crate) mod x11;
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -114,7 +115,7 @@ fn cli_io_of(req: &Request, pid: Option<i32>) -> protocol::CliIo {
 
 /// A message into the server actor.
 #[derive(Debug)]
-pub enum ServerMsg {
+pub(crate) enum ServerMsg {
     /// One control-mode request; the actor answers on `reply`.
     Control {
         ctx: ClientCtx,
@@ -176,7 +177,7 @@ impl StartOptions {
     pub const RESTORE_ON_START_ENV: &str = "GROFE_RESTORE_ON_START";
     pub const REMAIN_ON_EXIT_ENV: &str = "GROFE_REMAIN_ON_EXIT";
 
-    pub fn from_env() -> StartOptions {
+    pub(crate) fn from_env() -> StartOptions {
         let var = |name| std::env::var(name).ok();
         StartOptions {
             restore_on_start: var(Self::RESTORE_ON_START_ENV).as_deref() != Some("0"),
@@ -191,13 +192,13 @@ impl StartOptions {
 /// with the whole state, then the events it caused are flushed; what it
 /// changed on screen it marks itself (`clients::mark_dirty`,
 /// `clients::changed`).
-pub type Job = Box<dyn FnOnce(&mut State) + Send>;
+pub(crate) type Job = Box<dyn FnOnce(&mut State) + Send>;
 
 /// How many [`Job`]s may wait for the actor. A task off the actor that
 /// finds the queue full waits (`send().await`, or `blocking_send` on a
 /// plain thread); code on the actor uses `try_send` and handles `Full`
 /// itself, since the actor waiting on its own queue would never wake.
-pub const JOB_QUEUE: usize = 256;
+pub(crate) const JOB_QUEUE: usize = 256;
 
 /// Everything the actor owns.
 pub struct State {
@@ -327,7 +328,7 @@ impl State {
     /// `default-terminal` option verbatim. While it still holds the
     /// default, [`Self::inner_term`] stands in, so a host lacking a
     /// `tmux-256color` terminfo entry keeps grofe's fallback.
-    pub fn pane_term(&self) -> &'static str {
+    pub(crate) fn pane_term(&self) -> &'static str {
         let set = self
             .model
             .options
@@ -370,13 +371,13 @@ fn intern(s: &str) -> &'static str {
 
 /// Adds an overlay drawn over every client's frame. Overlays draw in
 /// reverse registration order, so one registered earlier ends on top.
-pub fn register_overlay(state: &mut State, overlay: Arc<dyn Overlay + Send + Sync>) {
+pub(crate) fn register_overlay(state: &mut State, overlay: Arc<dyn Overlay + Send + Sync>) {
     state.registry.overlays.push(overlay);
 }
 
 /// Adds a hook that sees every client's input before the key tables,
 /// after those registered before it.
-pub fn register_input_hook(state: &mut State, hook: Arc<dyn InputHook + Send + Sync>) {
+pub(crate) fn register_input_hook(state: &mut State, hook: Arc<dyn InputHook + Send + Sync>) {
     state.registry.input_hooks.push(hook);
 }
 

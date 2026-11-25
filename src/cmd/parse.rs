@@ -2084,7 +2084,7 @@ fn split_commands(
 
 /// One line of a tmux config file ([`split_config_file_with`]): the line it
 /// starts on and its commands, which run as one group.
-pub type ConfigLine = (usize, Vec<Vec<String>>);
+pub(crate) type ConfigLine = (usize, Vec<Vec<String>>);
 
 /// What reading a config file asks of whoever runs it (tmux's parser does
 /// both while it parses, `cmd-parse.y`).
@@ -2112,7 +2112,7 @@ impl ConfigHost for Plain {
 /// [`split_config_file_with`] on a host that expands no format and sets no
 /// variable.
 #[cfg(test)]
-pub fn split_config_file(text: &str) -> Result<Vec<ConfigLine>, (usize, ParseError)> {
+pub(crate) fn split_config_file(text: &str) -> Result<Vec<ConfigLine>, (usize, ParseError)> {
     split_config_file_with(text, &mut Plain)
 }
 
@@ -2602,7 +2602,7 @@ fn read_escape(
 }
 
 /// Where [`split_command_string`] looks a `$NAME` up.
-pub type VariableSource = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
+pub(crate) type VariableSource = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 static VARIABLES: std::sync::OnceLock<VariableSource> = std::sync::OnceLock::new();
 
@@ -2610,7 +2610,7 @@ static VARIABLES: std::sync::OnceLock<VariableSource> = std::sync::OnceLock::new
 /// for the rest of the process. A server sets its global environment
 /// (`set-environment -g`, hidden variables included, as tmux 3.7b) once at
 /// start; a later call changes nothing.
-pub fn set_variable_source(source: VariableSource) {
+pub(crate) fn set_variable_source(source: VariableSource) {
     let _ = VARIABLES.set(source);
 }
 
@@ -2623,7 +2623,7 @@ thread_local! {
 /// Runs `f` with `vars` over [`split_command_string`]'s variable source:
 /// the config loader's `[environment]`, which tmux would already have set
 /// with `set-environment -g` when it read a later line (TP.0).
-pub fn with_variables<R>(vars: &[(String, String)], f: impl FnOnce() -> R) -> R {
+pub(crate) fn with_variables<R>(vars: &[(String, String)], f: impl FnOnce() -> R) -> R {
     let outer = OVERLAY.replace(vars.to_vec());
     let out = f();
     OVERLAY.set(outer);
@@ -2633,7 +2633,7 @@ pub fn with_variables<R>(vars: &[(String, String)], f: impl FnOnce() -> R) -> R 
 /// A variable's value for [`split_command_string`], empty when unset:
 /// from [`with_variables`]'s overlay, then [`set_variable_source`]'s
 /// source, else (outside a server) the process environment.
-pub fn env_var(name: &str) -> String {
+pub(crate) fn env_var(name: &str) -> String {
     let overlaid = OVERLAY.with_borrow(|vars| {
         vars.iter()
             .rev()

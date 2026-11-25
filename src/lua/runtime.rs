@@ -60,6 +60,7 @@ impl Runtime {
         lua.globals()
             .set("loadstring", mlua::Value::Nil)
             .map_err(setup)?;
+        super::require::install(&lua).map_err(setup)?;
         lua.sandbox(true).map_err(setup)?;
         lua.set_memory_limit(limits.memory).map_err(setup)?;
         Ok(Runtime {

@@ -19,7 +19,7 @@ pub struct Input {
 
 impl Input {
     /// Send `bytes` as they are, draw nothing.
-    pub fn send(bytes: Vec<u8>) -> Input {
+    pub(crate) fn send(bytes: Vec<u8>) -> Input {
         Input {
             send: bytes,
             draw: Vec::new(),
@@ -140,29 +140,29 @@ pub struct HookCtx<'a> {
 
 impl HookCtx<'_> {
     /// The attached session's prefix key, as the attach read it.
-    pub fn prefix(&self) -> crate::server::input::Key {
+    pub(crate) fn prefix(&self) -> crate::server::input::Key {
         self.conn.prefix
     }
 
     /// The live link: open channels (`tcp`, `upload`), read the RTT.
-    pub fn link(&self) -> &Link {
+    pub(crate) fn link(&self) -> &Link {
         self.link
     }
 
     /// Which connection this is: it changes with every reconnect, when
     /// the server forgets this client and draws its screen anew.
-    pub fn connection(&self) -> u64 {
+    pub(crate) fn connection(&self) -> u64 {
         self.generation
     }
 
     /// The smoothed round trip time ([`Link::rtt`]).
-    pub fn rtt(&self) -> Option<Duration> {
+    pub(crate) fn rtt(&self) -> Option<Duration> {
         self.link.rtt()
     }
 
     /// A control request on its own thread, so a slow link does not stall
     /// the main loop; its output or error arrives on the receiver.
-    pub fn request_bg(&self, argv: Vec<String>) -> Receiver<Result<String, String>> {
+    pub(crate) fn request_bg(&self, argv: Vec<String>) -> Receiver<Result<String, String>> {
         let (tx, rx) = std::sync::mpsc::channel();
         let (link, hello) = (self.link.clone(), self.hello.to_string());
         std::thread::spawn(move || {
@@ -172,29 +172,29 @@ impl HookCtx<'_> {
     }
 
     /// Writes `bytes` to the tty once the hook call returns.
-    pub fn draw(&mut self, bytes: &[u8]) {
+    pub(crate) fn draw(&mut self, bytes: &[u8]) {
         self.draw.extend_from_slice(bytes);
     }
 
     /// This client's name for `-t`/`-c` in requests.
-    pub fn client(&self) -> &str {
+    pub(crate) fn client(&self) -> &str {
         self.tty
     }
 
     /// Asks the server to draw this client's screen anew.
-    pub fn redraw(&self) {
+    pub(crate) fn redraw(&self) {
         // In the background: a slow link must not stall the main loop.
         drop(self.request_bg(vec!["refresh-client".into(), "-t".into(), self.tty.into()]));
     }
 
     /// Raises `prompt`, replacing one already up.
-    pub fn prompt(&mut self, prompt: Box<dyn Prompt>) {
+    pub(crate) fn prompt(&mut self, prompt: Box<dyn Prompt>) {
         replace_prompt(self.prompt, prompt);
     }
 
     /// Takes the prompt down unanswered, only when the prompt up is `tag`'s,
     /// and redraws.
-    pub fn close_prompt_tagged(&mut self, tag: &str) {
+    pub(crate) fn close_prompt_tagged(&mut self, tag: &str) {
         if take_tagged(self.prompt, tag) {
             self.redraw();
         }
@@ -202,20 +202,20 @@ impl HookCtx<'_> {
 
     /// Sends `bytes` to the server as typed input, outside [`Hook::on_input`]
     /// (a result that arrives later).
-    pub fn send(&self, bytes: Vec<u8>) {
+    pub(crate) fn send(&self, bytes: Vec<u8>) {
         if !bytes.is_empty() {
             self.conn.send(Frame::Input(bytes));
         }
     }
 
     /// Whether a prompt is up.
-    pub fn prompting(&self) -> bool {
+    pub(crate) fn prompting(&self) -> bool {
         self.prompt.is_some()
     }
 
     /// Moves the attach to `to` once the hooks return: the current attach
     /// channel closes (its session keeps running) and `to` attaches.
-    pub fn switch(&mut self, to: Switch) {
+    pub(crate) fn switch(&mut self, to: Switch) {
         *self.switch = Some(to);
     }
 }

@@ -173,7 +173,7 @@ impl Event {
 impl Event {
     /// The pane, window and session the event names in its own fields
     /// (`option-changed` by its `scope`); what `subscribe -t` filters on.
-    pub fn subject(&self) -> Subject {
+    pub(crate) fn subject(&self) -> Subject {
         let mut s = Subject::default();
         match self {
             Event::PaneExited { pane, .. }
@@ -248,14 +248,14 @@ impl Event {
 /// (a killed pane's `pane-exited` still has to reach a `subscribe -t` on its
 /// window or session).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Place {
+pub(crate) struct Place {
     pub window: Option<WindowId>,
     pub session: Option<SessionId>,
 }
 
 /// The ids an [`Event`] names.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Subject {
+pub(crate) struct Subject {
     pub pane: Option<PaneId>,
     pub window: Option<WindowId>,
     pub session: Option<SessionId>,

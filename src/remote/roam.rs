@@ -44,7 +44,7 @@ impl std::fmt::Display for BootError {
 /// The reason in a failed `proxy --quic`'s stderr: its line that starts
 /// with [`quic::server::FAILED`], which only a grofe that knows the flag
 /// prints (an old one says `takes no arguments`).
-pub fn proxy_failure(stderr: &str) -> Option<String> {
+pub(crate) fn proxy_failure(stderr: &str) -> Option<String> {
     stderr
         .lines()
         .find_map(|l| l.trim().strip_prefix(quic::server::FAILED))
@@ -116,7 +116,7 @@ pub fn bootstrap(target: &Target, batch: bool) -> Result<Bootstrap, BootError> {
 
 /// `hostname` from `ssh -G` output: the host ssh connects to, after its
 /// config's aliases.
-pub fn ssh_g_hostname(ssh_g: &str) -> Option<String> {
+pub(crate) fn ssh_g_hostname(ssh_g: &str) -> Option<String> {
     ssh_g.lines().find_map(|l| {
         let mut words = l.split_whitespace();
         let key = words.next()?;
@@ -128,7 +128,7 @@ pub fn ssh_g_hostname(ssh_g: &str) -> Option<String> {
 
 /// The host to dial over UDP for `target`: what ssh would connect to
 /// (`ssh -G`), else the target's own host part.
-pub fn dial_host(target: &Target) -> String {
+pub(crate) fn dial_host(target: &Target) -> String {
     let mut cmd = ssh::command();
     cmd.arg("-G");
     if let Some(p) = target.port {
@@ -269,7 +269,7 @@ impl Roaming {
     /// bootstraps without prompting, and later ones reuse that token. For
     /// a caller that owns a terminal (the multi-machine client) and must
     /// neither prompt nor print.
-    pub fn unlinked(target: &Target) -> Roaming {
+    pub(crate) fn unlinked(target: &Target) -> Roaming {
         Roaming {
             target: target.clone(),
             dial: dial_host(target),

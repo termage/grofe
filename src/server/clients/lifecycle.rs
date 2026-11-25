@@ -7,7 +7,7 @@ pub(super) fn clamp_size((cols, rows): (u16, u16)) -> (u16, u16) {
 }
 
 /// A frame from client `id`.
-pub fn frame(state: &mut State, id: ClientId, frame: Frame) {
+pub(crate) fn frame(state: &mut State, id: ClientId, frame: Frame) {
     match frame {
         Frame::Input(bytes) => input(state, id, &bytes, Instant::now()),
         Frame::Resize(cols, rows) => {
@@ -42,19 +42,19 @@ pub fn frame(state: &mut State, id: ClientId, frame: Frame) {
 }
 
 /// Client `id`'s connection ended.
-pub fn gone(state: &mut State, id: ClientId) {
+pub(crate) fn gone(state: &mut State, id: ClientId) {
     remove(state, id, None);
 }
 
 /// Detaches client `id` with tmux's message.
-pub fn detach(state: &mut State, id: ClientId) {
+pub(crate) fn detach(state: &mut State, id: ClientId) {
     detach_with(state, id, false);
 }
 
 /// [`detach`]; with `kill_parent` (tmux's `MSG_DETACHKILL`) the parent of
 /// the client's process, its shell, gets SIGHUP as the client goes, which
 /// tmux's client does by itself.
-pub fn detach_with(state: &mut State, id: ClientId, kill_parent: bool) {
+pub(crate) fn detach_with(state: &mut State, id: ClientId, kill_parent: bool) {
     let reason = state
         .clients
         .get(&id)
@@ -133,7 +133,7 @@ pub(super) fn remove(state: &mut State, id: ClientId, reason: Option<String>) {
 /// its `destroy-unattached` says so (`on`; `keep-last` keeps the last of a
 /// group and every ungrouped one; `keep-group` keeps the last of a group).
 /// Run where a session loses or gains a client, and when the option is set.
-pub fn check_unattached(state: &mut State) {
+pub(crate) fn check_unattached(state: &mut State) {
     use crate::server::dispatch::options::Owner;
     let unattached: Vec<SessionId> = state
         .model
@@ -192,7 +192,7 @@ pub(super) fn leave_session(state: &mut State, id: ClientId, session: SessionId)
 }
 
 /// Tells every client why it is going away and forgets them (server exit).
-pub fn shutdown(state: &mut State, reason: &str) {
+pub(crate) fn shutdown(state: &mut State, reason: &str) {
     crate::server::popup::shutdown(state);
     for (_, mut c) in std::mem::take(&mut state.clients) {
         if let Some(tx) = c.exit.take() {
@@ -235,7 +235,7 @@ pub(super) fn successor(state: &State, name: &str, mode: &str) -> Option<Session
 /// After anything that may have changed what clients show (a command, a
 /// pane exiting): clients of a session that is gone leave (as tmux's
 /// `[exited]`), window sizes follow their owners, and every client redraws.
-pub fn changed(state: &mut State) {
+pub(crate) fn changed(state: &mut State) {
     let orphans: Vec<ClientId> = state
         .clients
         .iter()

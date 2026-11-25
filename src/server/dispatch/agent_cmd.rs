@@ -14,7 +14,7 @@ use crate::types::PaneId;
 
 const LIST_FORMAT: &str = "#{pane_id} #{agent_kind} #{agent_state}";
 
-pub fn run(state: &mut State, ctx: &ClientCtx, c: AgentCmd) -> Result<String, String> {
+pub(crate) fn run(state: &mut State, ctx: &ClientCtx, c: AgentCmd) -> Result<String, String> {
     match c {
         AgentCmd::Report(r) => report(state, ctx, r),
         AgentCmd::List { format } => Ok(list(state, format.as_deref().unwrap_or(LIST_FORMAT))),
