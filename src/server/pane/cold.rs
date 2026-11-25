@@ -5,7 +5,6 @@
 //! width are not stored.
 
 use std::collections::VecDeque;
-use std::mem::size_of;
 
 use alacritty_terminal::term::cell::{Cell, CellExtra};
 use alacritty_terminal::vte::ansi::{Color, NamedColor};
@@ -127,7 +126,6 @@ struct Row {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) struct Cold {
     rows: VecDeque<Row>,
     looks: Looks,
@@ -136,7 +134,6 @@ pub(crate) struct Cold {
     runs: Vec<(u16, u32)>,
 }
 
-#[allow(dead_code)]
 impl Cold {
     pub(crate) fn new(limit: usize) -> Cold {
         Cold {
@@ -164,6 +161,7 @@ impl Cold {
     }
 
     /// Looks interned so far (a hash lookup each), for tests that count them.
+    #[cfg(test)]
     pub(crate) fn lookups(&self) -> usize {
         self.looks.lookups()
     }
@@ -181,12 +179,6 @@ impl Cold {
     pub(crate) fn pop_newest(&mut self, cols: usize, out: &mut Vec<SnapCell>) -> Option<ColdMeta> {
         let row = self.rows.pop_back()?;
         Some(self.decode(&row, cols, out))
-    }
-
-    /// Returns how many of the oldest rows the new limit dropped.
-    pub(crate) fn set_limit(&mut self, limit: usize) -> usize {
-        self.limit = limit;
-        self.trim()
     }
 
     pub(crate) fn clear(&mut self) {
@@ -239,6 +231,7 @@ impl Cold {
     }
 
     /// Heap bytes of the rows and the looks table.
+    #[cfg(test)]
     pub(crate) fn bytes(&self) -> usize {
         let rows: usize = self
             .rows

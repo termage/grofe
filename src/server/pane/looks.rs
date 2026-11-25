@@ -39,7 +39,6 @@ fn look_key(cell: &SnapCell) -> LookKey {
 }
 
 /// Each distinct look once; id 0 is the default blank.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct Looks {
     looks: Vec<SnapCell>,
@@ -48,7 +47,6 @@ pub(crate) struct Looks {
     lookups: usize,
 }
 
-#[allow(dead_code)]
 impl Looks {
     pub(crate) fn new() -> Looks {
         let mut looks = Looks {
@@ -91,6 +89,7 @@ impl Looks {
         self.looks.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn lookups(&self) -> usize {
         self.lookups
     }
