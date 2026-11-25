@@ -549,6 +549,8 @@ mod tests {
         // Two missed pings are a silence of 2 * every, which drops the link
         // by design; at 100 ms a 200 ms scheduler stall of the sending
         // thread on a loaded runner was enough. 250 ms tolerates 500 ms.
+        // ponytail: a stall of the sending thread over 500 ms still drops
+        // the link here; only a fake clock would remove the bound.
         let every = Duration::from_millis(250);
         // Flowing: the peer answers no ping but keeps sending frames.
         let (a, b) = fake_proxy(&ProxyHello::current(&[]));

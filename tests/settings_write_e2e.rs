@@ -461,6 +461,7 @@ fn save_history_limit(srv: &TestServer, h: &mut Harness) {
         t.contains("history-limit:")
     });
     h.send("j");
+    let mark = h.output().len();
     h.send("P");
     let saved = wait_settings(srv, |t| {
         t.get("history-limit").and_then(|v| v.as_integer()) == Some(222)
@@ -473,7 +474,8 @@ fn save_history_limit(srv: &TestServer, h: &mut Harness) {
     );
     // The file lands before `P`'s reload runs; a user.toml written in
     // between fails that reload, whose rollback then removes settings.toml.
-    h.wait_until("save reported", WAIT, |t| t.contains("Saved history-limit"));
+    // The message shows for display-time only: look for it in the output.
+    h.wait_for_output(b"Saved history-limit", mark);
 }
 
 /// After `P`, the config owns the option and has recorded its base: with the
