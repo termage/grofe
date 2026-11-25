@@ -16,6 +16,7 @@ use super::{
     Provenance, Resolved, Source, Ty, closest, option_names, tmux_name, toml_type,
 };
 pub mod agents;
+mod include;
 pub mod notify;
 pub mod pack;
 pub mod plugins;
@@ -275,12 +276,15 @@ impl Loader {
         if !self.requires_met(&f, &entries) {
             return;
         }
-        let mut includes = Vec::new();
+        let (mut includes, mut source_files) = (Vec::new(), Vec::new());
         for (k, v) in entries {
             let line = f.line(k.span().start);
             match k.get_ref().as_ref() {
                 "requires" => {}
-                "source-file" => self.include_list(&f, line, v.get_ref(), &mut includes),
+                "include" => self.include_list(&f, line, "include", v.get_ref(), &mut includes),
+                "source-file" => {
+                    self.include_list(&f, line, "source-file", v.get_ref(), &mut source_files)
+                }
                 "keys" => self.key_tables(&f, line, v.get_ref()),
                 "hooks" => self.hooks(&f, line, v.get_ref()),
                 "plugins" => self.plugins(&f, line, v.get_ref()),
@@ -293,9 +297,13 @@ impl Loader {
                 _ => self.option_entry(&f, "", k, v),
             }
         }
-        // Includes apply after the including file's own keys, in order.
+        // Includes apply after the including file's own keys, in order:
+        // `include` first, then `source-file`.
         for (rel, line) in includes {
-            self.include(&f, line, &rel);
+            self.include(&f, line, "include", &rel);
+        }
+        for (rel, line) in source_files {
+            self.include(&f, line, "source-file", &rel);
         }
     }
 
@@ -343,61 +351,6 @@ impl Loader {
             path.display(),
             env!("CARGO_PKG_VERSION")
         ));
-    }
-
-    /// `source-file = "x.toml"` or `source-file = ["a.toml", "b.toml"]`.
-    fn include_list(
-        &mut self,
-        f: &FileCtx,
-        line: usize,
-        v: &DeValue,
-        out: &mut Vec<(String, usize)>,
-    ) {
-        let bad = |found: &str| format!("expected a path or an array of paths, found {found}");
-        match v {
-            DeValue::String(s) => out.push((s.to_string(), line)),
-            DeValue::Array(a) => {
-                for item in a {
-                    let item_line = f.line(item.span().start);
-                    match item.get_ref() {
-                        DeValue::String(s) => out.push((s.to_string(), item_line)),
-                        other => {
-                            let msg = bad(other.type_str());
-                            self.error(f.path, item_line, "source-file", msg);
-                        }
-                    }
-                }
-            }
-            other => self.error(f.path, line, "source-file", bad(other.type_str())),
-        }
-    }
-
-    /// Loads `rel`, resolved against the including file's directory (spec
-    /// §5.1), at the including file's layer.
-    fn include(&mut self, f: &FileCtx, line: usize, rel: &str) {
-        let dir = f.path.parent().unwrap_or(Path::new(""));
-        let path = dir.join(rel);
-        let canon = canonical(&path);
-        if self.stack.contains(&canon) {
-            let chain: Vec<String> = self
-                .stack
-                .iter()
-                .chain([&canon])
-                .map(|p| tilde(p, self.home.as_deref()))
-                .collect();
-            let msg = format!("include cycle: {}", chain.join(" -> "));
-            return self.error(f.path, line, "source-file", msg);
-        }
-        let text = match fs::read_to_string(&path) {
-            Ok(t) => t,
-            Err(e) => {
-                let msg = format!("cannot read {}: {e}", path.display());
-                return self.error(f.path, line, "source-file", msg);
-            }
-        };
-        self.stack.push(canon);
-        self.load_text(&path, &text, f.layer);
-        self.stack.pop();
     }
 
     /// An option key under `prefix` (`""` at the top, `status` inside
@@ -1093,4 +1046,6 @@ mod tests {
         assert!(Requires::parse("grofe >= 1.0").is_ok_and(|r| !r.met("0.9.9")));
         assert!(Requires::parse("grofe >= 1.0").is_ok_and(|r| r.met("1.0.0-rc.1")));
     }
+
+    mod include;
 }

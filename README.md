@@ -79,7 +79,8 @@ grofe list-sessions
 `"` splits, `c` opens a window, `f` floats a pane, `Space` lists every key,
 `d` detaches.
 
-Configuration is TOML in `~/.config/grofe/`. Write a small config, check what
+Configuration is TOML in `~/.config/grofe/` (`--config-dir` or
+`GROFE_CONFIG_DIR` picks another folder). Write a small config, check what
 grofe makes of it, and apply it to the running server:
 
 <!-- readme-test: begin -->

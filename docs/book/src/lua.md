@@ -12,6 +12,43 @@ key bindings, timers and event subscriptions, so a reload never doubles anything
 The order is: installed packs in name order, then your `init.luau`. An error in any of them is
 logged, shown by `show-messages` with the name of the script, and never stops startup.
 
+## Modules with `require`
+
+Split `init.luau` into modules in your config folder. `require(name)` loads the first file
+that exists, in this order:
+
+1. `<config dir>/<name>.luau`
+2. `<config dir>/<name>.lua`
+3. `<config dir>/<name>/init.luau`
+4. `<config dir>/<name>/init.lua`
+
+A dot in the name is a folder, so `require("ui.status")` tries `ui/status.luau`, then
+`ui/status.lua`, then `ui/status/init.luau` and `ui/status/init.lua`. A leading `./` is allowed
+and changes nothing. The call returns what the module returns, or `true` when it returns nothing.
+
+```lua
+local status = require("ui.status") -- runs ui/status.luau, returns its table
+require("keymaps")                  -- runs keymaps.luau
+```
+
+- A module runs once per load. Requiring it again returns the same value without running it.
+  Every `reload` starts with an empty cache, so edited modules run again.
+- `require` also works in callbacks that run later, such as a key binding or a timer, and in
+  the `lua` command, even when the folder has no `init.luau`.
+- A required module shares the call's 50 ms budget and memory limit.
+- Symlinks are followed. A module linked into the folder from elsewhere (stow, chezmoi) loads.
+
+Each of these is a Lua error, logged like any other:
+
+- an empty name, a name with `..`, or an absolute path (`/etc/passwd`)
+- a name with a file extension: write `require("keymaps")`, not `require("keymaps.luau")`
+- a missing module: the error names it and lists every path tried
+- a cycle, where a module requires itself through other modules
+- an error inside the module, which `require` passes on
+
+There is one `require` for all Lua code: packs, at load time and in their callbacks, load
+modules from your config folder too, sharing the load's cache with `init.luau`. Without a config folder, `require` is an error.
+
 ## The no-freeze contract
 
 Every entry into Lua (the init file, a key, an event, a timer, a `system` callback, the `lua`
@@ -20,8 +57,8 @@ command) is one call with its own limits:
 - 50 ms of run time. After that every step raises an error, so even a `pcall` loop ends within
   twice the budget.
 - 64 MiB of memory.
-- No `io`, no `os.execute`, no `loadstring`, no native modules. `require` only reaches plugin and
-  config directories.
+- No `io`, no `os.execute`, no `loadstring`, no native modules. `require` loads modules from
+  your config folder (see [Modules with `require`](#modules-with-require)).
 - Calling the `lua` command from Lua is an error, not a deadlock.
 
 When a call goes over, grofe aborts it, logs `<script>: over its 50 ms budget` and carries on. The
