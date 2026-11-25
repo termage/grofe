@@ -48,9 +48,9 @@ $ run-shell 'sleep 0.5'
 $ display-message -p -t main:5 'dead=[#{pane_dead}] signal=[#{pane_dead_signal}] status=[#{pane_dead_status}]'
 dead=[1] signal=[15] status=[]
 ? 0
-$ new-window -d -t main:6 'while :; do printf "\033[?2026h"; sleep 0.05; done'
+$ new-window -d -t main:6 'while :; do printf "\033[?2026h"; : > "$HOME/sync6"; sleep 0.02; done'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'for i in $(seq 100); do [ -e "$HOME/sync6" ] && break; sleep 0.1; done; sleep 0.2'
 ? 0
 $ display-message -p -t main:6 'sync=[#{synchronized_output_flag}]'
 sync=[1]
