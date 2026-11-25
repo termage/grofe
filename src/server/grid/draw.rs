@@ -14,6 +14,10 @@ use crate::types::PaneId;
 /// Cells between two tile columns.
 const GAP: usize = 1;
 
+/// The narrowest tile: its frame, a title of one cell between a space and
+/// an edge cell each side, and a body cell.
+const MIN_TILE: usize = 7;
+
 /// How the tiles sit on a client: one width per column (stretched to fill
 /// the screen), the tile height, and the tile rows that fit under the query
 /// line.
@@ -29,7 +33,7 @@ pub(super) struct Layout {
 /// A tile is its frame round `preview_lines` lines.
 pub(super) fn layout(size: (u16, u16), tile_width: u16, preview_lines: u16) -> Layout {
     let w = usize::from(size.0);
-    let want = usize::from(tile_width).max(1);
+    let want = usize::from(tile_width).max(MIN_TILE);
     let cols = ((w + GAP) / (want + GAP)).max(1);
     let room = w.saturating_sub(GAP * (cols - 1));
     let widths = (0..cols)
@@ -241,6 +245,29 @@ mod tests {
         assert_eq!(x + w, 200, "the last column reaches the right edge");
         assert_eq!(three.rect(1).0, three.rect(0).2 + 1, "a one-cell gap");
         assert_eq!(three.rect(3).1, 1 + 14, "the next row under the first");
+    }
+
+    #[test]
+    fn tiny_tile_width_still_frames_and_titles() {
+        let size = (130, 10);
+        let lay = layout(size, 1, 3);
+        assert_eq!(lay.cols, (130 + 1) / (MIN_TILE + 1));
+        let tiles: Vec<Tile> = (0..lay.cols)
+            .map(|i| tile(&format!("t{i} long"), &["body"]))
+            .collect();
+        let screen = draw(size, &lay, &tiles);
+        for slot in 0..tiles.len() {
+            let (x, y, w, h) = lay.rect(slot);
+            assert!(w >= MIN_TILE && x + w <= 130);
+            assert_eq!(at(&screen, x, y).c, CORNERS[0], "tile {slot}");
+            assert_eq!(at(&screen, x + w - 1, y + h - 1).c, CORNERS[3]);
+            let title = at(&screen, x + 3, y).c;
+            assert!(
+                title == 't' || title == '…',
+                "tile {slot} has a title: {title}"
+            );
+            assert_eq!(at(&screen, x + 1, y + 1).c, 'b', "and a body");
+        }
     }
 
     #[test]

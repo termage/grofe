@@ -301,9 +301,10 @@ fn body(state: &State, pane: PaneId, h: usize) -> Vec<Vec<SnapCell>> {
     let Some(p) = state.model.panes.get(&pane) else {
         return Vec::new();
     };
-    let mut rows = p.handle.snapshot_rows(0..p.rows).rows;
-    rows.drain(..rows.len().saturating_sub(h));
-    rows
+    let h = u16::try_from(h).unwrap_or(u16::MAX);
+    p.handle
+        .snapshot_rows(p.rows.saturating_sub(h)..p.rows)
+        .rows
 }
 
 pub struct GridOverlay;
