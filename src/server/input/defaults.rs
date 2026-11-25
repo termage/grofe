@@ -240,9 +240,9 @@ pub(super) fn default_group(table: &str, cmds: &[Vec<String>]) -> &'static str {
     }
 }
 
-/// The sections of the keys reference, in the order it lists them; a group
-/// not named here comes after them, in name order.
-const GROUP_ORDER: &[&str] = &[
+/// The sections of the keys reference and the key menu, in the order they
+/// list them; a group not named here comes after them.
+pub const GROUP_ORDER: &[&str] = &[
     "window",
     "pane",
     "session",
@@ -290,6 +290,12 @@ prefix key (`Ctrl-b`) first. The last column says how tmux's own default for
 that key compares: the same command, grofe's own key, or what tmux binds
 there instead. Under tmux identity (grofe run as `tmux`, or
 `compat-identity = \"tmux\"`) the keys are tmux's, with tmux's notes.
+
+In the key menu (`prefix Space`), press a listed key to run it, or `C-f` to
+search every binding by key, description, group and command. `/` searches
+too in a table where `/` is not bound; in the prefix table `/` is
+`Describe key binding`. `Enter` runs the selected row, `Escape` leaves search
+and then closes the menu.
 ",
     );
     for group in order {

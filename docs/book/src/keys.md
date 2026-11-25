@@ -10,6 +10,12 @@ that key compares: the same command, grofe's own key, or what tmux binds
 there instead. Under tmux identity (grofe run as `tmux`, or
 `compat-identity = "tmux"`) the keys are tmux's, with tmux's notes.
 
+In the key menu (`prefix Space`), press a listed key to run it, or `C-f` to
+search every binding by key, description, group and command. `/` searches
+too in a table where `/` is not bound; in the prefix table `/` is
+`Describe key binding`. `Enter` runs the selected row, `Escape` leaves search
+and then closes the menu.
+
 ## window
 
 | Key | Does | Command | tmux |
