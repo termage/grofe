@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crate::cmd;
 use crate::lua::api::{self, Host, Payload};
+use crate::lua::require;
 use crate::lua::runtime::{Limits, LuaError, Runtime};
 use crate::protocol::{ClientCtx, Dialect};
 use crate::server::input::{Binding, BindingSource, parse_key};
@@ -41,7 +42,7 @@ fn deferring() -> bool {
 
 /// The reload sequence over what a nested reload collected.
 fn run_deferred(state: &mut State, d: Deferred, config_dir: PathBuf) {
-    reset(state);
+    reset_at(state, &config_dir);
     for (name, dir) in &d.packs {
         if let Err(e) = load_pack(state, name, dir) {
             log(state, format!("lua: {e}"));
@@ -222,6 +223,27 @@ pub(crate) fn reset(state: &mut State) {
     }
 }
 
+/// `reset`, then points `require` at `config_dir` on the fresh runtime, so
+/// packs loaded before `init.luau` can require from it too.
+pub fn reset_at(state: &mut State, config_dir: &Path) {
+    reset(state);
+    if !deferring() && !config_dir.as_os_str().is_empty() {
+        set_folder(state, config_dir);
+    }
+}
+
+fn set_folder(state: &mut State, config_dir: &Path) {
+    let r = with_host(state, client_less_ctx(), |rt, _| {
+        require::set_dir(rt.lua(), config_dir).map_err(|e| LuaError {
+            who: "require".into(),
+            message: e.to_string(),
+        })
+    });
+    if let Err(e) = r {
+        log_error(state, &e);
+    }
+}
+
 /// `init.luau`, else `init.lua`, in `dir`.
 fn init_file(dir: &Path) -> Option<PathBuf> {
     ["init.luau", "init.lua"]
@@ -265,8 +287,11 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
         }
         return;
     }
-    let Some(file) = init_file(config_dir) else {
+    if config_dir.as_os_str().is_empty() {
         return;
+    }
+    let Some(file) = init_file(config_dir) else {
+        return set_folder(state, config_dir);
     };
     let who = file
         .file_name()
@@ -276,7 +301,10 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
         Err(e) => return log(state, format!("lua: {who}: {e}")),
     };
     let r = with_host(state, client_less_ctx(), |rt, host| {
-        api::enter(rt, host, &who, |lua| lua.load(&src).set_name(&who).exec())
+        api::enter(rt, host, &who, |lua| {
+            require::set_dir(lua, config_dir)?;
+            lua.load(&src).set_name(&who).exec()
+        })
     });
     if let Err(e) = r {
         log_error(state, &e);
@@ -304,158 +332,4 @@ pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::server::{test_ctx, test_state};
-    use std::time::Instant;
-
-    fn messages(state: &State) -> String {
-        clients::messages(state)
-            .map(|(_, l)| l.as_str())
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    #[test]
-    fn run_chunk_returns_values() {
-        let mut state = test_state();
-        let ctx = test_ctx();
-        assert_eq!(run_chunk(&mut state, &ctx, "return 1 + 1"), Ok("2".into()));
-        assert_eq!(
-            run_chunk(&mut state, &ctx, "return 1, 'a'"),
-            Ok("1 a".into())
-        );
-    }
-
-    #[test]
-    fn nested_lua_verb_is_an_error() {
-        let mut state = test_state();
-        let e = run_chunk(&mut state, &test_ctx(), "grofe.cmd{'lua','return 1'}").unwrap_err();
-        assert!(e.contains("nested"), "{e}");
-        assert_eq!(
-            run_chunk(&mut state, &test_ctx(), "return 3"),
-            Ok("3".into())
-        );
-    }
-
-    #[test]
-    fn a_spin_returns_a_budget_error_fast() {
-        let mut state = test_state();
-        let t = Instant::now();
-        let e = run_chunk(&mut state, &test_ctx(), "while true do end").unwrap_err();
-        assert!(e.contains("budget"), "{e}");
-        assert!(
-            t.elapsed() < Duration::from_millis(200),
-            "{:?}",
-            t.elapsed()
-        );
-    }
-
-    #[test]
-    fn test_reset_unbinds_lua_keys() {
-        let mut state = test_state();
-        let before = state
-            .registry
-            .key_tables
-            .exact("prefix", &parse_key("c").unwrap())
-            .cloned();
-        assert!(before.is_some());
-        run_chunk(
-            &mut state,
-            &test_ctx(),
-            "grofe.bind('prefix','g',function() end)",
-        )
-        .unwrap();
-        let g = parse_key("g").unwrap();
-        assert!(state.registry.key_tables.exact("prefix", &g).is_some());
-        reset(&mut state);
-        assert!(state.registry.key_tables.exact("prefix", &g).is_none());
-        let after = state
-            .registry
-            .key_tables
-            .exact("prefix", &parse_key("c").unwrap())
-            .cloned();
-        assert_eq!(before, after);
-        assert!(state.lua.is_none());
-    }
-
-    #[test]
-    fn test_load_init_error_logs_and_continues() {
-        let mut state = test_state();
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("init.luau"), "error('boom')").unwrap();
-        load_init(&mut state, dir.path());
-        assert!(messages(&state).contains("boom"), "{}", messages(&state));
-        assert_eq!(
-            run_chunk(&mut state, &test_ctx(), "return 1"),
-            Ok("1".into())
-        );
-    }
-
-    #[test]
-    fn test_bind_shows_desc_in_list_keys() {
-        let mut state = test_state();
-        let ctx = test_ctx();
-        run_chunk(
-            &mut state,
-            &ctx,
-            "grofe.bind('prefix','g',function() end,{desc='Git popup'})",
-        )
-        .unwrap();
-        let out = dispatch::run_split(&mut state, &ctx, &["list-keys".into()]).unwrap();
-        assert!(out.contains("Git popup"), "{out}");
-    }
-
-    #[test]
-    fn a_failing_callback_names_itself() {
-        let mut state = test_state();
-        run_chunk(
-            &mut state,
-            &test_ctx(),
-            "grofe.bind('prefix','g',function() while true do end end)",
-        )
-        .unwrap();
-        call(&mut state, 1, Payload::None);
-        assert!(
-            messages(&state).contains("callback 1"),
-            "{}",
-            messages(&state)
-        );
-        call(&mut state, 99, Payload::None);
-    }
-
-    #[test]
-    fn test_reload_inside_lua_is_deferred() {
-        let (mut state, mut rx) =
-            crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
-        let ctx = test_ctx();
-        assert!(run_chunk(&mut state, &ctx, "grofe.cmd{'reload'}").is_ok());
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("init.luau"),
-            "grofe.bind('prefix','g',function() end)",
-        )
-        .unwrap();
-        {
-            let _in_call = InCall::enter().unwrap();
-            reset(&mut state);
-            load_init(&mut state, dir.path());
-        }
-        let g = parse_key("g").unwrap();
-        assert!(state.registry.key_tables.exact("prefix", &g).is_none());
-        while let Ok(job) = rx.try_recv() {
-            job(&mut state);
-        }
-        assert!(state.registry.key_tables.exact("prefix", &g).is_some());
-    }
-
-    #[test]
-    fn load_pack_stores_the_return_value() {
-        let mut state = test_state();
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("init.luau"), "return { x = 1 }").unwrap();
-        load_pack(&mut state, "p", dir.path()).unwrap();
-        let r = run_chunk(&mut state, &test_ctx(), "return grofe.plugin('p').x");
-        assert_eq!(r, Ok("1".into()));
-    }
-}
+mod tests;

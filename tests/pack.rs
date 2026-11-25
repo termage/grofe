@@ -35,7 +35,8 @@ fn pack_sync_then_reload_loads_plugin() {
     fs::write(work.join("init.luau"), "return { x = 1 }\n").expect("write init");
     git(&work, &["init", "-q", "-b", "main"]);
     git(&work, &["add", "."]);
-    git(&work, &["commit", "-q", "-m", "p"]);
+    // No hook of the user's runs on the temp repo.
+    git(&work, &["commit", "-q", "--no-verify", "-m", "p"]);
     git(&root, &["clone", "-q", "--bare", "work", "p.git"]);
 
     let config = srv.config_home.join("grofe");

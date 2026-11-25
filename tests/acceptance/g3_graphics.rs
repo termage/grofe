@@ -1030,6 +1030,13 @@ fn a_stalled_client_gets_its_placements_again() {
     stalled.expect("a frame was dropped for the stopped client");
     ended.expect("the pane finished");
     a.wait_for("END");
+    // END is drawn before the placements in the same frame, and the pty
+    // can hand the client's output over in pieces: wait for the put too.
+    wait_bytes(&mut a, "the placement put after END", mark, |b| {
+        b.windows(3)
+            .rposition(|w| w == b"END")
+            .is_some_and(|e| puts(&b[e..]).iter().any(|p| p.keys["p"] == put.keys["p"]))
+    });
     let after = since(&mut a, mark);
     let again = puts(&after);
     assert!(

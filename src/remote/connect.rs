@@ -546,7 +546,12 @@ mod tests {
     /// that sends nothing at all still drops after two.
     #[test]
     fn data_still_arriving_keeps_a_link_whose_pongs_are_late() {
-        let every = Duration::from_millis(100);
+        // Two missed pings are a silence of 2 * every, which drops the link
+        // by design; at 100 ms a 200 ms scheduler stall of the sending
+        // thread on a loaded runner was enough. 250 ms tolerates 500 ms.
+        // ponytail: a stall of the sending thread over 500 ms still drops
+        // the link here; only a fake clock would remove the bound.
+        let every = Duration::from_millis(250);
         // Flowing: the peer answers no ping but keeps sending frames.
         let (a, b) = fake_proxy(&ProxyHello::current(&[]));
         let link = Link::over(a.try_clone().unwrap(), a, None).unwrap();
@@ -567,7 +572,7 @@ mod tests {
         };
         ping_with(&link, every);
         assert!(
-            !wait_dropped_within(&link, every * 10),
+            !wait_dropped_within(&link, every * 6),
             "dropped while data flowed: {:?}",
             link.dropped()
         );

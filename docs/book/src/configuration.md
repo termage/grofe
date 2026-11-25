@@ -1,13 +1,20 @@
 # Configuration
 
-Configuration is TOML and lives in `~/.config/grofe/` (or
-`$XDG_CONFIG_HOME/grofe/`). Files load in this order, each overriding the
-ones before:
+## Where config lives
+
+Configuration is TOML in a config folder: `~/.config/grofe/` by default, or
+`$XDG_CONFIG_HOME/grofe/` when that variable is set. Files load in this
+order, each overriding the ones before:
 
 1. `config.toml`
 2. every `conf.d/*.toml`, in name order
 3. `user.toml`
 4. `settings.toml`
+
+Then `init.luau` (or else `init.lua`) runs, after every pack (see
+[Lua scripting and packs](lua.md)). The folder also holds `layouts/`, the
+pack lock `pack-lock.toml` and `machines.toml`. A missing file is skipped, and
+a missing folder loads the built-in defaults.
 
 `user.toml` is your own file, so tools and themes can add to your setup
 without overriding you. `settings.toml` is the one grofe writes: it loads
@@ -48,19 +55,61 @@ window or pane, `d` unsets it as tmux does and leaves `settings.toml` alone.
 A server started with `tmux -f <file>` reads only the files you name, never
 `settings.toml`, so `P` there answers that nothing was saved.
 
+## Another config folder
+
+`grofe --config-dir <dir>` reads the whole config from `<dir>` in place of
+`~/.config/grofe/`, and `GROFE_CONFIG_DIR=<dir>` does the same. Everything
+in the list above follows the folder: `config.toml`, `conf.d/`, `user.toml`,
+`settings.toml`, `init.luau`, `machines.toml`, `pack-lock.toml` and
+`layouts/`. Saves from customize-mode and the settings menu go to
+`<dir>/settings.toml`.
+
+A relative path is taken from the current directory and `~/` from `$HOME`.
+Spaces and other characters in the path are fine. A folder that does not
+exist yet loads as empty, and the first save creates it. A path that is a
+file is an error that names it (exit 1), for the flag and the variable
+alike.
+
 ## Another config file
 
 `grofe --config <file>` loads `<file>` in place of `config.toml`, and
-`GROFE_CONFIG=<file>` does the same; the flag wins over the variable, which
-wins over the default. The file's folder then becomes the config dir:
-`conf.d/`, `user.toml`, `settings.toml`, `layouts/`, packs (`pack-lock.toml`),
-`init.luau` and `machines.toml` are read from there, not `~/.config/grofe/`. A relative path is taken from
-the current directory and `~/` from `$HOME`. A file that does not exist loads
-as empty. `reload` re-reads the same file, and `show-config` honours both. A
-folder is refused by `--config` (exit 1); a `GROFE_CONFIG` naming a folder is
-ignored with a notice on stderr. Only the command that starts the server picks the file: a
-later command with another `--config` prints `grofe: server uses <path>` and
-carries on.
+`GROFE_CONFIG=<file>` does the same. Without a folder option, the file's
+folder becomes the config folder: `conf.d/` and the rest are read from next
+to the file. A relative path is taken from the current directory and `~/`
+from `$HOME`. A file that does not exist loads as empty. `reload` re-reads
+the same file, and `show-config` honours both. A folder is refused by
+`--config` (exit 1); a `GROFE_CONFIG` naming a folder is ignored with a
+notice on stderr.
+
+## Which file and folder win
+
+An empty variable counts as unset. The main file is the first of:
+
+1. `--config <file>`
+2. `GROFE_CONFIG`
+3. `<folder>/config.toml`
+
+The folder is the first of:
+
+1. `--config-dir <dir>`
+2. `GROFE_CONFIG_DIR`
+3. the folder of the file named by `--config` or `GROFE_CONFIG`
+4. `$XDG_CONFIG_HOME/grofe`, else `~/.config/grofe`
+
+| You pass | Main file | Every other file |
+| --- | --- | --- |
+| nothing | `~/.config/grofe/config.toml` | `~/.config/grofe/` |
+| `--config F` | `F` | the folder of `F` |
+| `--config-dir D` | `D/config.toml` | `D/` |
+| `--config F --config-dir D` | `F` | `D/` |
+
+So `--config F --config-dir D` reads `F` plus every other layer from `D`.
+
+Only the command that starts the server picks the file and the folder. The
+server it starts gets both. A later command with another `--config` prints
+`grofe: server uses <path>`, and one with another `--config-dir` prints
+`grofe: server uses config folder <dir>`; both carry on with the running
+server.
 
 ## A small config
 
@@ -85,6 +134,156 @@ in a table (`status.right` is `right` under `[status]`) and durations say
 their unit (`escape-time-ms`). Booleans are `true` and `false`. A binding's
 `desc` shows in `list-keys` and the key menu (`prefix Space`). The default
 `history-limit` is 2000 lines, as in tmux.
+
+## Split a config with `include`
+
+`include` loads other TOML files from the one that names it. It takes one
+path or a list:
+
+```toml
+include = ["keymaps.toml", "theme.toml"]
+```
+
+- A relative path is taken from the folder of the file that names it, not
+  the current directory.
+- The included files apply after the including file's own keys, wherever
+  `include` stands in it, and in list order. A later file wins.
+- An included file loads at the layer of the file that names it. A file
+  included from `config.toml` is still under `conf.d/`, `user.toml` and
+  `settings.toml`.
+- An included file can include more files. A cycle, such as a file that
+  includes itself, is an error.
+- A missing file is an error, and so is a value that is not a path or a
+  list of paths (`include = 3`). `include = []` includes nothing.
+- Errors name the file, the line and the key, like every other config
+  error.
+
+`include` is a top-level key, so put it above the first `[table]`. In TOML,
+a key below a table header belongs to that table.
+
+`source-file` is the same key under its older name. When a file uses both,
+the `include` files apply first and the `source-file` files after them, and
+an error names the key that was used.
+
+## Split `init.luau` with `require`
+
+`require("keymaps")` in `init.luau` loads `keymaps.luau` from the config
+folder and returns what it returns. A dot in the name is a folder:
+`require("ui.status")` loads `ui/status.luau`. The
+[Lua page](lua.md#modules-with-require) has the exact rules.
+
+## A tidy layout
+
+One way to split a config, with the TOML and the Lua side by side:
+
+```text
+~/.config/grofe/
+  config.toml      # options, and the include list
+  keymaps.toml     # key bindings
+  theme.toml       # the status line
+  init.luau        # requires the Lua modules
+  keymaps.luau     # keys that run Lua
+  ui/
+    status.luau    # a git branch widget for the status line
+```
+
+`config.toml`:
+
+```toml
+include = ["keymaps.toml", "theme.toml"]
+
+prefix = "C-a"
+history-limit = 100000
+mouse = true
+```
+
+`keymaps.toml`:
+
+```toml
+[keys.prefix]
+"|" = "split-window -h -c '#{pane_current_path}'"
+"-" = "split-window -v -c '#{pane_current_path}'"
+"r" = { cmd = "reload", desc = "reload the config" }
+```
+
+`theme.toml`:
+
+```toml
+[status]
+position = "top"
+style = "bg=colour235,fg=colour250"
+left = "#[bold] #{session_name} #[default]"
+right = "#{@git} %H:%M"
+```
+
+`init.luau`:
+
+```lua
+require("keymaps")
+local status = require("ui.status")
+grofe.log("status widget every " .. status.every_ms .. " ms")
+```
+
+`keymaps.luau`:
+
+```lua
+grofe.bind("prefix", "g", function()
+  grofe.cmd({ "new-window", "-n", "git", "lazygit" })
+end, { desc = "Open lazygit" })
+```
+
+`ui/status.luau`:
+
+```lua
+local M = { every_ms = 5000 }
+
+function M.refresh()
+  grofe.system({ "git", "rev-parse", "--abbrev-ref", "HEAD" }, function(r)
+    local branch = r.code == 0 and r.stdout:gsub("%s+$", "") or ""
+    grofe.cmd({ "set-option", "-g", "@git", branch })
+  end)
+end
+
+M.refresh()
+grofe.every(M.every_ms, M.refresh)
+return M
+```
+
+`keymaps.toml` and `keymaps.luau` can share a name: `include` names the
+file in full, and `require` only looks for `.luau` and `.lua` files. The
+same tree works in any folder you pass to `--config-dir`.
+
+## Running as tmux
+
+Started through a `tmux` link (see
+[Switching from tmux](switching-from-tmux.md)), with no `-f`, `--config`,
+`--config-dir`, `GROFE_CONFIG` or `GROFE_CONFIG_DIR`, grofe looks for tmux's
+default config files, in tmux's order:
+
+1. `/etc/tmux.conf`
+2. `~/.tmux.conf`
+3. `$XDG_CONFIG_HOME/tmux/tmux.conf`, only when that variable is set and
+   not empty
+4. `~/.config/tmux/tmux.conf`
+
+`~` is `$HOME`, or your home from the user database when `HOME` is unset.
+A path that is the same string as an earlier one is checked once, so with
+`XDG_CONFIG_HOME=$HOME/.config` that file loads once. Two paths that are one
+file through a symlink both load, as in tmux.
+
+When at least one of these exists, the server behaves exactly as if you had
+passed each existing file with `-f`. Every one loads, in the order above,
+and a later file wins. Parse errors, `reload` and `#{config_files}` work as
+they do with `-f`. No TOML loads: not `config.toml`, not `conf.d/`, not
+`user.toml`, not `settings.toml`. So `P` in customize-mode saves nothing,
+as with `-f`. The files are chosen when the server starts; a file you add
+later is read by the next server.
+
+When none of these files exists, the TOML config loads as usual. To get
+your TOML config while a tmux file exists, pass `--config` or
+`--config-dir` (or set `GROFE_CONFIG` or `GROFE_CONFIG_DIR`). An explicit
+`-f` also wins over the defaults. A server started as `grofe` never reads
+these files.
 
 ## Check, explain, reload
 

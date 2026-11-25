@@ -30,13 +30,14 @@ use grofe::types::PaneId;
 use nix::fcntl::{FcntlArg, FdFlag, Flock, FlockArg, fcntl};
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 
-const USAGE: &str =
-    "usage: grofe [-L socket-name] [-S socket-path] [--config file] <command> [args...]";
+const USAGE: &str = "usage: grofe [-L socket-name] [-S socket-path] [--config file] \
+                     [--config-dir dir] <command> [args...]";
 
 /// `grofe --help`: the global options and the commands most sessions use.
 /// Every other tmux command name works too.
 const HELP: &str = "\
-usage: grofe [-L socket-name] [-S socket-path] [--config file] <command> [args...]
+usage: grofe [-L socket-name] [-S socket-path] [--config file] [--config-dir dir]
+             <command> [args...]
 
 Options:
   -L socket-name   use the named server socket in grofe's socket directory
@@ -45,6 +46,10 @@ Options:
                    (also $GROFE_CONFIG); its folder becomes the config dir: conf.d/,
                    user.toml, settings.toml, layouts/, packs (pack-lock.toml),
                    init.luau and machines.toml are read from there
+  --config-dir dir use this config dir instead of ~/.config/grofe (also
+                   $GROFE_CONFIG_DIR): config.toml, conf.d/, user.toml, settings.toml,
+                   init.luau, layouts/, pack-lock.toml and machines.toml; with
+                   --config, only config.toml is replaced
   -r host          run the command on host over ssh (default: new-session -A -s main)
   --install        install grofe on the remote host if it has none (--no-install: never)
   --install-from p install the local binary p there instead of downloading a release
@@ -96,6 +101,8 @@ fn main() -> ExitCode {
     let argv0 = std::env::args_os().next().unwrap_or_default();
     let is_server = args.first().is_some_and(|a| a == "__server");
     let (globals, rest) = if grofe::compat::invoked_as_tmux(&argv0) && !is_server {
+        // `--config-dir` is grofe's, so tmux's parser never sees it.
+        let (config_dir, args) = config_glue::take_config_dir(&args);
         match grofe::compat::tmux::cli(&args) {
             Ok(cli) if cli.version => {
                 println!("tmux {}", grofe::compat::compat_level());
@@ -120,6 +127,7 @@ fn main() -> ExitCode {
                     socket: cli.socket,
                     name: cli.name,
                     config: None,
+                    config_dir,
                     version: false,
                     help: false,
                     remote: RemoteFlags::default(),
@@ -168,7 +176,9 @@ fn main() -> ExitCode {
     };
     // The server is told its file by argument, over any variable it inherited.
     let server = rest.first().is_some_and(|v| v == "__server");
-    if !server && let Err(e) = config_glue::apply(globals.config.as_deref()) {
+    if !server
+        && let Err(e) = config_glue::apply(globals.config.as_deref(), globals.config_dir.as_deref())
+    {
         return fail(&format!("grofe: {e}"));
     }
     if let Some(code) = remote_route(&globals, &rest) {
@@ -505,6 +515,8 @@ struct Globals {
     name: Option<String>,
     /// `--config <file>`, as given.
     config: Option<String>,
+    /// `--config-dir <dir>`, as given.
+    config_dir: Option<String>,
     /// `-V` / `--version` among the global options.
     version: bool,
     /// `-h` / `--help` among the global options.
@@ -559,6 +571,7 @@ fn parse_globals(args: &[String]) -> Result<(Globals, &[String]), String> {
         socket: None,
         name: None,
         config: None,
+        config_dir: None,
         version: false,
         help: false,
         remote: RemoteFlags::default(),
@@ -582,6 +595,13 @@ fn parse_globals(args: &[String]) -> Result<(Globals, &[String]), String> {
                     .get(i + 1)
                     .ok_or_else(|| "option --config requires an argument".to_string())?;
                 globals.config = Some(value.clone());
+                i += 2;
+            }
+            "--config-dir" => {
+                let value = args
+                    .get(i + 1)
+                    .ok_or_else(|| "option --config-dir requires an argument".to_string())?;
+                globals.config_dir = Some(value.clone());
                 i += 2;
             }
             s if remote_cli::REMOTE_FLAGS.contains(&s) => {
@@ -646,7 +666,8 @@ fn run_foreground(globals: &Globals) -> Option<ExitCode> {
 }
 
 /// `grofe __server -S <sock> --ready-fd <n> [--exit-when-empty] [--restore]
-/// [--identity tmux] [--file <path>] [--config <path>]`: the detached server process.
+/// [--identity tmux] [--file <path>] [--config <path>] [--config-dir <dir>]`: the
+/// detached server process.
 /// `--identity tmux` says the CLI that started it ran as `tmux` (spec
 /// D12); `--file` is that CLI's `tmux -f`.
 fn run_server(globals: &Globals, args: &[String]) -> ExitCode {
@@ -670,6 +691,9 @@ fn run_server(globals: &Globals, args: &[String]) -> ExitCode {
             }
             ("--file", Some(path)) => grofe::compat::set_start_config(PathBuf::from(path)),
             ("--config", Some(path)) => grofe::config::set_process_config(PathBuf::from(path)),
+            ("--config-dir", Some(path)) => {
+                grofe::config::set_process_config_dir(PathBuf::from(path))
+            }
             ("--ready-fd", Some(fd)) => match fd.parse() {
                 Ok(fd) => ready_fd = Some(fd),
                 Err(_) => return fail(&format!("bad --ready-fd: {fd}")),

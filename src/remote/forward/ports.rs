@@ -275,8 +275,16 @@ mod tests {
     #[test]
     fn the_next_free_port_is_taken_and_state_files_list_live_clients() {
         let dir = tempfile::tempdir().unwrap();
-        let taken = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = taken.local_addr().unwrap().port();
+        // An ephemeral port can be within MAX_PORT_TRIES of 65535 (macOS
+        // hands out 49152..=65535), where the search has no room and
+        // `port + MAX_PORT_TRIES` overflows: take one with room above it.
+        let (_taken, port) = loop {
+            let l = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = l.local_addr().unwrap().port();
+            if port.checked_add(MAX_PORT_TRIES).is_some() {
+                break (l, port);
+            }
+        };
         let open: Opener = Arc::new(|_| Err(io::Error::other("no proxy")));
         let mut fwd = Forwarder::new("u@h:22", open, Some(dir.path().to_path_buf()));
         let local = fwd.start(port).unwrap();

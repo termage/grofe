@@ -4,7 +4,8 @@
 //! parser or to the tmux front end ([`tmux`], FE.1), the variables a pane
 //! gets from the identity, and the `compat-miss.log` writer.
 
-pub(crate) mod named;
+pub mod default_conf;
+pub mod named;
 pub mod tmux;
 
 pub(crate) use named::Named;
@@ -117,10 +118,14 @@ pub fn set_start_config(file: PathBuf) {
 /// started without one. As in tmux 3.7b they replace the whole config and
 /// each loads (recorded: `-f a -f b` loads both; a missing file is no
 /// config and no error; `-f /dev/null` is none), and they bind only the
-/// server they start.
-pub(crate) fn start_config() -> Option<Vec<PathBuf>> {
-    let files = START_CONFIG.lock().ok()?;
-    (!files.is_empty()).then(|| files.clone())
+/// server they start. Without `-f`, a server started as `tmux` takes the
+/// default tmux files that exist ([`default_conf::files`]).
+pub fn start_config() -> Option<Vec<PathBuf>> {
+    let files = START_CONFIG.lock().ok()?.clone();
+    if files.is_empty() {
+        return default_conf::files();
+    }
+    Some(files)
 }
 
 /// Where a tmux-identity server appends its misses, set by

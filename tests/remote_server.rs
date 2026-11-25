@@ -35,9 +35,10 @@ fn run_with_agent(srv: &TestServer, agent: &str, args: &[&str]) {
 }
 
 /// A pane command that writes `$SSH_AUTH_SOCK|$BROWSER` to `file`, then stays.
+/// It writes a temp file and renames it, so `file` exists only once whole.
 fn write_env(file: &Path) -> String {
     format!(
-        "printf '%s|%s' \"$SSH_AUTH_SOCK\" \"$BROWSER\" > {}; sleep 100",
+        "printf '%s|%s' \"$SSH_AUTH_SOCK\" \"$BROWSER\" > {0}.tmp && mv {0}.tmp {0}; sleep 100",
         file.display()
     )
 }
@@ -50,10 +51,7 @@ fn env_of_new_pane(srv: &TestServer, name: &str, args: &[&str]) -> (String, Stri
     let mut argv = args.to_vec();
     argv.push(&command);
     srv.cmd(&argv).expect("start the pane");
-    // The shell makes the file before printf fills it: wait for the content.
-    wait_until("the pane to write its environment", WAIT, || {
-        fs::read_to_string(&file).is_ok_and(|t| t.contains('|'))
-    });
+    wait_until("the pane to write its environment", WAIT, || file.exists());
     let text = fs::read_to_string(&file).expect("env file");
     let (agent, browser) = text.split_once('|').expect("agent|browser");
     (agent.to_string(), browser.to_string())
@@ -452,7 +450,10 @@ fn listener_child() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
     let port = listener.local_addr().expect("addr").port();
     let file = std::env::var("GROFE_T_PORTFILE").expect("port file");
-    fs::write(file, port.to_string()).expect("write the port");
+    // Renamed into place, so the port file exists only once whole.
+    let tmp = format!("{file}.tmp");
+    fs::write(&tmp, port.to_string()).expect("write the port");
+    fs::rename(&tmp, &file).expect("rename the port file");
     let stop = std::env::var("GROFE_T_STOPFILE").expect("stop file");
     for _ in 0..1200 {
         if Path::new(&stop).exists() {
@@ -477,13 +478,11 @@ fn listening_pane(srv: &TestServer) -> (u16, PathBuf) {
     srv.cmd(&["new-session", "-d", "-s", "main", &command])
         .expect("session");
     wait_until("the listener's port", WAIT, || port_file.exists());
-    let port = loop {
-        if let Ok(text) = fs::read_to_string(&port_file)
-            && let Ok(port) = text.trim().parse()
-        {
-            break port;
-        }
-    };
+    let port = fs::read_to_string(&port_file)
+        .expect("port file")
+        .trim()
+        .parse()
+        .expect("port");
     (port, stop_file)
 }
 
@@ -703,7 +702,7 @@ fn grofe_open_falls_back_to_the_panes_own_browser() {
     // The pane keeps it beside the shim.
     let env = srv.home.join("env");
     let command = format!(
-        "printf '%s|%s' \"$BROWSER\" \"$GROFE_PREV_BROWSER\" > {}; sleep 100",
+        "printf '%s|%s' \"$BROWSER\" \"$GROFE_PREV_BROWSER\" > {0}.tmp && mv {0}.tmp {0}; sleep 100",
         env.display()
     );
     srv.cmd(&["new-session", "-d", "-s", "env", &command])

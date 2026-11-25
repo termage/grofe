@@ -16,7 +16,10 @@ against send, but some things are not there yet or never will be:
 - **`tmux -f file` takes a `tmux.conf`** through the `tmux` name, in place
   of the usual config, when the call starts the server. A file named
   `*.toml` stays grofe's own config, and `grofe`'s own server start reads
-  TOML only (`grofe import-tmux` converts a `tmux.conf`).
+  TOML only (`grofe import-tmux` converts a `tmux.conf`). Without `-f`,
+  a server started as `tmux` reads `~/.tmux.conf` and tmux's other default
+  files in place of the TOML config (see
+  [Running as tmux](configuration.md#running-as-tmux)).
 - **Control mode** (`tmux -C` and `-CC`) works for `attach` and
   `new-session` through a client-side bridge: command blocks, every
   notification tmux 3.7b sends (windows, panes, modes, sessions, other
@@ -119,7 +122,8 @@ tmux (`TERM_PROGRAM=tmux`, and `tmux -V` prints the tmux release grofe is
 compatible with), and starts with tmux 3.7b's option defaults and stock key
 bindings rather than grofe's own: base index 0, mouse off, numbered session
 names, shared pane borders, and `prefix f` as `find-window`. Your config's
-values still win; set `pane-frames = true` to get framed panes there too.
+values still win (a `tmux.conf` when one exists, see
+[Running as tmux](configuration.md#running-as-tmux)); set `pane-frames = true` to get framed panes there too.
 `compat-identity = "tmux"` gives a server started as `grofe` the same
 identity. The [options reference](reference/options.md) lists every default
 that differs.

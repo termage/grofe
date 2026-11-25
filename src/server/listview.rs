@@ -8,12 +8,22 @@ const DEFAULT_PAGE: usize = 10;
 /// Subsequence score of `query` in `text`, case-insensitive; `None` when
 /// the query is not a subsequence. Contiguous runs and early matches score
 /// higher. An empty query matches everything with 0.
-pub(crate) fn score(query: &str, text: &str) -> Option<i32> {
-    let mut hay = text.chars().flat_map(char::to_lowercase).enumerate();
+pub fn score(query: &str, text: &str) -> Option<i32> {
+    matches(query, text).map(|(score, _)| score)
+}
+
+/// [`score`] with the positions, in chars of `text`, the query matched.
+pub fn matches(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
+    let mut hay = text
+        .chars()
+        .enumerate()
+        .flat_map(|(i, c)| c.to_lowercase().map(move |l| (i, l)))
+        .enumerate();
     let mut total = 0;
     let mut prev: Option<usize> = None;
+    let mut hits = Vec::new();
     for q in query.chars().flat_map(char::to_lowercase) {
-        let (at, _) = hay.find(|&(_, c)| c == q)?;
+        let (at, (char_at, _)) = hay.find(|&(_, (_, c))| c == q)?;
         total += 10;
         match prev {
             Some(p) if p + 1 == at => total += 15,
@@ -21,8 +31,11 @@ pub(crate) fn score(query: &str, text: &str) -> Option<i32> {
             _ => {}
         }
         prev = Some(at);
+        if hits.last() != Some(&char_at) {
+            hits.push(char_at);
+        }
     }
-    Some(total)
+    Some((total, hits))
 }
 
 /// Indices of `texts` matching `query`, best score first, ties in the
@@ -167,6 +180,12 @@ mod tests {
         assert!(score("CL", "claude").is_some());
         assert!(score("cl", "CLAUDE").is_some());
         assert_eq!(score("xz", "claude"), None);
+    }
+
+    #[test]
+    fn matches_gives_char_positions() {
+        assert_eq!(matches("spt", "a split"), Some((43, vec![2, 3, 6])));
+        assert_eq!(matches("", "x"), Some((0, vec![])));
     }
 
     #[test]
