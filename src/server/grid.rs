@@ -10,12 +10,13 @@ use super::agents::{Agent, Rank, rank};
 use super::borders::PaneLines;
 use super::clients;
 use super::dispatch::agent;
-use super::dispatch::options::{self, FormatCtx, ServerVars};
+use super::dispatch::options::{FormatCtx, ServerVars};
+use super::frameopts;
 use super::input::{Input, InputHook, KeyCode, Routed};
 use super::listview::{ListAction, ListState, filter};
 use super::pane::{CellFlags, SnapCell};
-use super::render::{self, Overlay, OverlayCtx, PaneLooks, Screen};
-use super::status::{self, Style};
+use super::render::{Overlay, OverlayCtx, Screen};
+use super::status::Style;
 use crate::cmd::expand;
 use crate::types::{ClientId, PaneId};
 use draw::{Layout, Look, Tile, blank, put_text};
@@ -271,34 +272,25 @@ fn enter(state: &mut State, client: ClientId, pane: PaneId) -> Routed {
 /// The frame looks of the client's window, as the sidebar takes them:
 /// its lines, `pane-border-style` and `pane-active-border-style`.
 fn look(state: &State, client: ClientId) -> Look {
-    let model = &state.model;
-    let window = state
-        .clients
-        .get(&client)
-        .and_then(|c| model.sessions.get(&c.session))
-        .and_then(|s| model.windows.get(&s.active));
-    let Some(w) = window else {
-        return Look {
-            lines: PaneLines::parse(""),
-            border: Style::default(),
-            active: Style::default(),
-        };
-    };
-    let chain = options::chain(model, w.active);
-    let opt = |name: &str| model.options.lookup(name, &chain).unwrap_or("");
-    let mut looks = PaneLooks {
-        lines: PaneLines::parse(opt("pane-border-lines")),
-        ..Default::default()
-    };
-    render::apply_frames(model, w, &mut looks);
-    let inner = FormatCtx::new(model, w.active);
-    let vars = ServerVars::fresh(state, w.active, &inner);
-    let style = |name: &str| status::base_style(opt(name), &vars);
-    Look {
-        lines: looks.lines,
-        border: style("pane-border-style"),
-        active: style("pane-active-border-style"),
-    }
+    frameopts::with_frame_options(state, client, |f| Look {
+        lines: f.lines,
+        border: f.style("pane-border-style"),
+        active: f.style("pane-active-border-style"),
+    })
+    .unwrap_or(Look {
+        lines: PaneLines::parse(""),
+        border: Style::default(),
+        active: Style::default(),
+    })
+}
+
+/// The pane's number in its window, as `#{pane_index}` shows it (what
+/// `pane-border-lines number` draws).
+fn pane_index(state: &State, pane: PaneId) -> usize {
+    let vars = FormatCtx::new(&state.model, pane);
+    expand("#{pane_index}", &ServerVars::fresh(state, pane, &vars))
+        .parse()
+        .unwrap_or(0)
 }
 
 /// The last rows of `pane`'s screen, `h` at most.
@@ -339,6 +331,7 @@ impl Overlay for GridOverlay {
             .enumerate()
             .map(|(i, (pane, label))| Tile {
                 label,
+                index: pane_index(state, pane),
                 body: if (first..first + lay.rows * lay.cols).contains(&i) {
                     body(state, pane, lines)
                 } else {
@@ -364,6 +357,7 @@ mod tests {
     use crate::server::agents::{AgentState, Report, ReportState};
     use crate::server::clients::AttachRequest;
     use crate::server::input::parse_key;
+    use crate::server::status;
     use crate::server::{dispatch, test_ctx, test_state};
 
     fn report(state: AgentState) -> Report {
@@ -437,6 +431,16 @@ mod tests {
     }
 
     fn screen_text(state: &State, client: ClientId, size: (u16, u16)) -> String {
+        let screen = draw_screen(state, client, size);
+        screen
+            .cells
+            .chunks(usize::from(size.0))
+            .map(|r| r.iter().map(|c| c.c).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn draw_screen(state: &State, client: ClientId, size: (u16, u16)) -> Screen {
         let mut screen = Screen::new(size.0, size.1);
         let cx = OverlayCtx {
             client,
@@ -447,11 +451,6 @@ mod tests {
         };
         GridOverlay.draw(state, client, &cx, &mut screen);
         screen
-            .cells
-            .chunks(usize::from(size.0))
-            .map(|r| r.iter().map(|c| c.c).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -482,7 +481,7 @@ mod tests {
         let (mut state, client, _panes, _out) = setup(5, (130, 45));
         let lay = layout(&state, (130, 45));
         assert_eq!(lay.cols, 2);
-        // 40 rows hold three tile rows of 13: 5 agents are 3 rows, all shown.
+        // 45 rows hold three tile rows of 14: 5 agents are 3 rows, all shown.
         open(&mut state, client).expect("open");
         assert_eq!(visible_panes(&state, client).len(), 5);
         // A short client scrolls by tile row and keeps the selection shown.
@@ -493,6 +492,47 @@ mod tests {
         let shown = visible_panes(&state, client);
         assert_eq!(shown.len(), 1, "the last tile row holds one tile");
         assert!(shown.contains(&selected_pane(&state, client).expect("tile")));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn frames_follow_the_border_options() {
+        let (mut state, client, _panes, _out) = setup(2, (130, 40));
+        run(&mut state, &["set", "-g", "pane-border-style", "fg=red"]);
+        run(
+            &mut state,
+            &["set", "-g", "pane-active-border-style", "fg=green"],
+        );
+        run(&mut state, &["set", "-g", "pane-border-lines", "double"]);
+        open(&mut state, client).expect("open");
+        let lay = layout(&state, (130, 40));
+        let s = draw_screen(&state, client, (130, 40));
+        let cell = |x: usize, y: usize| &s.cells[y * 130 + x];
+        let (x0, y0, w0, h0) = lay.rect(0);
+        let (x1, y1, ..) = lay.rect(1);
+        let green = status::parse_style("fg=green").fg;
+        let red = status::parse_style("fg=red").fg;
+        assert_eq!(cell(x0, y0).c, '╔');
+        assert_eq!(cell(x0, y0).fg, green, "the selected tile");
+        assert_eq!(cell(x0 + w0 - 1, y0 + h0 - 1).c, '╝');
+        assert_eq!(cell(x0 + w0 - 1, y0 + h0 - 1).fg, green);
+        assert_eq!(cell(x1, y1).c, '╔');
+        assert_eq!(cell(x1, y1).fg, red, "an unselected tile");
+        press(&mut state, client, "Right");
+        let s = draw_screen(&state, client, (130, 40));
+        assert_eq!(s.cells[y1 * 130 + x1].fg, green, "the selection moved");
+        assert_eq!(s.cells[y0 * 130 + x0].fg, red);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn number_lines_show_the_pane_index() {
+        let (mut state, client, _panes, _out) = setup(2, (130, 40));
+        run(&mut state, &["set", "-g", "pane-border-lines", "number"]);
+        run(&mut state, &["set", "-g", "pane-base-index", "3"]);
+        open(&mut state, client).expect("open");
+        let lay = layout(&state, (130, 40));
+        let s = draw_screen(&state, client, (130, 40));
+        let (x, y, w, h) = lay.rect(1);
+        assert_eq!(s.cells[(y + h - 1) * 130 + x + w - 1].c, '3');
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

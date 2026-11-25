@@ -9,7 +9,7 @@ use crate::server::borders::{PaneBox, PaneLines};
 use crate::server::listdraw::fit_text;
 use crate::server::pane::{CellFlags, SnapCell};
 use crate::server::render::{self, Frame, Screen};
-use crate::server::status::Style;
+use crate::server::status::{Style, escape_hashes};
 use crate::types::PaneId;
 
 /// Cells between two tile columns.
@@ -65,9 +65,11 @@ pub(super) struct Look {
     pub(super) active: Style,
 }
 
-/// One tile: its title and the rows of its pane's screen.
+/// One tile: its title, its pane's number (`pane-border-lines number`
+/// draws it) and the rows of its pane's screen.
 pub(super) struct Tile {
     pub(super) label: String,
+    pub(super) index: usize,
     pub(super) body: Vec<Vec<SnapCell>>,
 }
 
@@ -179,25 +181,20 @@ fn draw_tile(
         y: (y + 1) as i32,
         w: iw as i32,
         h: ih as i32,
-        index: 0,
+        index: tile.index,
     };
+    // The frame's title runs from two cells in, between a space each side,
+    // and leaves the edge cell before the right corner: `w - 6` cells of
+    // text.
+    let title = (w > 6).then(|| escape_hashes(&fit_text(&tile.label, w - 6)));
     let frame = Frame {
         lines,
         style,
-        title: None,
+        title: title.as_deref(),
         tab: None,
         marked: false,
     };
     render::draw_frame(screen, &content, &frame);
-    // The title runs from two cells in, between a space each side, and
-    // leaves the edge cell before the right corner.
-    let end = x + w - 2;
-    if end > x + 2 + 2 {
-        let text = fit_text(&tile.label, end - (x + 2) - 2);
-        let mut bold = style;
-        bold.attrs |= CellFlags::BOLD;
-        put_text(screen, x + 2, y, end, &format!(" {text} "), &bold);
-    }
     let from = tile.body.len().saturating_sub(ih);
     for (j, line) in tile.body[from..].iter().enumerate() {
         let at = (y + 1 + j) * cols + x + 1;
@@ -249,6 +246,7 @@ mod tests {
     fn tile(label: &str, body: &[&str]) -> Tile {
         Tile {
             label: label.into(),
+            index: 0,
             body: body.iter().map(|t| row(t)).collect(),
         }
     }
