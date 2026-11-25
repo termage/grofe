@@ -169,7 +169,7 @@ impl Default for Plugins {
 
 impl Plugins {
     /// Scales every supervision duration (0 to 1], for tests.
-    pub const TIME_SCALE_ENV: &'static str = "GROFE_PLUGIN_TIME_SCALE";
+    pub(crate) const TIME_SCALE_ENV: &'static str = "GROFE_PLUGIN_TIME_SCALE";
 }
 
 struct Entry {
@@ -265,7 +265,7 @@ impl Entry {
 
 /// On the actor, from `apply_config`: records the config's plugins and,
 /// once started, starts, stops and restarts to match them.
-pub fn configure(state: &mut State, config: &Resolved) {
+pub(crate) fn configure(state: &mut State, config: &Resolved) {
     state.plugins.desired = config.plugins.clone();
     if state.plugins.started {
         reconcile(state);
@@ -274,7 +274,7 @@ pub fn configure(state: &mut State, config: &Resolved) {
 
 /// Starts the configured plugins; the server calls it once its config is
 /// applied and any restore is done.
-pub fn start(state: &mut State) {
+pub(crate) fn start(state: &mut State) {
     state.plugins.started = true;
     reconcile(state);
 }
@@ -338,7 +338,7 @@ fn reconcile(state: &mut State) {
 
 /// `plugin-restart <name>` (spec §7.4): stops the plugin as on server exit
 /// and starts it again at once, with its backoff and crash count cleared.
-pub fn restart(state: &mut State, name: &str) -> Result<(), String> {
+pub(crate) fn restart(state: &mut State, name: &str) -> Result<(), String> {
     let Some(cfg) = state.plugins.entries.get(name).map(|e| e.cfg.clone()) else {
         return Err(format!("unknown plugin: {name}"));
     };
@@ -356,7 +356,7 @@ pub fn restart(state: &mut State, name: &str) -> Result<(), String> {
 
 /// The `list-plugins` lines: `name`, `pid`, `state`, `restarts` and
 /// `since` (UTC), tab separated, `-` for no pid.
-pub fn list(state: &State) -> String {
+pub(crate) fn list(state: &State) -> String {
     let mut out = String::new();
     for (name, e) in &state.plugins.entries {
         let s = *e.status.lock().unwrap_or_else(PoisonError::into_inner);
@@ -373,7 +373,7 @@ pub fn list(state: &State) -> String {
 
 /// On server exit: stops every plugin (SIGTERM, then SIGKILL after the
 /// grace) and waits until they are gone.
-pub async fn shutdown(state: &mut State) {
+pub(crate) async fn shutdown(state: &mut State) {
     let grace = state.plugins.timing.grace;
     let mut done = Vec::new();
     for e in state.plugins.entries.values_mut() {

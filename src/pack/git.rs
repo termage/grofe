@@ -8,7 +8,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Status {
+pub(crate) enum Status {
     Installed,
     Unchanged,
     Updated,
@@ -16,13 +16,13 @@ pub enum Status {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Outcome {
+pub(crate) struct Outcome {
     pub name: String,
     pub status: Status,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Change {
+pub(crate) struct Change {
     pub name: String,
     pub from: String,
     pub to: String,
@@ -120,7 +120,7 @@ fn sync_one(spec: &Spec, lock: &mut Lock, root: &Path) -> Result<Status, String>
     })
 }
 
-pub fn sync(specs: &[Spec], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
+pub(crate) fn sync(specs: &[Spec], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
     specs
         .iter()
         .filter(|s| s.enabled)
@@ -158,7 +158,7 @@ fn pending_one(spec: &Spec, locked: &Locked, root: &Path) -> Result<Option<Chang
     }))
 }
 
-pub fn pending(specs: &[Spec], lock: &Lock, root: &Path, only: Option<&str>) -> Vec<Change> {
+pub(crate) fn pending(specs: &[Spec], lock: &Lock, root: &Path, only: Option<&str>) -> Vec<Change> {
     specs
         .iter()
         .filter(|s| s.enabled && only.is_none_or(|o| o == s.name) && safe_name(&s.name))
@@ -169,7 +169,7 @@ pub fn pending(specs: &[Spec], lock: &Lock, root: &Path, only: Option<&str>) -> 
         .collect()
 }
 
-pub fn apply(changes: &[Change], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
+pub(crate) fn apply(changes: &[Change], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
     changes
         .iter()
         .map(|c| {
@@ -196,7 +196,7 @@ pub fn apply(changes: &[Change], lock: &mut Lock, root: &Path) -> Vec<Outcome> {
 }
 
 /// Removes entries of `root` that no spec names. Symlinks are unlinked, never followed.
-pub fn clean(specs: &[Spec], root: &Path) -> Vec<String> {
+pub(crate) fn clean(specs: &[Spec], root: &Path) -> Vec<String> {
     let Ok(rd) = std::fs::read_dir(root) else {
         return Vec::new();
     };

@@ -16,7 +16,7 @@ use super::sections::{Section, section_of};
 
 /// One listed option. Its value is read from the server each time.
 #[derive(Clone)]
-pub struct Row {
+pub(crate) struct Row {
     pub name: &'static str,
     pub section: Section,
     pub doc: &'static str,
@@ -28,21 +28,21 @@ pub struct Row {
 }
 
 /// A key or layout row, listed beside the options.
-pub struct Entry {
+pub(crate) struct Entry {
     pub section: Section,
     pub cols: Vec<String>,
     pub act: Act,
 }
 
 /// What Enter on an [`Entry`] works on.
-pub enum Act {
+pub(crate) enum Act {
     Key { table: String, key: Key },
     Layout { name: String, toml: String },
 }
 
 /// An option the menu set: its value before the menu first did, whether a
 /// runtime `set -g` held it then, and the value the menu last set.
-pub struct Edit {
+pub(crate) struct Edit {
     pub before: String,
     pub runtime: bool,
     pub last: String,
@@ -55,7 +55,7 @@ fn place(src: &Source, dir: Option<&Path>) -> String {
 }
 
 /// Every built-in option by name, with its source as `prov` knows it.
-pub fn build(prov: &Provenance, dir: Option<&Path>) -> Vec<Row> {
+pub(crate) fn build(prov: &Provenance, dir: Option<&Path>) -> Vec<Row> {
     let mut rows: Vec<Row> = option_docs()
         .map(|o| {
             let note = match (prov.overridden(o.toml), prov.get(o.toml)) {
@@ -78,7 +78,7 @@ pub fn build(prov: &Provenance, dir: Option<&Path>) -> Vec<Row> {
 }
 
 /// The server's global value of an option.
-pub fn value(state: &State, name: &str) -> String {
+pub(crate) fn value(state: &State, name: &str) -> String {
     state
         .model
         .options
@@ -88,14 +88,14 @@ pub fn value(state: &State, name: &str) -> String {
 }
 
 /// `set-option -g` of `name` to `to`.
-pub fn set(state: &State, name: &str, to: &str) -> Vec<String> {
+pub(crate) fn set(state: &State, name: &str, to: &str) -> Vec<String> {
     set_command(state, Scope::GlobalSession, name, None, to)
 }
 
 /// Runs `set-option -g` of each of `changes` for `client`, and notes each
 /// one that applied as the menu's; a refusal shows the option's own error
 /// and changes nothing.
-pub fn apply(state: &mut State, client: ClientId, changes: &[(&'static str, &str)]) {
+pub(crate) fn apply(state: &mut State, client: ClientId, changes: &[(&'static str, &str)]) {
     let Some(ctx) = state.clients.get(&client).map(|c| c.ctx.clone()) else {
         return;
     };
@@ -121,7 +121,7 @@ pub fn apply(state: &mut State, client: ClientId, changes: &[(&'static str, &str
 
 /// Splits `set` into the options that go back to the config (the first) and
 /// the rest, which [`discard`] handles.
-pub fn split(
+pub(crate) fn split(
     state: &State,
     set: BTreeMap<&'static str, Edit>,
 ) -> (BTreeMap<&'static str, Edit>, BTreeMap<&'static str, Edit>) {
@@ -132,7 +132,7 @@ pub fn split(
 
 /// Sets the options of `released` back to their before values, runtime
 /// marked, when they could not go back to the config.
-pub fn put_back(
+pub(crate) fn put_back(
     state: &mut State,
     client: ClientId,
     ctx: &ClientCtx,
@@ -151,7 +151,7 @@ pub fn put_back(
 /// menu last set is left alone; another open menu that set it over this
 /// one's value takes this one's before instead. One a runtime `set -g` held
 /// before is set back to that value and stays runtime.
-pub fn discard(
+pub(crate) fn discard(
     state: &mut State,
     client: ClientId,
     ctx: &ClientCtx,
@@ -189,7 +189,7 @@ fn hand_down(state: &mut State, name: &str, edit: &Edit) {
 }
 
 /// What Enter on `row` does: a flag toggles, a choice cycles, the rest ask.
-pub fn enter(state: &mut State, client: ClientId, row: &Row) {
+pub(crate) fn enter(state: &mut State, client: ClientId, row: &Row) {
     let current = value(state, row.name);
     let next = match row.kind {
         Kind::Bool => Some(if current == "on" { "off" } else { "on" }),

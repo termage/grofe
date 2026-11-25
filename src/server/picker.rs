@@ -29,7 +29,7 @@ pub struct Pickers {
 }
 
 impl Pickers {
-    pub fn is_open(&self, id: ClientId) -> bool {
+    pub(crate) fn is_open(&self, id: ClientId) -> bool {
         self.open.contains_key(&id)
     }
 }
@@ -41,7 +41,7 @@ struct View {
     visible: Vec<usize>,
 }
 
-pub fn open(state: &mut State, client: ClientId) -> Result<(), String> {
+pub(crate) fn open(state: &mut State, client: ClientId) -> Result<(), String> {
     if !state.clients.contains_key(&client) {
         return Err("no current client".to_string());
     }
@@ -52,18 +52,18 @@ pub fn open(state: &mut State, client: ClientId) -> Result<(), String> {
 }
 
 /// A client that detached takes its picker with it.
-pub fn client_gone(state: &mut State, id: ClientId) {
+pub(crate) fn client_gone(state: &mut State, id: ClientId) {
     state.pickers.open.remove(&id);
     rearm(state, Instant::now());
 }
 
 /// When the open pickers next need a redraw for their times.
-pub fn deadline(state: &State) -> Option<Instant> {
+pub(crate) fn deadline(state: &State) -> Option<Instant> {
     state.pickers.at
 }
 
 /// Redraws the open pickers when a shown time has changed.
-pub fn tick(state: &mut State, now: Instant) {
+pub(crate) fn tick(state: &mut State, now: Instant) {
     if !state.pickers.at.is_some_and(|at| at <= now) {
         return;
     }
@@ -104,7 +104,7 @@ fn rearm(state: &mut State, now: Instant) {
 }
 
 /// The pane under the selection, if the picker is open and lists any.
-pub fn selected_pane(state: &State, client: ClientId) -> Option<PaneId> {
+pub(crate) fn selected_pane(state: &State, client: ClientId) -> Option<PaneId> {
     let st = state.pickers.open.get(&client)?;
     let v = view(state, &st.query);
     let at = *v.visible.get(st.selected)?;
@@ -220,7 +220,7 @@ fn list_height(state: &State, size: (u16, u16)) -> usize {
     usize::from(layout(state, size).0.rows).saturating_sub(3)
 }
 
-pub struct PickerHook;
+pub(crate) struct PickerHook;
 
 impl InputHook for PickerHook {
     fn on_input(
@@ -315,7 +315,7 @@ fn ctrl(state: &mut State, client: ClientId, pane: Option<PaneId>, c: char) -> R
     Routed::Consumed
 }
 
-pub struct PickerOverlay;
+pub(crate) struct PickerOverlay;
 
 impl Overlay for PickerOverlay {
     fn draw(&self, state: &State, client: ClientId, _cx: &OverlayCtx, screen: &mut Screen) {

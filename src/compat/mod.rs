@@ -4,10 +4,10 @@
 //! parser or to the tmux front end ([`tmux`], FE.1), the variables a pane
 //! gets from the identity, and the `compat-miss.log` writer.
 
-pub mod named;
+pub(crate) mod named;
 pub mod tmux;
 
-pub use named::Named;
+pub(crate) use named::Named;
 
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
@@ -44,7 +44,7 @@ pub fn compat_level() -> &'static str {
 /// The XTVERSION (`CSI > q`) reply a pane gets: `DCS > | <name> <version>
 /// ST`, under tmux identity tmux's name and the compat level, as tmux 3.7b
 /// answers (recorded: `ESC P > | tmux 3.7b ESC \`).
-pub fn xtversion_reply(identity: Identity) -> Vec<u8> {
+pub(crate) fn xtversion_reply(identity: Identity) -> Vec<u8> {
     let (name, version) = match identity {
         Identity::Tmux => ("tmux", compat_level()),
         Identity::Grofe => ("grofe", env!("CARGO_PKG_VERSION")),
@@ -64,7 +64,7 @@ pub fn set_started_as(identity: Identity) {
 
 /// Whether the CLI that started this server ran as `tmux`: then its `-f`
 /// files are tmux config, sourced as `source-file` reads them.
-pub fn started_as_tmux() -> bool {
+pub(crate) fn started_as_tmux() -> bool {
     STARTED_AS.get() == Some(&Identity::Tmux)
 }
 
@@ -82,7 +82,7 @@ pub fn set_tmux_link_dir(dir: PathBuf) {
 /// that runs `tmux` reaches this server (spec D12). The server's own
 /// environment (`show-environment`) keeps the `PATH` it was given.
 // ponytail: pipe-pane inherits the server process's env and misses it.
-pub fn with_tmux_link(env: &mut Vec<(String, String)>) {
+pub(crate) fn with_tmux_link(env: &mut Vec<(String, String)>) {
     let Some(dir) = TMUX_LINK_DIR.get() else {
         return;
     };
@@ -118,7 +118,7 @@ pub fn set_start_config(file: PathBuf) {
 /// each loads (recorded: `-f a -f b` loads both; a missing file is no
 /// config and no error; `-f /dev/null` is none), and they bind only the
 /// server they start.
-pub fn start_config() -> Option<Vec<PathBuf>> {
+pub(crate) fn start_config() -> Option<Vec<PathBuf>> {
     let files = START_CONFIG.lock().ok()?;
     (!files.is_empty()).then(|| files.clone())
 }
@@ -131,7 +131,7 @@ static MISS_LOG: OnceLock<PathBuf> = OnceLock::new();
 /// `state.model.identity` from the starting CLI's `argv[0]` and the
 /// `compat-identity` option. A later `set compat-identity` or `reload`
 /// does not change it (spec D12: identity is fixed at start).
-pub fn server_started(state: &mut State) {
+pub(crate) fn server_started(state: &mut State) {
     let started = STARTED_AS.get().copied().unwrap_or_default();
     let option = state
         .model
@@ -165,7 +165,7 @@ fn decide_identity(started: Identity, option: &str) -> Identity {
 
 /// `$TMUX` as tmux 3.7b sets it: `<socket path>,<server pid>,<session id
 /// number>`, recorded against real tmux (`/tmp/tmux-501/x,86444,0`).
-pub fn tmux_value(socket: &Path, pid: u32, session: SessionId) -> String {
+pub(crate) fn tmux_value(socket: &Path, pid: u32, session: SessionId) -> String {
     format!("{},{pid},{}", socket.display(), session.0)
 }
 
@@ -191,7 +191,7 @@ pub fn tmux_env_socket(tmux: Option<&OsStr>, dirs: &[PathBuf]) -> Option<PathBuf
 /// `TMUX` naming the session, or `-1` with none, the panes' `TERM`,
 /// `COLORTERM`, and under tmux identity `TERM_PROGRAM=tmux` with the
 /// compat level as its version. No `TMUX_PANE`: a job has no pane.
-pub fn job_env(state: &State, session: Option<SessionId>) -> Vec<(String, String)> {
+pub(crate) fn job_env(state: &State, session: Option<SessionId>) -> Vec<(String, String)> {
     let socket = &state.socket;
     let tmux = match session {
         Some(s) => tmux_value(socket, std::process::id(), s),
@@ -218,7 +218,7 @@ pub fn job_env(state: &State, session: Option<SessionId>) -> Vec<(String, String
 /// A server started from inside another tmux carries that tmux's
 /// `$TMUX_PANE` into every job. A grofe request keeps its pane: a stale
 /// `$GROFE_PANE` stays an error there.
-pub fn forget_stale_pane(state: &State, mut ctx: ClientCtx) -> ClientCtx {
+pub(crate) fn forget_stale_pane(state: &State, mut ctx: ClientCtx) -> ClientCtx {
     if ctx.dialect == Dialect::Tmux
         && ctx
             .pane
@@ -234,7 +234,7 @@ pub fn forget_stale_pane(state: &State, mut ctx: ClientCtx) -> ClientCtx {
 /// `TMUX` and `TMUX_PANE` under both identities, and under tmux identity
 /// `TERM_PROGRAM=tmux` with the compat level as its version, replacing the
 /// outer terminal's.
-pub fn pane_env(state: &State, session: SessionId, pane: PaneId) -> Vec<(String, String)> {
+pub(crate) fn pane_env(state: &State, session: SessionId, pane: PaneId) -> Vec<(String, String)> {
     let mut env = vec![
         (
             "TMUX".to_string(),
@@ -257,7 +257,7 @@ pub fn pane_env(state: &State, session: SessionId, pane: PaneId) -> Vec<(String,
 /// either identity, as stored command strings keep theirs (spec §4.5): a
 /// tmux client's `renamew` template stays tmux's on a grofe server. Text
 /// typed at a bare `:` prompt (no template) takes the server's identity.
-pub fn prompt_dialect(state: &State, opener: Dialect, has_template: bool) -> Dialect {
+pub(crate) fn prompt_dialect(state: &State, opener: Dialect, has_template: bool) -> Dialect {
     match state.model.identity {
         _ if has_template => opener,
         Identity::Grofe => Dialect::Grofe,
@@ -287,11 +287,11 @@ pub fn loads_stdin(argv: &[String], dialect: Dialect) -> bool {
 
 /// tmux 3.7b's refusal to attach from inside one of its own panes
 /// (recorded: exit 1).
-pub const TMUX_NESTED: &str = "sessions should be nested with care, unset $TMUX to force";
+pub(crate) const TMUX_NESTED: &str = "sessions should be nested with care, unset $TMUX to force";
 
 /// `compat-miss.log` in the state directory, derived as the server log is
 /// (`paths::state_dir`), so a test's `XDG_STATE_HOME` keeps it.
-pub fn miss_log_path(env: &Env) -> PathBuf {
+pub(crate) fn miss_log_path(env: &Env) -> PathBuf {
     paths::state_dir(env).join("compat-miss.log")
 }
 
@@ -301,7 +301,7 @@ pub fn miss_log_path(env: &Env) -> PathBuf {
 /// so nothing but a started tmux-identity server ever writes it. Best
 /// effort: a log that cannot be written never fails the request. The tmux
 /// front end notes a cosmetic flag it ignores while it translates (spec §4.5).
-pub fn note_miss(what: &str) {
+pub(crate) fn note_miss(what: &str) {
     if QUIET.get() {
         return;
     }
@@ -317,7 +317,7 @@ thread_local! {
 
 /// Runs `f` with [`note_miss`] silent: for a second look at a request
 /// that was already parsed (and its misses noted) once.
-pub fn quietly<T>(f: impl FnOnce() -> T) -> T {
+pub(crate) fn quietly<T>(f: impl FnOnce() -> T) -> T {
     let before = QUIET.replace(true);
     let out = f();
     QUIET.set(before);
@@ -449,7 +449,8 @@ pub fn invoked_as_tmux(argv0: &OsStr) -> bool {
 /// or, for a tmux-dialect request, translated by the front end. A request
 /// the front end cannot translate is a miss, logged once (the request is
 /// parsed once, `dispatch::parse`).
-pub fn parse_request(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Command>, String> {
+#[cfg(test)]
+pub(crate) fn parse_request(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Command>, String> {
     match ctx.dialect {
         Dialect::Grofe => cmd::parse_sequence(argv).map_err(|e| e.to_string()),
         Dialect::Tmux => tmux_dispatch(argv, ctx),
@@ -460,7 +461,7 @@ pub fn parse_request(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Command>, S
 /// mouse), in the dialect it was stored in: `run_binding` sets
 /// `ctx.dialect` from the binding (spec §4.5), never from the client that
 /// pressed the key.
-pub fn parse_split(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Command>, String> {
+pub(crate) fn parse_split(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Command>, String> {
     match ctx.dialect {
         Dialect::Grofe => cmd::parse(argv).map(|c| vec![c]).map_err(|e| e.to_string()),
         Dialect::Tmux => logged(argv, tmux::dispatch_command(argv, ctx)),
@@ -470,7 +471,7 @@ pub fn parse_split(ctx: &ClientCtx, argv: &[String]) -> Result<Vec<Command>, Str
 /// [`parse_split`] for a sourced tmux file's command: the failure says
 /// whether tmux itself would have refused the command at parse time
 /// (`true`: the file is refused whole) or grofe just cannot run it.
-pub fn parse_split_checked(
+pub(crate) fn parse_split_checked(
     ctx: &ClientCtx,
     argv: &[String],
 ) -> Result<Vec<Command>, (bool, String)> {
@@ -491,6 +492,7 @@ pub fn parse_split_checked(
     Err((syntax, error.to_string()))
 }
 
+#[cfg(test)]
 fn tmux_dispatch(argv: &[String], ctx: &ClientCtx) -> Result<Vec<Command>, String> {
     logged(argv, tmux::dispatch(argv, ctx))
 }

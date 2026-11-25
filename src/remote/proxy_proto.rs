@@ -80,7 +80,7 @@ pub fn decode_hello(line: &str) -> Result<ProxyHello, String> {
 
 /// Sends `mine`, reads the peer's. Both sides write first, so neither waits
 /// on the other (a hello fits any pipe buffer).
-pub fn handshake<R: BufRead, W: Write>(
+pub(crate) fn handshake<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     mine: &ProxyHello,
@@ -104,7 +104,7 @@ pub fn handshake<R: BufRead, W: Write>(
 /// print to stdout for a non-interactive `ssh host cmd` (a banner, an
 /// unguarded `echo` in `.bashrc`), and that comes before the proxy's hello.
 /// At most [`MAX_HELLO`] bytes are read in all. The proxy side stays strict.
-pub fn client_handshake<R: BufRead, W: Write>(
+pub(crate) fn client_handshake<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     mine: &ProxyHello,
@@ -296,7 +296,7 @@ impl Default for SendWindow {
 }
 
 /// Why a channel whose peer sent past its credit is closed.
-pub const OVERRUN: &str = "flow control: data past the window";
+pub(crate) const OVERRUN: &str = "flow control: data past the window";
 
 /// What a receiver has consumed since it last granted credit.
 #[derive(Debug, Default)]
@@ -361,7 +361,7 @@ impl ProxyConn {
     }
 
     /// How long since the peer last sent any frame.
-    pub fn idle(&self) -> std::time::Duration {
+    pub(crate) fn idle(&self) -> std::time::Duration {
         self.mux.idle()
     }
 
@@ -370,7 +370,7 @@ impl ProxyConn {
     }
 
     /// Blocks until the connection ends; why it ended.
-    pub fn wait_closed(&self) -> String {
+    pub(crate) fn wait_closed(&self) -> String {
         self.mux.wait_closed()
     }
 

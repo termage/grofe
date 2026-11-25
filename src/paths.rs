@@ -113,7 +113,7 @@ pub fn shim_dir(env: &Env, socket: &Path) -> PathBuf {
 /// The directory of the stable ssh-agent links of the instance at `socket`
 /// (spec 2026-11-15-ssh-remote §3): `agent/` beside the socket, in the
 /// runtime directory the socket lives in.
-pub fn agent_dir(socket: &Path) -> PathBuf {
+pub(crate) fn agent_dir(socket: &Path) -> PathBuf {
     socket
         .parent()
         .unwrap_or_else(|| Path::new("."))

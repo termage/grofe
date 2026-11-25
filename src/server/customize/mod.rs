@@ -69,7 +69,7 @@ fn info_of(name: &str) -> Option<&'static OptInfo> {
 
 /// Where an option is set, as tmux's `window_customize_scope`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scope {
+pub(crate) enum Scope {
     Server,
     GlobalSession,
     Session(SessionId),
@@ -80,7 +80,7 @@ pub enum Scope {
 
 /// The three rows under a key binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Field {
+pub(crate) enum Field {
     Command,
     Note,
     Repeat,
@@ -88,7 +88,7 @@ pub enum Field {
 
 /// What an item of the tree is.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Entry {
+pub(crate) enum Entry {
     /// `Server Options`, `Key Table - x` and the like.
     Group,
     /// An option, or one element of an array option.
@@ -109,7 +109,7 @@ pub enum Entry {
 }
 
 /// One item of the tree, before the chooser makes lines of it.
-pub struct Node {
+pub(crate) struct Node {
     pub tag: u64,
     pub name: String,
     /// `None`: nothing after the name (the groups and the rows under a
@@ -126,7 +126,7 @@ pub struct Node {
 
 /// Where in the server the chooser's pane is: tmux's `cmd_find_state`.
 #[derive(Debug, Clone, Copy)]
-pub struct Fs {
+pub(crate) struct Fs {
     pub session: SessionId,
     pub window: WindowId,
     pub pane: PaneId,
@@ -143,13 +143,13 @@ fn tag_of(id: &str) -> u64 {
 }
 
 /// Everything [`items`] knows about the tree it built.
-pub struct Built {
+pub(crate) struct Built {
     pub nodes: Vec<Node>,
     pub entries: BTreeMap<u64, Entry>,
 }
 
 /// The variables a `-F` format and a `-f` filter see for one item.
-pub struct ItemVars<'a> {
+pub(crate) struct ItemVars<'a> {
     pub inner: &'a dyn crate::cmd::FormatVars,
     pub vars: Vec<(&'static str, String)>,
 }
@@ -165,7 +165,7 @@ impl crate::cmd::FormatVars for ItemVars<'_> {
 }
 
 /// tmux's `WINDOW_CUSTOMIZE_DEFAULT_FORMAT`.
-pub const DEFAULT_FORMAT: &str = "#{?is_option,\
+pub(crate) const DEFAULT_FORMAT: &str = "#{?is_option,\
 #{?option_is_global,,#[reverse](#{option_scope})#[default] }\
 #[ignore]\
 #{option_value}#{?option_unit, #{option_unit},},\
@@ -269,7 +269,7 @@ fn is_set(state: &State, owner: Owner, name: &str) -> bool {
 /// The tree of customize-mode for `fs`: the option groups, then a group
 /// per key table. `format` and `filter` are the chooser's (in grofe's
 /// format language); `vars` is the pane's own variables.
-pub fn items(
+pub(crate) fn items(
     state: &State,
     fs: Fs,
     format: &str,
@@ -607,7 +607,7 @@ fn key_node(
 /// A block of text laid out as `screen_write_text` does: words wrapped at
 /// `width`, a call ending on the next line unless `more`, and nothing past
 /// `height` lines.
-pub struct Page {
+pub(crate) struct Page {
     width: usize,
     height: usize,
     pub lines: Vec<Vec<(String, Option<crate::server::status::Style>)>>,
@@ -679,7 +679,7 @@ impl Page {
 
 /// The preview of `entry`: `window_customize_draw` into a box `width` by
 /// `height`.
-pub fn info(
+pub(crate) fn info(
     state: &State,
     fs: Fs,
     entry: &Entry,
@@ -933,7 +933,7 @@ fn scope_args(state: &State, scope: Scope) -> Vec<String> {
 
 /// `set-option` for `scope`'s `name` (an element `idx` of an array) to
 /// `value`.
-pub fn set_command(
+pub(crate) fn set_command(
     state: &State,
     scope: Scope,
     name: &str,
@@ -952,7 +952,7 @@ pub fn set_command(
 
 /// The commands that remove `name` (or element `idx`) at `scope`, and at
 /// every scope above it when `all` (a reset).
-pub fn unset_commands(
+pub(crate) fn unset_commands(
     state: &State,
     fs: Fs,
     scope: Scope,
@@ -1012,7 +1012,7 @@ pub fn target_scope(entry_scope: Scope, fs: Fs, array: bool, global: bool, pane:
 
 /// What setting an option asks: nothing more (a flag or a choice, one
 /// command), or the user for a value.
-pub enum Set {
+pub(crate) enum Set {
     Command(Vec<String>),
     Prompt {
         label: String,
@@ -1023,7 +1023,7 @@ pub enum Set {
 }
 
 /// `window_customize_set_option` for `name` seen at `entry_scope`.
-pub fn set(
+pub(crate) fn set(
     state: &State,
     fs: Fs,
     entry_scope: Scope,
@@ -1099,7 +1099,7 @@ pub fn set(
 }
 
 /// The bound command text for a key, as the Command row edits it.
-pub fn key_command_text(state: &State, table: &str, key: &Key) -> String {
+pub(crate) fn key_command_text(state: &State, table: &str, key: &Key) -> String {
     state
         .registry
         .key_tables
@@ -1112,7 +1112,7 @@ pub fn key_command_text(state: &State, table: &str, key: &Key) -> String {
         .unwrap_or_default()
 }
 
-pub fn key_note_text(state: &State, table: &str, key: &Key) -> String {
+pub(crate) fn key_note_text(state: &State, table: &str, key: &Key) -> String {
     state
         .registry
         .key_tables
@@ -1135,26 +1135,26 @@ pub fn set_key_commands(state: &mut State, table: &str, key: &Key, commands: Vec
     }
 }
 
-pub fn set_key_note(state: &mut State, table: &str, key: &Key, note: &str) {
+pub(crate) fn set_key_note(state: &mut State, table: &str, key: &Key, note: &str) {
     if let Some(mut b) = state.registry.key_tables.exact(table, key).cloned() {
         b.desc = Some(note.to_string());
         state.registry.key_tables.insert(table, *key, b);
     }
 }
 
-pub fn toggle_key_repeat(state: &mut State, table: &str, key: &Key) {
+pub(crate) fn toggle_key_repeat(state: &mut State, table: &str, key: &Key) {
     if let Some(mut b) = state.registry.key_tables.exact(table, key).cloned() {
         b.repeat = !b.repeat;
         state.registry.key_tables.insert(table, *key, b);
     }
 }
 
-pub fn unbind_key(state: &mut State, table: &str, key: &Key) {
+pub(crate) fn unbind_key(state: &mut State, table: &str, key: &Key) {
     state.registry.key_tables.unbind_runtime(table, key);
 }
 
 /// Whether resetting `key` leaves it bound.
-pub fn key_has_default(state: &State, table: &str, key: &Key) -> bool {
+pub(crate) fn key_has_default(state: &State, table: &str, key: &Key) -> bool {
     state.registry.key_tables.default_of(table, key).is_some()
 }
 

@@ -7,7 +7,7 @@ pub mod client;
 pub mod net;
 mod view;
 
-pub use view::*;
+pub(crate) use view::*;
 
 use std::path::{Path, PathBuf};
 
@@ -74,12 +74,12 @@ struct File {
 }
 
 /// `<config-dir>/machines.toml`.
-pub fn machines_path(config_dir: &Path) -> PathBuf {
+pub(crate) fn machines_path(config_dir: &Path) -> PathBuf {
     config_dir.join("machines.toml")
 }
 
 /// A machine name: non-empty, no whitespace, no `/`, not [`LOCAL`].
-pub fn check_name(name: &str) -> Result<(), String> {
+pub(crate) fn check_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("a machine name cannot be empty".into());
     }
@@ -133,7 +133,7 @@ pub fn load(path: &Path) -> Result<Vec<Machine>, String> {
 
 /// Writes `machines` in order through a temp file in the same directory,
 /// then renames it over `path`.
-pub fn save(path: &Path, machines: &[Machine]) -> Result<(), String> {
+pub(crate) fn save(path: &Path, machines: &[Machine]) -> Result<(), String> {
     let file = File {
         machines: machines.to_vec(),
     };
@@ -168,7 +168,7 @@ pub fn saved(name: &str) -> Option<Machine> {
 }
 
 /// Appends `m`; a name already saved is an error naming that entry.
-pub fn add(machines: &mut Vec<Machine>, m: Machine) -> Result<(), String> {
+pub(crate) fn add(machines: &mut Vec<Machine>, m: Machine) -> Result<(), String> {
     check(&m)?;
     if let Some(old) = machines.iter().find(|o| o.name == m.name) {
         return Err(format!(
@@ -181,7 +181,7 @@ pub fn add(machines: &mut Vec<Machine>, m: Machine) -> Result<(), String> {
 }
 
 /// Removes and returns the machine called `name`.
-pub fn remove(machines: &mut Vec<Machine>, name: &str) -> Result<Machine, String> {
+pub(crate) fn remove(machines: &mut Vec<Machine>, name: &str) -> Result<Machine, String> {
     let i = machines
         .iter()
         .position(|m| m.name == name)
@@ -192,7 +192,7 @@ pub fn remove(machines: &mut Vec<Machine>, name: &str) -> Result<Machine, String
 /// `machine ls`: one line per machine, columns name, target, session,
 /// transport, enabled, padded with spaces. An unset field is `-`, enabled
 /// is `on` or `off`. No header, so a script reads it with `awk`.
-pub fn ls_text(machines: &[Machine]) -> String {
+pub(crate) fn ls_text(machines: &[Machine]) -> String {
     let rows: Vec<[&str; 5]> = machines
         .iter()
         .map(|m| {

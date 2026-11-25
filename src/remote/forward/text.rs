@@ -10,7 +10,7 @@ use super::{FilePaste, UploadDir};
 /// terminals write them: separated by spaces or newlines, with spaces
 /// backslash-escaped (Terminal.app) or the path quoted (iTerm2). `None` when
 /// any word is not an absolute path or the quoting is broken.
-pub fn parse_paths(text: &str) -> Option<Vec<PathBuf>> {
+pub(crate) fn parse_paths(text: &str) -> Option<Vec<PathBuf>> {
     let mut paths = Vec::new();
     let mut chars = text.chars().peekable();
     loop {
@@ -47,7 +47,7 @@ pub fn parse_paths(text: &str) -> Option<Vec<PathBuf>> {
 }
 
 /// A size for a prompt: bytes, or decimal kB, MB, GB with one decimal.
-pub fn human_size(bytes: u64) -> String {
+pub(crate) fn human_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["kB", "MB", "GB", "TB"];
     if bytes < 1000 {
         return format!("{bytes} B");
@@ -70,7 +70,7 @@ pub(super) fn count_files(n: usize) -> String {
 }
 
 /// `upload 2 files (3.1 MB) to host:~/src? [y/N]`.
-pub fn upload_prompt(host: &str, paste: &FilePaste, dir: &UploadDir) -> String {
+pub(crate) fn upload_prompt(host: &str, paste: &FilePaste, dir: &UploadDir) -> String {
     format!(
         "upload {} ({}) to {host}:{}? [y/N]",
         count_files(paste.files.len()),
@@ -92,7 +92,7 @@ pub(super) fn tilde(path: &str, home: Option<&str>) -> String {
 }
 
 /// `forward host:5173 to localhost:5173? [y/N/always]`.
-pub fn forward_prompt(host: &str, port: u16) -> String {
+pub(crate) fn forward_prompt(host: &str, port: u16) -> String {
     format!("forward {host}:{port} to localhost:{port}? [y/N/always]")
 }
 

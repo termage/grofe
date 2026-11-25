@@ -25,7 +25,7 @@ use super::listview::{ListAction, ListState};
 use super::pane::{CellFlags, SnapCell};
 use super::render::{self, Frame, Overlay, OverlayCtx, PaneLooks, Screen};
 use super::status::{self, Style};
-pub use crate::cmd::SidebarOp;
+pub(crate) use crate::cmd::SidebarOp;
 use crate::cmd::expand;
 use crate::types::{ClientId, PaneId};
 
@@ -62,7 +62,7 @@ fn shown(state: &State, client: ClientId) -> bool {
 
 /// The columns the strip takes from a client `client_cols` wide: its width
 /// and the separator, or 0 when hidden or the client is too narrow.
-pub fn reserved(state: &State, client: ClientId, client_cols: u16) -> u16 {
+pub(crate) fn reserved(state: &State, client: ClientId, client_cols: u16) -> u16 {
     let cfg = &state.agents_sidebar;
     let taken = cfg.width.saturating_add(1);
     if shown(state, client) && client_cols >= cfg.min_client_width && client_cols > taken {
@@ -73,7 +73,7 @@ pub fn reserved(state: &State, client: ClientId, client_cols: u16) -> u16 {
 }
 
 /// True when `client` has the strip showing and its keys go to it.
-pub fn is_focused(state: &State, client: ClientId) -> bool {
+pub(crate) fn is_focused(state: &State, client: ClientId) -> bool {
     let cols = state.clients.get(&client).map_or(0, |c| c.size.0);
     reserved(state, client, cols) > 0
         && state
@@ -85,7 +85,7 @@ pub fn is_focused(state: &State, client: ClientId) -> bool {
 
 /// `agent-sidebar on|off|toggle|focus` for `client`. Resizes the window
 /// when the reserved columns change.
-pub fn set(state: &mut State, client: ClientId, how: SidebarOp) -> Result<(), String> {
+pub(crate) fn set(state: &mut State, client: ClientId, how: SidebarOp) -> Result<(), String> {
     let Some(cols) = state.clients.get(&client).map(|c| c.size.0) else {
         return Err("no current client".to_string());
     };
@@ -110,7 +110,7 @@ pub fn set(state: &mut State, client: ClientId, how: SidebarOp) -> Result<(), St
 }
 
 /// A client that detached takes its sidebar with it.
-pub fn client_gone(state: &mut State, client: ClientId) {
+pub(crate) fn client_gone(state: &mut State, client: ClientId) {
     state.sidebars.clients.remove(&client);
 }
 
@@ -314,7 +314,7 @@ fn state_style(a: &Agent, blocked: Style, dim: Style) -> Style {
     }
 }
 
-pub struct SidebarHook;
+pub(crate) struct SidebarHook;
 
 impl InputHook for SidebarHook {
     fn on_input(
@@ -443,7 +443,7 @@ fn look(state: &State, client: ClientId, focused: bool) -> Option<Look> {
     })
 }
 
-pub struct SidebarOverlay;
+pub(crate) struct SidebarOverlay;
 
 impl Overlay for SidebarOverlay {
     fn draw(&self, state: &State, client: ClientId, _cx: &OverlayCtx, screen: &mut Screen) {

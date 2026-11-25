@@ -43,7 +43,7 @@ impl Spec {
     /// does not list (hidden flags it still takes, [`HIDDEN_VALUE_FLAGS`],
     /// count as listed) is `unknown flag`, a value flag with no value
     /// `expects an argument`.
-    pub fn check_flags(&self, args: &[String]) -> Result<(), TmuxError> {
+    pub(crate) fn check_flags(&self, args: &[String]) -> Result<(), TmuxError> {
         for (flag, value) in self.getopt(args).flags {
             if flag == '-' {
                 return Err(ParseError::UnknownLongFlag(self.name.to_string()).into());
@@ -60,7 +60,7 @@ impl Spec {
 
     /// `args` (after the verb) as tmux's getopt reads them for this
     /// command.
-    pub fn getopt<'a>(&self, args: &'a [String]) -> Getopt<'a> {
+    pub(crate) fn getopt<'a>(&self, args: &'a [String]) -> Getopt<'a> {
         let mut flags = Vec::new();
         let mut i = 0;
         while let Some(arg) = args.get(i) {
@@ -252,12 +252,12 @@ pub struct Getopt<'a> {
 }
 
 impl Getopt<'_> {
-    pub fn has(&self, flag: char) -> bool {
+    pub(crate) fn has(&self, flag: char) -> bool {
         self.flags.iter().any(|(f, _)| *f == flag)
     }
 
     /// The flag's value, the last one given.
-    pub fn value(&self, flag: char) -> Option<&str> {
+    pub(crate) fn value(&self, flag: char) -> Option<&str> {
         self.flags
             .iter()
             .rev()

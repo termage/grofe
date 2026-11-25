@@ -3,7 +3,7 @@ use super::*;
 /// `client_name` for a client.
 // ponytail: tmux names a client by its tty; the attach hello carries no
 // tty path, so grofe numbers them.
-pub fn client_name(id: ClientId) -> String {
+pub(crate) fn client_name(id: ClientId) -> String {
     format!("client-{}", id.0)
 }
 
@@ -11,7 +11,7 @@ pub fn client_name(id: ClientId) -> String {
 /// target also selects it), refuses self-nesting without `--nest`, and
 /// registers the client as the session's latest (spec D6: attaching is
 /// activity).
-pub fn attach(state: &mut State, req: AttachRequest) -> Result<Accepted, String> {
+pub(crate) fn attach(state: &mut State, req: AttachRequest) -> Result<Accepted, String> {
     let now = Instant::now();
     let req_created = req.created;
     let target = match &req.target {

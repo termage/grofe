@@ -47,7 +47,7 @@ pub(super) fn overlay_ctx_at(
 
 /// Where things are on client `id`'s screen as last drawn, for an input
 /// hook mapping a pointer to a pane.
-pub fn overlay_ctx(state: &State, id: ClientId) -> Option<OverlayCtx> {
+pub(crate) fn overlay_ctx(state: &State, id: ClientId) -> Option<OverlayCtx> {
     let c = state.clients.get(&id)?;
     Some(overlay_ctx_at(&state.model, id, c, c.viewport))
 }
@@ -736,14 +736,14 @@ pub(super) fn local_now() -> libc::tm {
 /// Format variables for a client: `client_*` (real
 /// `client_width`/`client_height`), falling through to the pane's
 /// [`FormatCtx`].
-pub struct ClientVars<'a> {
+pub(crate) struct ClientVars<'a> {
     pub(super) model: &'a Model,
     pub(super) client: &'a ClientEntry,
     pub(super) pane: Option<FormatCtx<'a>>,
 }
 
 impl<'a> ClientVars<'a> {
-    pub fn new(
+    pub(crate) fn new(
         model: &'a Model,
         client: &'a ClientEntry,
         pane: Option<FormatCtx<'a>>,

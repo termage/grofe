@@ -5,7 +5,7 @@ use super::{CellFlags, SnapCell};
 /// What a cold row remembers besides its cells.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ColdMeta {
+pub(crate) struct ColdMeta {
     pub wrapped: bool,
     pub used: usize,
 }
@@ -15,7 +15,7 @@ pub struct ColdMeta {
 /// character that would straddle the edge moves whole to the next row. A
 /// last row that wraps (its line runs on past `rows`) stays wrapped.
 #[allow(dead_code)]
-pub fn reflow_rows(
+pub(crate) fn reflow_rows(
     rows: &[(Vec<SnapCell>, ColdMeta)],
     cols: usize,
 ) -> Vec<(Vec<SnapCell>, ColdMeta)> {

@@ -16,7 +16,7 @@ pub(crate) fn config_env() -> config::Env {
 /// `__config-file` (internal, asked by a client given `--config`): the files
 /// the config loads from, one per line: the config file, or under `tmux -f`
 /// those files that exist.
-pub fn config_files() -> String {
+pub(crate) fn config_files() -> String {
     let files: Vec<PathBuf> = match crate::compat::start_config() {
         None => config_env().config_file.into_iter().collect(),
         Some(files) => existing_files(files),
@@ -77,7 +77,7 @@ pub(super) fn is_tmux_conf(file: &Path) -> bool {
 /// Sources the `tmux -f` files that are tmux config, in order, after the
 /// server took tmux's defaults. A missing file or `/dev/null` is no
 /// config; an error is logged and the next file still loads.
-pub fn source_start_files(state: &mut State) {
+pub(crate) fn source_start_files(state: &mut State) {
     let files = crate::compat::start_config().unwrap_or_default();
     for file in files {
         if file == Path::new("/dev/null") || !file.exists() || !is_tmux_conf(&file) {
@@ -108,7 +108,7 @@ pub fn source_start_files(state: &mut State) {
 
 /// Applies the config chain once at server start. On any error the
 /// server keeps the built-in defaults and logs every error (R9).
-pub fn apply_config_at_start(state: &mut State) {
+pub(crate) fn apply_config_at_start(state: &mut State) {
     match load_config() {
         Ok(resolved) => {
             log_warnings(&resolved);
@@ -132,7 +132,7 @@ pub(super) fn log_warnings(resolved: &Resolved) {
 /// `reload` (spec §5.4): resolves layers 1 to 4 afresh, then applies all
 /// of it or, on any error, none of it and answers every error, one per
 /// line.
-pub fn reload(state: &mut State, _ctx: &ClientCtx, _c: Reload) -> Result<String, String> {
+pub(crate) fn reload(state: &mut State, _ctx: &ClientCtx, _c: Reload) -> Result<String, String> {
     let resolved = load_config().map_err(|errors| join_errors(&errors))?;
     log_warnings(&resolved);
     apply_config(state, &resolved);

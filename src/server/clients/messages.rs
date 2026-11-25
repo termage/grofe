@@ -10,12 +10,12 @@ pub(crate) fn set_key_table(state: &mut State, id: ClientId, table: &str) {
 
 /// Shows `text` as it is (styles in it are not drawn, as tmux shows a
 /// command's error) on client `id`'s status line for `display-time`.
-pub fn show_message(state: &mut State, id: ClientId, text: &str) {
+pub(crate) fn show_message(state: &mut State, id: ClientId, text: &str) {
     show_message_as(state, id, text, render::Level::Error);
 }
 
 /// [`show_message`] for a message that is not an error.
-pub fn show_message_as(state: &mut State, id: ClientId, text: &str, level: render::Level) {
+pub(crate) fn show_message_as(state: &mut State, id: ClientId, text: &str, level: render::Level) {
     log_message(state, id, text);
     set_message(state, id, status::escape_hashes(text), None, false, level);
 }
@@ -26,7 +26,7 @@ pub fn show_message_as(state: &mut State, id: ClientId, text: &str, level: rende
 /// status row (tmux's `message-line 0`) for `display-time`, or until a key
 /// is pressed; the rows below stay.
 /// `delay` overrides `display-time` (`display-message -d`).
-pub fn display_message(
+pub(crate) fn display_message(
     state: &mut State,
     id: ClientId,
     text: &str,
@@ -381,7 +381,7 @@ pub(super) fn display_time(model: &Model, session: SessionId) -> Duration {
 /// `mouse_status_range` and `mouse_y` from them). Rows and ranges both
 /// come from the last draw, so an option changed since then cannot move a
 /// click onto another row's ranges.
-pub fn status_at(
+pub(crate) fn status_at(
     state: &State,
     id: ClientId,
     col: u16,
@@ -395,7 +395,7 @@ pub fn status_at(
 
 /// Client `id`'s status line as last drawn, for a menu or popup placed by
 /// `-x W` / `-y W` / `-y S` (tmux's `cmd_display_menu_get_pos`).
-pub struct StatusSpot {
+pub(crate) struct StatusSpot {
     /// How many rows the status line takes.
     pub lines: u16,
     /// `status-position top`.
@@ -406,7 +406,7 @@ pub struct StatusSpot {
 }
 
 /// Client `id`'s [`StatusSpot`]; `None` with the status line off.
-pub fn status_spot(state: &State, id: ClientId) -> Option<StatusSpot> {
+pub(crate) fn status_spot(state: &State, id: ClientId) -> Option<StatusSpot> {
     let c = state.clients.get(&id)?;
     let geom = status_geometry(&state.model, c.session, c.size.1);
     if geom.lines == 0 {
@@ -432,6 +432,7 @@ pub fn status_spot(state: &State, id: ClientId) -> Option<StatusSpot> {
 
 /// The range under a click at client cell `(col, row)` on client `id`'s
 /// status line as last drawn ([`status_at`]).
+#[cfg(test)]
 pub fn status_range_at(state: &State, id: ClientId, col: u16, row: u16) -> Option<RangeKind> {
     status_at(state, id, col, row).and_then(|(_, range)| range)
 }

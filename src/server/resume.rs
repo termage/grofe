@@ -28,7 +28,7 @@ use crate::server::{Job, State, hooks};
 use crate::types::PaneId;
 
 /// How often the bindings are checked while any exists.
-pub const SAMPLE: Duration = Duration::from_secs(1);
+pub(crate) const SAMPLE: Duration = Duration::from_secs(1);
 
 /// The process a resume or expectation belongs to: pid plus start time, so
 /// a reused pid does not match.
@@ -40,7 +40,7 @@ pub struct Binding {
 
 impl Binding {
     /// Process `pid` as it is now; `None` if it has exited.
-    pub fn of(pid: i32) -> Option<Binding> {
+    pub(crate) fn of(pid: i32) -> Option<Binding> {
         Some(Binding {
             pid,
             start_time: procinfo::start_time(pid)?,
@@ -49,7 +49,7 @@ impl Binding {
 
     /// Whether the process this binding names still exists (stopped
     /// counts; a zombie does not).
-    pub fn alive(self) -> bool {
+    pub(crate) fn alive(self) -> bool {
         procinfo::start_time(self.pid) == Some(self.start_time)
     }
 }
@@ -66,7 +66,7 @@ impl Binding {
 /// resolved only when it is a plain name (`htop`) found at a plain path, so
 /// the script stays the same command; any other script is kept as it is, as
 /// is a name the `PATH` does not hold.
-pub fn bind_root(pane: &mut Pane) {
+pub(crate) fn bind_root(pane: &mut Pane) {
     pane.expect = None;
     let root = pane.handle.pid().and_then(|pid| i32::try_from(pid).ok());
     if let (Some(path), Some(resume)) = (pane.handle.spawn_path(), pane.resume.as_mut())
@@ -101,7 +101,7 @@ pub fn spawned(state: &mut State, pane: PaneId, before: (Option<Vec<String>>, Op
 }
 
 /// `pane-set-resume`: what to record for the target pane.
-pub enum Set {
+pub(crate) enum Set {
     Resume(Vec<String>),
     Expect(String),
     Clear,
@@ -231,7 +231,7 @@ fn pane_paths(state: &State, p: &Pane, leader: Option<i32>) -> Vec<String> {
 /// `pane`'s foreground process, then its spawn environment (a restore under a
 /// minimal `PATH` can then still run it). Best effort: when the name is not
 /// found, or is not a bare name, `argv` is returned as it was.
-pub fn resolve_for_pane(state: &State, pane: PaneId, mut argv: Vec<String>) -> Vec<String> {
+pub(crate) fn resolve_for_pane(state: &State, pane: PaneId, mut argv: Vec<String>) -> Vec<String> {
     let (Some(p), Some(name)) = (state.model.panes.get(&pane), argv.first()) else {
         return argv;
     };
@@ -325,7 +325,7 @@ fn sweep_agents(state: &mut State) {
 }
 
 /// Clears every binding whose process is gone; whether any remain.
-pub fn sweep(state: &mut State) -> bool {
+pub(crate) fn sweep(state: &mut State) -> bool {
     sweep_agents(state);
     let gone: Vec<PaneId> = state
         .model
@@ -347,7 +347,7 @@ pub fn sweep(state: &mut State) -> bool {
 
 /// `pane`'s process exited: its binding is checked now rather than at the
 /// next sample. For the actor's exit handling.
-pub fn on_pane_exited(state: &mut State, pane: PaneId) {
+pub(crate) fn on_pane_exited(state: &mut State, pane: PaneId) {
     let dead = state
         .model
         .panes
@@ -362,7 +362,7 @@ pub fn on_pane_exited(state: &mut State, pane: PaneId) {
 /// Starts the sampling timer (`State::resume_timer`) unless it runs. It
 /// stops itself once no binding remains, so an idle server wakes for
 /// nothing.
-pub fn watch(state: &mut State) {
+pub(crate) fn watch(state: &mut State) {
     if state
         .resume_timer
         .as_ref()

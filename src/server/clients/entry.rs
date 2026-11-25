@@ -1,26 +1,26 @@
 use super::*;
 
 /// At most one frame per client per this long (spec §4.4: ~16 ms).
-pub const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+pub(crate) const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 /// How long a status-line message stays up (tmux's `display-time`), when
 /// the session has no `display-time` option.
-pub const DISPLAY_TIME: Duration = Duration::from_millis(750);
+pub(crate) const DISPLAY_TIME: Duration = Duration::from_millis(750);
 /// tmux 3.7b's default `message-format`.
 pub(crate) const MESSAGE_FORMAT: &str =
     "#[#{?#{command_prompt},#{E:message-command-style},#{E:message-style}}]#{message}";
 
 /// How soon after a pane changed its window's name is checked for
 /// `automatic-rename` (tmux's `NAME_INTERVAL`).
-pub const NAME_INTERVAL: Duration = Duration::from_millis(500);
+pub(crate) const NAME_INTERVAL: Duration = Duration::from_millis(500);
 
 /// How long a client must stay the latest active one before the window
 /// takes its size (spec D6: ~500 ms).
-pub const SIZE_DEBOUNCE: Duration = Duration::from_millis(500);
+pub(crate) const SIZE_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// What an attach hello asks for, as the connection hands it to the actor.
 #[derive(Debug)]
-pub struct AttachRequest {
+pub(crate) struct AttachRequest {
     pub ctx: ClientCtx,
     /// The client terminal, `(cols, rows)`.
     pub size: (u16, u16),
@@ -44,7 +44,7 @@ pub struct AttachRequest {
 /// An accepted attach: the connection writes `output` (one frame at a
 /// time) and, once the actor lets go of the sender, the reason from `exit`.
 #[derive(Debug)]
-pub struct Accepted {
+pub(crate) struct Accepted {
     pub id: ClientId,
     pub output: mpsc::Receiver<Vec<u8>>,
     /// Dropped without a value when the server goes away mid-write.
@@ -56,7 +56,7 @@ pub struct Accepted {
 
 /// A client's one-slot output: the actor offers each new screen, and the
 /// diff goes out only if the slot is free.
-pub struct Outbox {
+pub(crate) struct Outbox {
     pub(super) tx: mpsc::Sender<Vec<u8>>,
     /// The screen the client shows once everything sent so far is written;
     /// `None` forces a full redraw.
@@ -81,7 +81,7 @@ pub(super) const RAW_CAP: usize = 16 * 1024 * 1024;
 
 impl Outbox {
     /// An outbox and the receiver its connection writes from.
-    pub fn new() -> (Outbox, mpsc::Receiver<Vec<u8>>) {
+    pub(crate) fn new() -> (Outbox, mpsc::Receiver<Vec<u8>>) {
         let (tx, rx) = mpsc::channel(1);
         let outbox = Outbox {
             tx,
@@ -95,18 +95,18 @@ impl Outbox {
     }
 
     /// Whether offering a frame now is worth composing one.
-    pub fn ready(&self) -> bool {
+    pub(crate) fn ready(&self) -> bool {
         !self.blocked || self.tx.capacity() > 0
     }
 
     /// Whether the next offer is a full redraw.
-    pub fn needs_full_redraw(&self) -> bool {
+    pub(crate) fn needs_full_redraw(&self) -> bool {
         self.prev.is_none()
     }
 
     /// Holds `bytes` for ahead of the next frame; false if they would pass
     /// [`RAW_CAP`] and were dropped.
-    pub fn queue_raw(&mut self, bytes: &[u8]) -> bool {
+    pub(crate) fn queue_raw(&mut self, bytes: &[u8]) -> bool {
         let fits = self.raw.len() + bytes.len() <= RAW_CAP;
         if fits {
             self.raw.extend_from_slice(bytes);
@@ -121,7 +121,7 @@ impl Outbox {
     /// next offer is a full redraw. Returns false for a dropped frame: the
     /// client still needs one, and must be offered it again once
     /// [`Outbox::ready`].
-    pub fn offer(&mut self, next: Screen, caps: &Caps) -> bool {
+    pub(crate) fn offer(&mut self, next: Screen, caps: &Caps) -> bool {
         let diff = render::diff_placed(self.prev.as_ref(), &next, caps, &self.placed);
         if diff.is_empty() && self.raw.is_empty() {
             return true;
@@ -236,7 +236,7 @@ pub struct ClientEntry {
 
 /// `set-client-info`'s values: `#{client_rtt}` and `#{client_machines}`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClientInfo {
+pub(crate) struct ClientInfo {
     /// The smoothed round trip time, in milliseconds.
     pub rtt_ms: Option<u64>,
     /// The client's machine list, as it wants it shown.
@@ -262,7 +262,7 @@ pub struct ClientFlags {
 impl ClientFlags {
     /// `server_client_set_flags`: `flags` is a comma list of names, each
     /// switched off by a `!`; a name tmux does not know is skipped.
-    pub fn apply(&mut self, flags: &str) {
+    pub(crate) fn apply(&mut self, flags: &str) {
         for word in flags.split(',') {
             let (on, name) = match word.strip_prefix('!') {
                 Some(name) => (false, name),
@@ -309,13 +309,13 @@ impl ClientEntry {
 /// Which client a session's windows are sized for (spec D6), and the
 /// client about to take over once its debounce runs out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SizeOwner {
+pub(crate) struct SizeOwner {
     pub client: ClientId,
     pub(super) pending: Option<(ClientId, Instant)>,
 }
 
 impl SizeOwner {
-    pub fn new(client: ClientId) -> SizeOwner {
+    pub(crate) fn new(client: ClientId) -> SizeOwner {
         SizeOwner {
             client,
             pending: None,
@@ -325,7 +325,7 @@ impl SizeOwner {
     /// `client` sent input at `now`. The owner typing again cancels a
     /// pending switch; another client becomes the owner [`SIZE_DEBOUNCE`]
     /// after its first input unless the owner types meanwhile.
-    pub fn activity(&mut self, client: ClientId, now: Instant) {
+    pub(crate) fn activity(&mut self, client: ClientId, now: Instant) {
         if client == self.client {
             self.pending = None;
         } else if self.pending.is_none_or(|(c, _)| c != client) {
@@ -333,12 +333,12 @@ impl SizeOwner {
         }
     }
 
-    pub fn deadline(&self) -> Option<Instant> {
+    pub(crate) fn deadline(&self) -> Option<Instant> {
         self.pending.map(|(_, at)| at)
     }
 
     /// Completes a due switch; whether the owner changed.
-    pub fn settle(&mut self, now: Instant) -> bool {
+    pub(crate) fn settle(&mut self, now: Instant) -> bool {
         match self.pending {
             Some((client, at)) if now >= at => {
                 self.client = client;

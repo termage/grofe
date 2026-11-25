@@ -32,7 +32,7 @@ pub struct Menus {
 }
 
 impl Menus {
-    pub fn is_open(&self, id: ClientId) -> bool {
+    pub(crate) fn is_open(&self, id: ClientId) -> bool {
         self.open.contains_key(&id)
     }
 }
@@ -65,7 +65,7 @@ fn too_small(size: (u16, u16)) -> bool {
 
 /// Opens the menu on `client`, or says the client is too small. A client
 /// with a menu open keeps it.
-pub fn open(state: &mut State, client: ClientId) -> Result<(), String> {
+pub(crate) fn open(state: &mut State, client: ClientId) -> Result<(), String> {
     if state.settings_menus.is_open(client) {
         return Ok(());
     }
@@ -105,13 +105,13 @@ pub(super) fn close(state: &mut State, client: ClientId) {
 
 /// A client that detached takes its menu with it, and what the menu
 /// changed, as Esc then `y` would.
-pub fn client_gone(state: &mut State, id: ClientId, ctx: &ClientCtx) {
+pub(crate) fn client_gone(state: &mut State, id: ClientId, ctx: &ClientCtx) {
     discard_with(state, id, ctx, true);
 }
 
 /// A client resized below [`MIN_SIZE`] loses its menu, as Esc then `y`
 /// would close it, and is told why.
-pub fn resized(state: &mut State, id: ClientId, size: (u16, u16)) {
+pub(crate) fn resized(state: &mut State, id: ClientId, size: (u16, u16)) {
     if state.settings_menus.is_open(id) && too_small(size) {
         let err = state
             .clients
@@ -314,7 +314,7 @@ fn discard_with(
 }
 
 /// Takes a client's keys while its settings menu is open.
-pub struct SettingsHook;
+pub(crate) struct SettingsHook;
 
 impl InputHook for SettingsHook {
     fn on_input(
@@ -430,7 +430,7 @@ fn unbind(state: &mut State, client: ClientId, at: usize) {
 }
 
 /// Draws a client's settings menu.
-pub struct SettingsOverlay;
+pub(crate) struct SettingsOverlay;
 
 impl Overlay for SettingsOverlay {
     fn draw(&self, state: &State, client: ClientId, _cx: &OverlayCtx, screen: &mut Screen) {

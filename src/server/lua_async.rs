@@ -16,7 +16,7 @@ use crate::server::events::QUEUE;
 use crate::server::{Job, events::Events, lua_host};
 
 #[derive(Default)]
-pub struct Async {
+pub(crate) struct Async {
     tasks: HashMap<u32, AbortHandle>,
 }
 
@@ -82,7 +82,7 @@ impl Async {
         }
     }
 
-    pub fn every(&mut self, jobs: &mpsc::Sender<Job>, ms: u64, id: u32) {
+    pub(crate) fn every(&mut self, jobs: &mpsc::Sender<Job>, ms: u64, id: u32) {
         let jobs = jobs.clone();
         let period = Duration::from_millis(ms);
         let task = tokio::spawn(async move {
@@ -98,7 +98,7 @@ impl Async {
         self.track(id, task.abort_handle());
     }
 
-    pub fn subscribe(
+    pub(crate) fn subscribe(
         &mut self,
         events: &mut Events,
         jobs: &mpsc::Sender<Job>,
@@ -120,7 +120,7 @@ impl Async {
         Ok(())
     }
 
-    pub fn system(
+    pub(crate) fn system(
         &mut self,
         jobs: &mpsc::Sender<Job>,
         argv: Vec<String>,
@@ -136,13 +136,13 @@ impl Async {
         self.track(id, task.abort_handle());
     }
 
-    pub fn cancel(&mut self, id: u32) {
+    pub(crate) fn cancel(&mut self, id: u32) {
         if let Some(handle) = self.tasks.remove(&id) {
             handle.abort();
         }
     }
 
-    pub fn cancel_all(&mut self) {
+    pub(crate) fn cancel_all(&mut self) {
         for (_, handle) in self.tasks.drain() {
             handle.abort();
         }

@@ -500,7 +500,7 @@ pub(super) fn route(state: &mut State, id: ClientId, input: Input, now: Instant)
 /// blocked `wait-for`, an `if-shell` branch) or an `after-*` hook of it
 /// waiting on its shell holds the rest of the commands, and the client's
 /// later input, until it is done ([`BindingRun`]).
-pub fn run_binding(
+pub(crate) fn run_binding(
     state: &mut State,
     id: ClientId,
     cmds: &[Vec<String>],

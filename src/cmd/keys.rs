@@ -9,7 +9,7 @@ use crate::types::InputModes;
 /// opposed to literal text (spec §4.5: "each argument that matches a key
 /// name ... is sent as that key, otherwise as literal text"). `-l` skips
 /// this check entirely and forces literal.
-pub fn is_key_name(name: &str) -> bool {
+pub(crate) fn is_key_name(name: &str) -> bool {
     key_bytes(name, &InputModes::default()).is_some()
 }
 

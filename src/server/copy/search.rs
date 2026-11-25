@@ -53,9 +53,9 @@ use crate::server::{State, clients};
 use crate::types::PaneId;
 
 /// `copy-mode-match-style`'s default.
-pub const MATCH_STYLE: &str = "bg=cyan,fg=black";
+pub(crate) const MATCH_STYLE: &str = "bg=cyan,fg=black";
 /// `copy-mode-current-match-style`'s default.
-pub const CURRENT_MATCH_STYLE: &str = "bg=magenta,fg=black";
+pub(crate) const CURRENT_MATCH_STYLE: &str = "bg=magenta,fg=black";
 
 /// tmux's `WINDOW_COPY_SEARCH_TIMEOUT`: a search marking for longer gives
 /// up and shows no marks.
@@ -148,7 +148,7 @@ const CLEAR_NEVER: &[&str] = &[
 
 /// A compiled search string.
 #[derive(Debug)]
-pub struct Pattern {
+pub(crate) struct Pattern {
     /// Searched as a regex; else as plain text.
     regex: bool,
     /// The string's width in cells (tmux's `screen_write_strlen`), the
@@ -290,7 +290,7 @@ fn build(pattern: &str, cis: bool) -> Option<Regex> {
 /// matches wherever the pattern does and more (the prefilter over the
 /// whole copy).
 #[derive(Debug, PartialEq, Eq)]
-pub struct Translated {
+pub(crate) struct Translated {
     pub bol: String,
     pub notbol: String,
     pub pre: String,
@@ -311,7 +311,7 @@ pub struct Translated {
 /// - `*`, `+`, `?` and an interval with nothing to repeat are refused;
 ///   stacked ones repeat what is before them (`a**`, `a+?`), where the
 ///   crate would read a lazy repetition.
-pub fn translate(pattern: &str, cis: bool) -> Option<Translated> {
+pub(crate) fn translate(pattern: &str, cis: bool) -> Option<Translated> {
     let mut out = Out::default();
     // Where in the outputs the last atom starts, if the last thing written
     // was an atom or a repetition of one.
@@ -609,7 +609,7 @@ struct Line {
 /// writes it, a newline after each row that does not wrap, and where each
 /// row starts (one more entry for the end). About a byte a cell.
 #[derive(Debug)]
-pub struct Text {
+pub(crate) struct Text {
     text: String,
     rows: Vec<usize>,
 }
@@ -965,7 +965,7 @@ struct Request {
 }
 
 /// What it found.
-pub struct Outcome {
+pub(crate) struct Outcome {
     grid: Arc<Grid>,
     whole: Arc<Text>,
     view: View,
@@ -1584,7 +1584,7 @@ static LAUNCHES: AtomicU64 = AtomicU64::new(0);
 
 /// One mode's search and jump state. Lives on `Mode.search`.
 #[derive(Debug, Default)]
-pub struct Search {
+pub(crate) struct Search {
     /// `searchtype`.
     kind: Kind,
     /// `searchregex`: the last search command was not a `-text` one.
@@ -1626,17 +1626,17 @@ impl Drop for Search {
 
 /// The search a pane remembers between copy modes (tmux's `wp->searchstr`).
 #[derive(Debug, Clone)]
-pub struct Remembered(String, bool);
+pub(crate) struct Remembered(String, bool);
 
 impl Remembered {
     /// The search string (`wp->searchstr`).
-    pub fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         &self.0
     }
 }
 
 /// What the pane remembers when its mode ends.
-pub fn remember(mode: &Mode) -> Option<Remembered> {
+pub(crate) fn remember(mode: &Mode) -> Option<Remembered> {
     let (text, regex) = match &mode.search.flight {
         // tmux sets the pane's search as it starts one.
         Some((_, searching)) => searching.clone(),
@@ -1647,7 +1647,7 @@ pub fn remember(mode: &Mode) -> Option<Remembered> {
 
 /// A new mode starts with the pane's last search, upwards, as tmux's
 /// `window_copy_common_init`, so `n` repeats it.
-pub fn restore(mode: &mut Mode, last: &Remembered) {
+pub(crate) fn restore(mode: &mut Mode, last: &Remembered) {
     mode.search.kind = Kind::Up;
     mode.search.regex = last.1;
     mode.search.kept.last = Some((last.0.clone(), last.1));
@@ -1655,7 +1655,7 @@ pub fn restore(mode: &mut Mode, last: &Remembered) {
 }
 
 /// tmux's `window_copy_clear_marks`: the search matches are dropped.
-pub fn clear_marks(mode: &mut Mode) {
+pub(crate) fn clear_marks(mode: &mut Mode) {
     let kept = &mut mode.search.kept;
     kept.count = -1;
     kept.more = false;
@@ -1665,7 +1665,7 @@ pub fn clear_marks(mode: &mut Mode) {
 /// After each `send-keys -X` command that ran (`ran`), the marks go as
 /// tmux's `window_copy_command` drops them: never for a `search-` one, in
 /// vi only for the commands in [`CLEAR_ALWAYS`].
-pub fn after_command(mode: &mut Mode, name: &str, ran: bool) {
+pub(crate) fn after_command(mode: &mut Mode, name: &str, ran: bool) {
     if !ran || name.starts_with("search-") || mode.search.kept.marks.is_none() {
         return;
     }
@@ -1809,7 +1809,7 @@ fn incremental(mode: &mut Mode, forward: bool, arg: &str) -> Action {
 }
 
 /// Whether `pane`'s mode has a search in flight.
-pub fn busy(state: &State, pane: PaneId) -> bool {
+pub(crate) fn busy(state: &State, pane: PaneId) -> bool {
     state
         .copy
         .get(pane)
@@ -1818,7 +1818,7 @@ pub fn busy(state: &State, pane: PaneId) -> bool {
 
 /// A command for a busy mode waits behind its search, and so does the
 /// request that sent it.
-pub fn hold(state: &mut State, pane: PaneId, args: &[String]) {
+pub(crate) fn hold(state: &mut State, pane: PaneId, args: &[String]) {
     let waiter = state
         .deferred_reply
         .is_none()
@@ -1836,7 +1836,7 @@ pub fn hold(state: &mut State, pane: PaneId, args: &[String]) {
 /// Starts the search the last command asked for, if any, off the actor.
 /// With `wait`, the request that sent the command is answered when it
 /// ends.
-pub fn launch(state: &mut State, pane: PaneId, wait: bool) {
+pub(crate) fn launch(state: &mut State, pane: PaneId, wait: bool) {
     let Some(req) = request(state, pane) else {
         return;
     };
@@ -2067,7 +2067,7 @@ fn jump(mode: &mut Mode, kind: Jump) {
 
 /// The marks on view and the match the cursor is on, worked out once per
 /// frame for a pane ([`view_marks`]).
-pub struct ViewMarks {
+pub(crate) struct ViewMarks {
     marks: Arc<Marks>,
     sx: usize,
     /// The current match's first and last marks index (tmux's
@@ -2097,7 +2097,7 @@ fn cursor_at(mode: &Mode) -> Option<usize> {
 /// The marks of `mode`'s rows on view, if it has any. They are worked out
 /// once per copy, offset and pattern and kept, so a frame that changes
 /// none of these reads them back instead of searching the view again.
-pub fn view_marks(mode: &Mode) -> Option<ViewMarks> {
+pub(crate) fn view_marks(mode: &Mode) -> Option<ViewMarks> {
     let pat = mode.search.kept.marks.as_ref()?;
     let same = |k: &ViewKey| {
         Weak::ptr_eq(&k.0, &Arc::downgrade(&mode.grid))
@@ -2137,7 +2137,7 @@ impl ViewMarks {
     /// Styles view cell `x, y` as tmux's `window_copy_update_style` does a
     /// match: in `current` if it is in the cursor's match, else in `all`,
     /// fore- and background swapped on the mark's own cell (`inv`).
-    pub fn restyle(
+    pub(crate) fn restyle(
         &self,
         x: usize,
         y: usize,
@@ -2170,7 +2170,7 @@ impl ViewMarks {
 
 /// tmux's `window_copy_match_at_cursor`: the match the cursor is on or
 /// just after, which a copy with no selection copies.
-pub fn match_at_cursor(mode: &Mode) -> Option<String> {
+pub(crate) fn match_at_cursor(mode: &Mode) -> Option<String> {
     let vm = view_marks(mode)?;
     let marks = &vm.marks;
     let mut at = cursor_at(mode)?;
@@ -2198,7 +2198,7 @@ pub fn match_at_cursor(mode: &Mode) -> Option<String> {
 }
 
 /// The search's format variables (tmux's `window_copy_formats`).
-pub fn format_var(mode: &Mode, name: &str) -> Option<String> {
+pub(crate) fn format_var(mode: &Mode, name: &str) -> Option<String> {
     let kept = &mode.search.kept;
     let flag = |b: bool| if b { "1" } else { "0" }.to_string();
     match name {

@@ -31,20 +31,20 @@ use crate::server::spawn;
 use crate::server::{Job, State, clients, hooks};
 
 /// How long a run may take when its registration names no timeout.
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The most of one line kept, in bytes; the rest of a longer line is
 /// dropped.
-pub const MAX_LINE: usize = 4096;
+pub(crate) const MAX_LINE: usize = 4096;
 
 /// The most output read from one run, in bytes. The pipe is then closed,
 /// so a command that spews output gets `SIGPIPE` and costs the server at
 /// most this much.
-pub const MAX_OUTPUT: usize = 64 * 1024;
+pub(crate) const MAX_OUTPUT: usize = 64 * 1024;
 
 /// The longest `interval` or `timeout` a config may give, in seconds:
 /// tmux's `INT_MAX`.
-pub const MAX_SECONDS: u64 = i32::MAX as u64;
+pub(crate) const MAX_SECONDS: u64 = i32::MAX as u64;
 
 /// How often a source parked by `status-interval 0` looks again.
 // ponytail: a tick a second while parked; a hook on `status-interval`
@@ -53,7 +53,7 @@ const PARKED: Duration = Duration::from_secs(1);
 
 /// An inline source not requested (registered again) for this long is
 /// dropped, as tmux 3.7b drops a `#()` job unused for an hour.
-pub const INLINE_EXPIRY: Duration = Duration::from_secs(3600);
+pub(crate) const INLINE_EXPIRY: Duration = Duration::from_secs(3600);
 
 /// The registered sources and their schedules; their values live in the
 /// option store. Lives on `State.sources`.
@@ -230,7 +230,7 @@ impl Sources {
 /// The option name an inline source of `cmd` stores its value in, without
 /// the `@`: `src-` and a 64-bit FNV-1a hash of the command, in hex. Stable
 /// across servers and builds, so a format can name it.
-pub fn inline_key(cmd: &str) -> String {
+pub(crate) fn inline_key(cmd: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for b in cmd.bytes() {
         hash ^= u64::from(b);
@@ -249,7 +249,7 @@ pub fn inline_key(cmd: &str) -> String {
 /// [`INLINE_EXPIRY`] is dropped, as tmux drops an unused job. This is the
 /// one function the front end calls for `#(cmd)`; [`unregister`] drops a
 /// source at once.
-pub fn register(
+pub(crate) fn register(
     state: &mut State,
     name: Option<&str>,
     cmd: &str,
@@ -292,7 +292,7 @@ pub fn register(
 /// option's value reads any more: after a `set` overwrites or unsets the
 /// option, an `-a` changes it, or a reload replaces it. So a source runs
 /// only while the status line can show it.
-pub fn prune_unreferenced(state: &mut State) {
+pub(crate) fn prune_unreferenced(state: &mut State) {
     let keys: BTreeSet<String> = state
         .sources
         .entries
@@ -309,11 +309,12 @@ pub fn prune_unreferenced(state: &mut State) {
 }
 
 /// How many commands have a source now, for tests.
-pub fn running(state: &State) -> usize {
+#[cfg(test)]
+pub(crate) fn running(state: &State) -> usize {
     state.sources.entries.len()
 }
 
-pub fn unregister(state: &mut State, option: &str) -> bool {
+pub(crate) fn unregister(state: &mut State, option: &str) -> bool {
     let key = option.strip_prefix('@').unwrap_or(option);
     let mut found = false;
     for e in state.sources.entries.values_mut() {
@@ -328,7 +329,7 @@ pub fn unregister(state: &mut State, option: &str) -> bool {
 /// `reload`, after its options: the config's registrations are replaced;
 /// inline ones stay. A command still registered keeps its schedule and its
 /// run in flight. A dropped source's option keeps its last value.
-pub fn configure(state: &mut State, config: &Resolved) {
+pub(crate) fn configure(state: &mut State, config: &Resolved) {
     let now = Instant::now();
     state.sources.remove_config();
     for (name, s) in &config.sources {

@@ -64,7 +64,7 @@ const SHELLS: [&str; 11] = [
 /// `#{window_layout}`, which lists floating panes (`floats` are their
 /// `WxH,x,y,id` cells) after the tiled ones and again in a `<...>` stack,
 /// and which `select-layout` does not take back.
-pub fn tiled_layout(layout: &str, floats: &[String]) -> Option<String> {
+pub(crate) fn tiled_layout(layout: &str, floats: &[String]) -> Option<String> {
     if floats.is_empty() {
         return Some(layout.to_string());
     }
@@ -101,7 +101,7 @@ fn fields(line: &str, n: usize) -> Result<Vec<String>, String> {
     }
 }
 
-pub fn save(
+pub(crate) fn save(
     server: &mut dyn Server,
     dirs: &Dirs,
     session: &str,

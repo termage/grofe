@@ -26,7 +26,7 @@ pub struct Group {
 
 impl Model {
     /// The index `session` knows `window` by.
-    pub fn index_in(&self, session: SessionId, window: WindowId) -> Option<u32> {
+    pub(crate) fn index_in(&self, session: SessionId, window: WindowId) -> Option<u32> {
         self.windows
             .get(&window)?
             .links
@@ -35,7 +35,7 @@ impl Model {
             .map(|(_, i)| *i)
     }
 
-    pub fn has_link(&self, session: SessionId, window: WindowId) -> bool {
+    pub(crate) fn has_link(&self, session: SessionId, window: WindowId) -> bool {
         self.index_in(session, window).is_some()
     }
 
@@ -57,19 +57,19 @@ impl Model {
     /// Whether `window` is linked outside `session` and its group, as tmux's
     /// `session_is_linked`: its links are not just the session's, or one per
     /// member of its group.
-    pub fn is_linked_outside(&self, session: SessionId, window: WindowId) -> bool {
+    pub(crate) fn is_linked_outside(&self, session: SessionId, window: WindowId) -> bool {
         let links = self.windows.get(&window).map_or(0, |w| w.links.len());
         let own = self.group_of(session).map_or(1, |g| g.members.len());
         links != own
     }
 
     /// The group `session` is in.
-    pub fn group_of(&self, session: SessionId) -> Option<&Group> {
+    pub(crate) fn group_of(&self, session: SessionId) -> Option<&Group> {
         self.groups.iter().find(|g| g.members.contains(&session))
     }
 
     /// The other sessions in `session`'s group.
-    pub fn group_peers(&self, session: SessionId) -> Vec<SessionId> {
+    pub(crate) fn group_peers(&self, session: SessionId) -> Vec<SessionId> {
         self.group_of(session)
             .map(|g| {
                 g.members
@@ -82,7 +82,7 @@ impl Model {
     }
 
     /// Makes `session` a member of the group named `name`, made if needed.
-    pub fn join_group(&mut self, name: &str, session: SessionId) {
+    pub(crate) fn join_group(&mut self, name: &str, session: SessionId) {
         match self.groups.iter_mut().find(|g| g.name == name) {
             Some(g) => g.members.push(session),
             None => self.groups.push(Group {
@@ -101,7 +101,7 @@ impl Model {
 
     /// Distinct sessions-or-groups holding `window`: tmux's
     /// `window_linked_sessions`.
-    pub fn linked_units(&self, window: WindowId) -> usize {
+    pub(crate) fn linked_units(&self, window: WindowId) -> usize {
         let Some(w) = self.windows.get(&window) else {
             return 0;
         };
@@ -128,7 +128,7 @@ impl Model {
 
     /// Puts `window` in `session`'s list at `index`, which must be free
     /// there. The group is not synchronized.
-    pub fn add_link(&mut self, session: SessionId, window: WindowId, index: u32) {
+    pub(crate) fn add_link(&mut self, session: SessionId, window: WindowId, index: u32) {
         let Some(w) = self.windows.get_mut(&window) else {
             return;
         };
@@ -147,7 +147,7 @@ impl Model {
 
     /// Takes `window` out of `session`'s list and last-window stack, with no
     /// choice of a new current window and no group sync.
-    pub fn remove_link(&mut self, session: SessionId, window: WindowId) {
+    pub(crate) fn remove_link(&mut self, session: SessionId, window: WindowId) {
         if let Some(w) = self.windows.get_mut(&window) {
             w.links.retain(|(s, _)| *s != session);
         }
@@ -160,7 +160,7 @@ impl Model {
 
     /// Gives `window` the index `index` in `session`'s list, which must be
     /// free there.
-    pub fn set_index(&mut self, session: SessionId, window: WindowId, index: u32) {
+    pub(crate) fn set_index(&mut self, session: SessionId, window: WindowId, index: u32) {
         if let Some(w) = self.windows.get_mut(&window)
             && let Some(link) = w.links.iter_mut().find(|(s, _)| *s == session)
         {
@@ -170,7 +170,7 @@ impl Model {
         self.sort_windows(session);
     }
 
-    pub fn sort_windows(&mut self, session: SessionId) {
+    pub(crate) fn sort_windows(&mut self, session: SessionId) {
         let Some(mut list) = self.sessions.get(&session).map(|s| s.windows.clone()) else {
             return;
         };
@@ -186,7 +186,7 @@ impl Model {
     /// and last windows by index. A member whose current index is gone first
     /// moves, in its old list, to its last window, else the one before it
     /// (the last of all from the first), as `session_detach` does.
-    pub fn sync_group(&mut self, from: SessionId) {
+    pub(crate) fn sync_group(&mut self, from: SessionId) {
         let Some(source) = self.sessions.get(&from).map(|s| s.windows.clone()) else {
             return;
         };
@@ -243,7 +243,7 @@ impl Model {
     /// With `renumber-windows` on, `session`'s windows, and its group's, are
     /// numbered again from `base-index` in order, as tmux does when one of
     /// them goes (`server_renumber_session`).
-    pub fn renumber_session(&mut self, session: SessionId) {
+    pub(crate) fn renumber_session(&mut self, session: SessionId) {
         let on = self
             .options
             .lookup("renumber-windows", &[Owner::Session(session)])
@@ -259,7 +259,7 @@ impl Model {
 
     /// [`Model::renumber_from_base`] if the session has `renumber-windows`
     /// on: `move-window` numbers the session the window left, and no group.
-    pub fn renumber_alone(&mut self, session: SessionId) {
+    pub(crate) fn renumber_alone(&mut self, session: SessionId) {
         if self.sessions.contains_key(&session)
             && self
                 .options
@@ -273,7 +273,7 @@ impl Model {
     /// `session`'s windows numbered from `base-index` in order. Like tmux's
     /// `session_renumber_windows`, it leaves the group alone: a member
     /// numbered by itself differs from the others until the next sync.
-    pub fn renumber_from_base(&mut self, session: SessionId) {
+    pub(crate) fn renumber_from_base(&mut self, session: SessionId) {
         let base = self.base_index(session);
         let Some(list) = self.sessions.get(&session).map(|s| s.windows.clone()) else {
             return;
@@ -289,7 +289,7 @@ impl Model {
     /// session left with no windows goes, and its whole group with it. The
     /// window itself stays in the model, even with no link left: the caller
     /// closes it ([`Model::close_orphans`]).
-    pub fn detach_window(&mut self, session: SessionId, window: WindowId) {
+    pub(crate) fn detach_window(&mut self, session: SessionId, window: WindowId) {
         let Some(s) = self.sessions.get_mut(&session) else {
             return;
         };
@@ -361,7 +361,7 @@ impl Model {
 
     /// Removes the windows `windows`, which have no link left, and their
     /// panes. Returns the panes still live.
-    pub fn close_orphans(&mut self, windows: &[WindowId]) -> Removed {
+    pub(crate) fn close_orphans(&mut self, windows: &[WindowId]) -> Removed {
         let mut removed = Vec::new();
         for window in windows {
             let Some(w) = self.windows.get(window).filter(|w| w.links.is_empty()) else {
@@ -401,7 +401,7 @@ impl Model {
     /// session left empty goes. With `renumber-windows` the sessions that
     /// held it are numbered again (tmux's `server_kill_window`; `unlink-window
     /// -k` does not ask for it, recorded).
-    pub fn kill_window_everywhere(&mut self, window: WindowId, renumber: bool) -> Removed {
+    pub(crate) fn kill_window_everywhere(&mut self, window: WindowId, renumber: bool) -> Removed {
         let Some(w) = self.windows.get(&window) else {
             return Vec::new();
         };

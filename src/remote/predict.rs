@@ -229,7 +229,7 @@ enum Key {
     Flush,
 }
 
-pub struct Predictor {
+pub(crate) struct Predictor {
     term: Term<VoidListener>,
     parser: Processor<NoSync>,
     cols: usize,
@@ -252,7 +252,7 @@ pub struct Predictor {
 }
 
 impl Predictor {
-    pub fn new(cols: usize, rows: usize) -> Self {
+    pub(crate) fn new(cols: usize, rows: usize) -> Self {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let config = Config {
             scrolling_history: 0,
@@ -276,7 +276,7 @@ impl Predictor {
     }
 
     /// The client screen changed size. Pending predictions are forgotten; the caller redraws.
-    pub fn resize(&mut self, cols: usize, rows: usize) {
+    pub(crate) fn resize(&mut self, cols: usize, rows: usize) {
         let (cols, rows) = (cols.max(1), rows.max(1));
         self.term.resize(Size { cols, rows });
         self.cols = cols;
@@ -288,20 +288,20 @@ impl Predictor {
     }
 
     /// `auto` or `on` (true), `off` or not remote (false). Returns the erase of anything shown.
-    pub fn set_enabled(&mut self, on: bool) -> Vec<u8> {
+    pub(crate) fn set_enabled(&mut self, on: bool) -> Vec<u8> {
         self.enabled = on;
         self.rollback()
     }
 
     /// The server's `pane-echo` hint: false while the pane's pty has echo off.
-    pub fn set_echo_hint(&mut self, on: bool) -> Vec<u8> {
+    pub(crate) fn set_echo_hint(&mut self, on: bool) -> Vec<u8> {
         self.echo_hint = on;
         self.rollback()
     }
 
     /// Write these bytes to the terminal before the server bytes of the next `feed_output`:
     /// the server's output lands at the mirror's cursor, not where a prediction left it.
-    pub fn before_output(&mut self) -> Vec<u8> {
+    pub(crate) fn before_output(&mut self) -> Vec<u8> {
         if !self.displaced || !self.scan.at_ground() {
             return Vec::new();
         }
@@ -312,7 +312,7 @@ impl Predictor {
     /// Server output for the attach channel. Updates the mirror, confirms or invalidates
     /// predictions. Write the bytes it returns after the server bytes (and after the bytes of
     /// `before_output`). Nothing is returned while the stream is inside an escape sequence.
-    pub fn feed_output(&mut self, bytes: &[u8], _now: Instant) -> Vec<u8> {
+    pub(crate) fn feed_output(&mut self, bytes: &[u8], _now: Instant) -> Vec<u8> {
         self.parser.advance(&mut self.term, bytes);
         self.scan.feed(bytes);
         let alt = self.term.mode().contains(TermMode::ALT_SCREEN);
@@ -365,7 +365,7 @@ impl Predictor {
     }
 
     /// Local keystrokes. Returns what to draw now: predicted cells, underlined.
-    pub fn on_input(&mut self, bytes: &[u8], now: Instant) -> Vec<u8> {
+    pub(crate) fn on_input(&mut self, bytes: &[u8], now: Instant) -> Vec<u8> {
         let mut out = Vec::new();
         for key in self.parse(bytes) {
             if matches!(key, Key::Flush) || !self.can_predict() {
@@ -380,7 +380,7 @@ impl Predictor {
     }
 
     /// Call from the client's timer. Erases predictions unconfirmed for 1 s.
-    pub fn tick(&mut self, now: Instant) -> Vec<u8> {
+    pub(crate) fn tick(&mut self, now: Instant) -> Vec<u8> {
         match self.pending.front() {
             Some(p) if now.saturating_duration_since(p.at) >= TIMEOUT => self.rollback(),
             // A repaint owed from mid-sequence output.

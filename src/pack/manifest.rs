@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
+pub(crate) enum Kind {
     Luau,
     Tmux,
 }
@@ -14,7 +14,7 @@ struct Manifest {
 }
 
 /// Classify a plugin directory: `grofe-plugin.toml` wins over any `*.tmux` file.
-pub fn detect(dir: &Path) -> Result<Kind, String> {
+pub(crate) fn detect(dir: &Path) -> Result<Kind, String> {
     let path = dir.join("grofe-plugin.toml");
     if path.is_file() {
         let text =

@@ -8,11 +8,11 @@
 
 mod capture_sgr;
 pub(crate) mod cold;
-pub mod io;
+pub(crate) mod io;
 pub(crate) mod looks;
-pub mod marks;
+pub(crate) mod marks;
 mod pipe;
-pub mod procinfo;
+pub(crate) mod procinfo;
 pub(crate) mod reflow;
 mod term_vars;
 mod written;
@@ -41,7 +41,7 @@ use tokio::sync::{Notify, mpsc};
 use tokio::task::JoinHandle;
 
 pub use alacritty_terminal::term::cell::Flags as CellFlags;
-pub use alacritty_terminal::term::cell::Hyperlink;
+pub(crate) use alacritty_terminal::term::cell::Hyperlink;
 
 use crate::server::imgstore::{PaneImages, Store};
 use crate::server::passthrough::Scanner;
@@ -490,7 +490,7 @@ static NEXT_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Turns the output tap on or off for every pane in this process (one
 /// server per process): while on, each reader also sends what it reads as
 /// [`PaneEventKind::Output`], for `pane-output` subscribers.
-pub fn set_output_tap(on: bool) {
+pub(crate) fn set_output_tap(on: bool) {
     io::OUTPUT_TAP.store(on, Ordering::Relaxed);
 }
 
@@ -505,7 +505,7 @@ pub fn inner_term() -> &'static str {
 /// closes the master, which hangs up the child.
 /// What `capture-pane`'s `-L`, `-F`, `-C` and `-H` add to a capture.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CaptureExtra {
+pub(crate) struct CaptureExtra {
     /// `-L`: each row starts with its line number.
     pub numbered: bool,
     /// `-F`: each row starts with its flags (`H`, `O`, `P`, `W`, or `-`).
@@ -581,7 +581,7 @@ impl PaneHandle {
     /// [`Self::spawn`] for `respawn-pane`: the new process runs in `old`'s
     /// emulator, reinitialised as tmux's `screen_reinit` does ([`Emu::reinit`]),
     /// so the scrollback (and its prompt marks) stays.
-    pub fn spawn_over(
+    pub(crate) fn spawn_over(
         spec: PaneSpawn,
         to_actor: mpsc::Sender<PaneEvent>,
         wake: Arc<Notify>,
@@ -746,24 +746,24 @@ impl PaneHandle {
     }
 
     /// Whether a `pipe-pane` command is tied to the pane (`#{pane_pipe}`).
-    pub fn pipe_open(&self) -> bool {
+    pub(crate) fn pipe_open(&self) -> bool {
         self.pipe.is_open()
     }
 
     /// The pid of the pane's `pipe-pane` command (`#{pane_pipe_pid}`).
-    pub fn pipe_pid(&self) -> Option<u32> {
+    pub(crate) fn pipe_pid(&self) -> Option<u32> {
         self.pipe.pid()
     }
 
     /// Closes the pane's `pipe-pane` command's pipe, if any.
-    pub fn pipe_close(&self) {
+    pub(crate) fn pipe_close(&self) {
         self.pipe.close();
     }
 
     /// Ties `command` to the pane: `output` feeds it what the pane's program
     /// writes, `input` types what it writes into the pane. Needs a tokio
     /// runtime; closes nothing, so [`Self::pipe_close`] first.
-    pub fn pipe_start(&self, command: &str, input: bool, output: bool) -> stdio::Result<()> {
+    pub(crate) fn pipe_start(&self, command: &str, input: bool, output: bool) -> stdio::Result<()> {
         self.pipe.start(command, input, output)
     }
 
@@ -780,7 +780,7 @@ impl PaneHandle {
     /// [`PaneHandle::resize`] for a mouse drag's report: the screen now,
     /// the pty (and so the program's `SIGWINCH`) at most every
     /// [`RESIZE_HOLD`], always ending at the last size ([`WinsizeGate`]).
-    pub fn resize_held(&self, cols: u16, rows: u16) -> stdio::Result<()> {
+    pub(crate) fn resize_held(&self, cols: u16, rows: u16) -> stdio::Result<()> {
         let size = self.resize_screen(cols, rows);
         let key = winsize_key(&size.winsize(*lock(&self.cell_px)));
         let mut g = lock(&self.winsize);
@@ -832,7 +832,7 @@ impl PaneHandle {
     /// hyperlink, as `screen_reset_hyperlinks` does.
     // ponytail: on the alternate screen alacritty's grid holds no scrollback,
     // so the normal screen's is left (and its image placements with it).
-    pub fn clear_history(&self, hyperlinks: bool) {
+    pub(crate) fn clear_history(&self, hyperlinks: bool) {
         let mut emu = lock(&self.emu);
         let Emu {
             term,
@@ -857,7 +857,7 @@ impl PaneHandle {
     /// their start (cursor shown, wrapping, nothing else), tab stops
     /// and the scroll region reset, and the screen is cleared (into the
     /// scrollback) with the cursor home.
-    pub fn reset_state(&self) {
+    pub(crate) fn reset_state(&self) {
         // `screen_write_reset` leaves only MODE_CURSOR|MODE_WRAP, so the
         // kitty keyboard flags, synchronized output and the character sets
         // go too (as [`REINIT`], but the alternate screen stays and the
@@ -884,7 +884,7 @@ impl PaneHandle {
     /// Prints `text` on the pane's last row of a dead pane, as tmux's
     /// `server_destroy_pane` does for `remain-on-exit-format`: the screen
     /// scrolls up one row first, so the text never covers output.
-    pub fn show_dead_text(&self, text: &str) {
+    pub(crate) fn show_dead_text(&self, text: &str) {
         // ponytail: a line wider than the pane is cut by chars, not cells.
         let cols = lock(&self.emu).term.columns();
         let line: String = text
@@ -919,7 +919,7 @@ impl PaneHandle {
 
     /// One cell's size in pixels, from the client the window is now sized
     /// for; the pty's pixel size follows when it changes.
-    pub fn set_cell_px(&self, cell_px: Option<(u16, u16)>) -> stdio::Result<()> {
+    pub(crate) fn set_cell_px(&self, cell_px: Option<(u16, u16)>) -> stdio::Result<()> {
         {
             let mut current = lock(&self.cell_px);
             if *current == cell_px {
@@ -940,20 +940,20 @@ impl PaneHandle {
 
     /// Whether an attached client shows kitty graphics: the reader answers
     /// the pane's graphics queries by it (T3.8), without the actor.
-    pub fn set_graphics_ok(&self, ok: bool) {
+    pub(crate) fn set_graphics_ok(&self, ok: bool) {
         self.graphics_ok.store(ok, Ordering::Relaxed);
     }
 
     /// The colours `window-style` gives the pane's default foreground and
     /// background, `None` for the terminal's: the reader answers OSC 10 and
     /// OSC 11 queries with them, as tmux does.
-    pub fn set_default_colours(&self, fg: Option<Rgb>, bg: Option<Rgb>) {
+    pub(crate) fn set_default_colours(&self, fg: Option<Rgb>, bg: Option<Rgb>) {
         self.default_colours[0].store(io::pack_colour(fg), Ordering::Relaxed);
         self.default_colours[1].store(io::pack_colour(bg), Ordering::Relaxed);
     }
 
     /// Turns the `graphics` option on or off for this pane (G3).
-    pub fn set_images(&self, on: bool) {
+    pub(crate) fn set_images(&self, on: bool) {
         if !on && self.images_on.swap(false, Ordering::Relaxed) {
             // Not tracked while off: what it held would drift from the text.
             lock(&self.emu).images.reset();
@@ -963,7 +963,8 @@ impl PaneHandle {
     }
 
     /// See [`Self::set_graphics_ok`].
-    pub fn graphics_ok(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn graphics_ok(&self) -> bool {
         self.graphics_ok.load(Ordering::Relaxed)
     }
 
@@ -978,7 +979,7 @@ impl PaneHandle {
     /// [`Self::capture`] with tmux's `-J` when `join`: a row that wraps
     /// onto the next one is joined to it, and a row that does not ends at
     /// its used width ([`written`]), the blanks the program wrote kept.
-    pub fn capture_lines(&self, opts: &CaptureOpts, join: bool) -> String {
+    pub(crate) fn capture_lines(&self, opts: &CaptureOpts, join: bool) -> String {
         self.capture_blanks(opts, join, false, false)
     }
 
@@ -990,7 +991,7 @@ impl PaneHandle {
     // and the whole width as its writes reach them, so a line written in
     // several runs can have more or fewer than the step its used width
     // alone gives, which is what `-N` pads to here.
-    pub fn capture_blanks(
+    pub(crate) fn capture_blanks(
         &self,
         opts: &CaptureOpts,
         join: bool,
@@ -1008,7 +1009,7 @@ impl PaneHandle {
 
     /// [`Self::capture_blanks`] with the flags that change what a row
     /// starts with or holds (`-L`, `-F`, `-C`, `-H`).
-    pub fn capture_rows(
+    pub(crate) fn capture_rows(
         &self,
         opts: &CaptureOpts,
         join: bool,
@@ -1188,7 +1189,7 @@ impl PaneHandle {
 
     /// The `PATH` this spawn's child gets (the last `PATH` of its
     /// environment), known without reading the process.
-    pub fn spawn_path(&self) -> Option<&str> {
+    pub(crate) fn spawn_path(&self) -> Option<&str> {
         self.spawn_path.as_deref()
     }
 
@@ -1199,32 +1200,32 @@ impl PaneHandle {
     /// Resolves once the child was spawned, at once for a pane without a
     /// [`PaneSpawn::delay`]: `true`, or `false` when the handle went first
     /// (dropped, or replaced by a respawn) and the child never will be.
-    pub fn started(&self) -> impl std::future::Future<Output = bool> + Send + 'static {
+    pub(crate) fn started(&self) -> impl std::future::Future<Output = bool> + Send + 'static {
         let mut started = self.started.clone();
         async move { started.wait_for(|s| *s).await.is_ok() }
     }
 
     /// This spawn's generation, as carried by every [`PaneEvent`] it sends.
-    pub fn generation(&self) -> u64 {
+    pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
 
     /// The TCP ports the pane's processes (the whole tree under its child)
     /// listen on, sorted; at most 2 s old (`#{pane_ports}`, `list-ports`).
-    pub fn ports(&self) -> Vec<u16> {
+    pub(crate) fn ports(&self) -> Vec<u16> {
         self.pid()
             .map(|pid| self.ports.get(pid as i32))
             .unwrap_or_default()
     }
 
     /// Records a scan of the pane's ports made elsewhere.
-    pub fn set_ports(&self, ports: Vec<u16>) {
+    pub(crate) fn set_ports(&self, ports: Vec<u16>) {
         self.ports.set(ports);
     }
 
     /// Whether the pty echoes what is typed (its ECHO flag), read now;
     /// `None` once the pty is gone. A program reading a password clears it.
-    pub fn echo(&self) -> Option<bool> {
+    pub(crate) fn echo(&self) -> Option<bool> {
         use nix::sys::termios::{LocalFlags, tcgetattr};
         let attrs = tcgetattr(self.master.get_ref()).ok()?;
         Some(attrs.local_flags.contains(LocalFlags::ECHO))
@@ -1243,7 +1244,7 @@ impl PaneHandle {
     /// The pty's foreground process group, read now rather than sampled
     /// ([`procinfo::foreground_group`]): for a command's formats, which must
     /// see the process in front at the moment the key is pressed.
-    pub fn foreground_group(&self) -> Option<i32> {
+    pub(crate) fn foreground_group(&self) -> Option<i32> {
         procinfo::foreground_group(self.master.get_ref())
     }
 
@@ -1257,29 +1258,29 @@ impl PaneHandle {
     }
 
     /// What the pane last reported with OSC 7: `#{pane_path}`.
-    pub fn reported_path(&self) -> Option<String> {
+    pub(crate) fn reported_path(&self) -> Option<String> {
         lock(&self.reported_path).clone()
     }
 
     /// Records what the pane reported with OSC 7.
-    pub fn set_reported_path(&self, path: String) {
+    pub(crate) fn set_reported_path(&self, path: String) {
         *lock(&self.reported_path) = Some(path);
     }
 
     /// The pty slave's path, as `#{pane_tty}` shows it.
-    pub fn tty_path(&self) -> Option<&Path> {
+    pub(crate) fn tty_path(&self) -> Option<&Path> {
         self.tty.as_deref()
     }
 
     /// Scrollback lines kept above the visible screen.
-    pub fn history_size(&self) -> usize {
+    pub(crate) fn history_size(&self) -> usize {
         let emu = lock(&self.emu);
         emu.marks.history_len(&emu.term)
     }
 
     /// The pane's kitty placements in the rows [`Self::copy_grid`] gives:
     /// row 0 is the oldest history row (copy mode's view of its images).
-    pub fn copy_images(&self) -> Option<PaneImages> {
+    pub(crate) fn copy_images(&self) -> Option<PaneImages> {
         let emu = lock(&self.emu);
         emu.images.copy_view(emu.marks.history_len(&emu.term))
     }
@@ -1293,7 +1294,7 @@ impl PaneHandle {
     /// a tab), which copy mode treats as tmux treats a tab's padding.
     /// Both are buffers reused for the next row. The third is the row's
     /// OSC 133 [`marks`] bits.
-    pub fn copy_grid(
+    pub(crate) fn copy_grid(
         &self,
         mut row: impl FnMut(&mut [SnapCell], &[bool], u8),
     ) -> (usize, CursorState) {
@@ -1562,7 +1563,7 @@ fn child_env(spec: &PaneSpawn) -> Vec<(OsString, OsString)> {
 
 /// tmux's `checkshell`: an absolute path that may be executed and is not
 /// tmux itself.
-pub fn check_shell(shell: &str) -> bool {
+pub(crate) fn check_shell(shell: &str) -> bool {
     shell.starts_with('/')
         && shell.rsplit('/').next() != Some("tmux")
         && access(shell, AccessFlags::X_OK).is_ok()
@@ -1570,7 +1571,7 @@ pub fn check_shell(shell: &str) -> bool {
 
 /// The shell tmux starts panes and `default-shell` commands with:
 /// `candidate` if it passes [`check_shell`], else `/bin/sh`.
-pub fn pane_shell(candidate: Option<&str>) -> String {
+pub(crate) fn pane_shell(candidate: Option<&str>) -> String {
     candidate
         .filter(|s| check_shell(s))
         .unwrap_or("/bin/sh")
@@ -1597,7 +1598,7 @@ fn passwd_shell() -> Option<String> {
 /// The directory a pane starts in: `cwd` if it is one the server may enter
 /// (search permission, so an EACCES directory does not leave a dead pane),
 /// else `$HOME`, else `/`, as tmux falls back when it cannot `chdir`.
-pub fn usable_cwd(cwd: PathBuf) -> PathBuf {
+pub(crate) fn usable_cwd(cwd: PathBuf) -> PathBuf {
     if cwd.is_dir() && access(&cwd, AccessFlags::X_OK).is_ok() {
         return cwd;
     }

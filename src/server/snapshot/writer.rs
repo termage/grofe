@@ -199,7 +199,7 @@ fn tick(state: &mut State) {
 /// first call starts the writer. While the server runs it keeps the
 /// state a signal would write; once the server is exiting it writes the
 /// final state synchronously and freezes.
-pub fn track(state: &mut State, output: bool) {
+pub(crate) fn track(state: &mut State, output: bool) {
     if state.snapshot_writer.is_none() {
         state.snapshot_writer = Some(Writer::start(state));
     }
@@ -239,7 +239,7 @@ pub fn track(state: &mut State, output: bool) {
 
 /// A pane's process died of a signal (its exit has no code): the next
 /// build arms the hold, see [`track`].
-pub fn pane_killed(state: &mut State) {
+pub(crate) fn pane_killed(state: &mut State) {
     if let Some(w) = state.snapshot_writer.as_mut() {
         w.killed = true;
     }
@@ -252,7 +252,7 @@ pub fn pane_killed(state: &mut State) {
 /// disk that disagrees with it. Empty once the writer is frozen or the
 /// server is terminating (nothing more is written); every pane before the
 /// first write.
-pub fn pending_panes(state: &State) -> HashSet<String> {
+pub(crate) fn pending_panes(state: &State) -> HashSet<String> {
     let model = &state.model;
     let all = || model.panes.values().map(|p| p.uid.clone()).collect();
     let Some(w) = state.snapshot_writer.as_ref() else {

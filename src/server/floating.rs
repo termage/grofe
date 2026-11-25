@@ -15,7 +15,7 @@ use crate::server::model::Floating;
 
 /// `f` after a drag report moved the pointer from window cell `(lx, ly)`
 /// (the previous report) to `(x, y)`, or `None` when that changes nothing.
-pub fn dragged(f: &Floating, (lx, ly): (i32, i32), (x, y): (i32, i32)) -> Option<Floating> {
+pub(crate) fn dragged(f: &Floating, (lx, ly): (i32, i32), (x, y): (i32, i32)) -> Option<Floating> {
     let (sx, sy) = (i32::from(f.cols), i32::from(f.rows));
     let (left, right) = (f.x - 1, f.x + sx);
     let (top, bottom) = (f.y - 1, f.y + sy);
@@ -73,7 +73,7 @@ pub fn dragged(f: &Floating, (lx, ly): (i32, i32), (x, y): (i32, i32)) -> Option
 /// `f` moved to content origin `(x, y)` (`place-pane`), held so that the
 /// whole pane, border included, is inside a window of `window` cells; a
 /// pane larger than the window is pinned to its top left.
-pub fn placed(f: &Floating, (x, y): (i32, i32), window: (u16, u16)) -> Floating {
+pub(crate) fn placed(f: &Floating, (x, y): (i32, i32), window: (u16, u16)) -> Floating {
     let (w, h) = (i32::from(window.0), i32::from(window.1));
     Floating {
         x: x.clamp(1, (w - i32::from(f.cols) - 1).max(1)),

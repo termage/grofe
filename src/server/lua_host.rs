@@ -203,7 +203,7 @@ fn log_error(state: &mut State, e: &LuaError) {
 
 /// Drops the runtime with its timers and subscriptions, and every key Lua
 /// bound.
-pub fn reset(state: &mut State) {
+pub(crate) fn reset(state: &mut State) {
     if IN_CALL.with(Cell::get) {
         DEFERRED.with(|d| *d.borrow_mut() = Some(Deferred::default()));
     }
@@ -230,7 +230,7 @@ fn init_file(dir: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-pub fn load_pack(state: &mut State, name: &str, dir: &Path) -> Result<(), String> {
+pub(crate) fn load_pack(state: &mut State, name: &str, dir: &Path) -> Result<(), String> {
     if deferring() {
         DEFERRED.with(|d| {
             if let Some(d) = d.borrow_mut().as_mut() {
@@ -250,7 +250,7 @@ pub fn load_pack(state: &mut State, name: &str, dir: &Path) -> Result<(), String
     .map_err(|e| e.to_string())
 }
 
-pub fn load_init(state: &mut State, config_dir: &Path) {
+pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
     if deferring() {
         let Some(d) = DEFERRED.with(|d| d.borrow_mut().take()) else {
             return;
@@ -283,7 +283,7 @@ pub fn load_init(state: &mut State, config_dir: &Path) {
     }
 }
 
-pub fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result<String, String> {
+pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result<String, String> {
     with_host(state, ctx.clone(), |rt, host| {
         api::enter(rt, host, "lua", |lua| {
             let values = lua.load(src).set_name("lua").eval::<mlua::MultiValue>()?;
@@ -294,7 +294,7 @@ pub fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result<String
     .map_err(|e| e.to_string())
 }
 
-pub fn call(state: &mut State, id: u32, payload: Payload) {
+pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
     let r = with_host(state, client_less_ctx(), |rt, host| {
         api::call(rt, host, id, payload)
     });

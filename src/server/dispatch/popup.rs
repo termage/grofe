@@ -27,7 +27,7 @@ use crate::types::{ClientId, Dir, PaneId, Rect, SplitSize};
 /// `GROFE_PANE` names the client's current pane, so grofe commands run from
 /// the popup act where the popup was opened. From the CLI the reply waits
 /// until the popup closes, with its command's exit status.
-pub fn display_popup(
+pub(crate) fn display_popup(
     state: &mut State,
     ctx: &ClientCtx,
     c: DisplayPopup,
@@ -169,7 +169,7 @@ pub fn display_popup(
 /// is listed and counted with the window's panes, and closes as a pane
 /// does. `-P` prints it (`-F`, else tmux's `session:window.pane`).
 // ponytail: a floating pane does not move when its window is resized.
-pub fn new_pane(state: &mut State, ctx: &ClientCtx, c: NewPane) -> Result<String, String> {
+pub(crate) fn new_pane(state: &mut State, ctx: &ClientCtx, c: NewPane) -> Result<String, String> {
     let model = &state.model;
     let target = model.resolve_pane(&c.target, ctx)?;
     let window = model.panes[&target].window;

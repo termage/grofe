@@ -167,7 +167,7 @@ impl Writer<'_> {
 
 impl Grid {
     /// An empty view-mode screen `sx` wide and `sy` high.
-    pub fn view(sx: usize, sy: usize) -> Grid {
+    pub(crate) fn view(sx: usize, sy: usize) -> Grid {
         Grid::empty(sx, 0, sy)
     }
 
@@ -185,7 +185,7 @@ impl Grid {
 
     /// One more line of text (`window_copy_add` with `parse`); how much
     /// the history grew.
-    pub fn add_line(&mut self, text: &str, now: u64) -> usize {
+    pub(crate) fn add_line(&mut self, text: &str, now: u64) -> usize {
         let before = self.hsize;
         let mut pen = std::mem::replace(&mut self.pen, Pen::new());
         let mut w = Writer {
@@ -244,7 +244,7 @@ impl Grid {
 
     /// When the row at the top of the view went into the history, or 0
     /// (`#{top_line_time}`).
-    pub fn row_time(&self, y: usize) -> u64 {
+    pub(crate) fn row_time(&self, y: usize) -> u64 {
         self.rows.get(y).map_or(0, |r: &Row| r.time)
     }
 }
@@ -267,7 +267,7 @@ fn now() -> u64 {
 /// Adds `text` to `pane`'s view mode, entering it first unless the pane is
 /// in it. Each line of `text` is one `window_copy_add`; with `keep_blank`
 /// unset the empty ones are dropped, as tmux drops a `cmdq_print` of "".
-pub fn print(state: &mut State, pane: PaneId, text: &str, keep_blank: bool) {
+pub(crate) fn print(state: &mut State, pane: PaneId, text: &str, keep_blank: bool) {
     let Some((sx, sy)) = state
         .model
         .panes
@@ -311,7 +311,7 @@ pub fn print(state: &mut State, pane: PaneId, text: &str, keep_blank: bool) {
 
 /// What a command printed for an attached client: in the view mode of the
 /// client's pane (`server_client_print`).
-pub fn print_to_client(state: &mut State, client: ClientId, text: &str) {
+pub(crate) fn print_to_client(state: &mut State, client: ClientId, text: &str) {
     if text.is_empty() {
         return;
     }
@@ -333,7 +333,7 @@ fn pane_from_nothing(state: &State) -> Option<PaneId> {
 /// client's pane, else of the pane [`pane_from_nothing`] finds. Through a
 /// client's `cmdq_print` an empty line adds nothing; added to a pane
 /// (`-b`, `-t`) it is a blank line (`keep_blank`).
-pub fn print_shell(
+pub(crate) fn print_shell(
     state: &mut State,
     pane: Option<PaneId>,
     client: Option<ClientId>,

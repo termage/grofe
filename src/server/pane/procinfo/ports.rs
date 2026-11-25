@@ -5,7 +5,7 @@
 /// The TCP ports the processes below each of `roots` (the roots included)
 /// listen on, one sorted list per root, read now. Reads every process, so
 /// it belongs off the actor (`spawn_blocking`).
-pub fn listening_ports(roots: &[i32]) -> Vec<Vec<u16>> {
+pub(crate) fn listening_ports(roots: &[i32]) -> Vec<Vec<u16>> {
     let mut children: std::collections::HashMap<i32, Vec<i32>> = std::collections::HashMap::new();
     for (pid, ppid) in super::os::all_parents() {
         children.entry(ppid).or_default().push(pid);
@@ -56,10 +56,10 @@ pub(super) fn parse_proc_net_tcp(table: &str) -> Vec<(u64, u16)> {
 #[cfg(target_os = "linux")]
 mod sockets {
     /// The listening sockets of this network namespace, by inode.
-    pub struct Sockets(std::collections::HashMap<u64, u16>);
+    pub(crate) struct Sockets(std::collections::HashMap<u64, u16>);
 
     impl Sockets {
-        pub fn new() -> Sockets {
+        pub(crate) fn new() -> Sockets {
             let mut inodes = std::collections::HashMap::new();
             for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
                 if let Ok(text) = std::fs::read_to_string(table) {
@@ -70,7 +70,7 @@ mod sockets {
         }
 
         /// The ports of the listening sockets `pid` holds open.
-        pub fn listening(&self, pid: i32) -> Vec<u16> {
+        pub(crate) fn listening(&self, pid: i32) -> Vec<u16> {
             let Ok(fds) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
                 return Vec::new();
             };
@@ -111,15 +111,15 @@ mod sockets {
     const TCP_STATE: usize = 24 + 240 + 80;
     const TSI_S_LISTEN: i32 = 1;
 
-    pub struct Sockets;
+    pub(crate) struct Sockets;
 
     impl Sockets {
-        pub fn new() -> Sockets {
+        pub(crate) fn new() -> Sockets {
             Sockets
         }
 
         /// The ports of the listening TCP sockets `pid` holds open.
-        pub fn listening(&self, pid: i32) -> Vec<u16> {
+        pub(crate) fn listening(&self, pid: i32) -> Vec<u16> {
             // SAFETY: a null buffer asks for the size only.
             let need = unsafe {
                 libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)

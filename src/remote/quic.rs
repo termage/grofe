@@ -45,14 +45,14 @@ use serde::{Deserialize, Serialize};
 use tokio::runtime::{Handle, Runtime};
 
 /// Length of the token and of the certificate hash, in bytes.
-pub const TOKEN_LEN: usize = 32;
+pub(crate) const TOKEN_LEN: usize = 32;
 /// How long [`connect`] waits for the QUIC handshake before it reads as
 /// UDP being blocked.
-pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// `remote-udp-ports`' default.
-pub const DEFAULT_PORTS: &str = "60001-61000";
+pub(crate) const DEFAULT_PORTS: &str = "60001-61000";
 /// `remote-quic-idle`'s default: 7 days, in seconds.
-pub const DEFAULT_IDLE_SECS: u64 = 7 * 24 * 60 * 60;
+pub(crate) const DEFAULT_IDLE_SECS: u64 = 7 * 24 * 60 * 60;
 /// Overrides `remote-udp-ports` (tests).
 pub const PORTS_ENV: &str = "GROFE_REMOTE_UDP_PORTS";
 
@@ -106,7 +106,7 @@ struct BootstrapLine {
 
 impl Bootstrap {
     /// The one JSON line `grofe proxy --quic` prints.
-    pub fn line(&self) -> String {
+    pub(crate) fn line(&self) -> String {
         let line = BootstrapLine {
             port: self.port,
             cert_sha256: hex(&self.cert_sha256),
@@ -132,7 +132,7 @@ pub fn parse_bootstrap(line: &str) -> Result<Bootstrap, String> {
 }
 
 /// Parses `remote-udp-ports`: `N` or `LOW-HIGH`, ports 1 to 65535.
-pub fn parse_port_range(s: &str) -> Result<RangeInclusive<u16>, String> {
+pub(crate) fn parse_port_range(s: &str) -> Result<RangeInclusive<u16>, String> {
     let port = |p: &str| match p.trim().parse::<u16>() {
         Ok(0) | Err(_) => Err(format!("bad port range {s:?}")),
         Ok(n) => Ok(n),
@@ -216,13 +216,13 @@ pub(crate) fn random32() -> io::Result<[u8; TOKEN_LEN]> {
 /// signatures are still verified with the provider's algorithms, so the
 /// peer must hold the pinned certificate's private key.
 #[derive(Debug)]
-pub struct PinnedCert {
+pub(crate) struct PinnedCert {
     sha256: [u8; TOKEN_LEN],
     provider: Arc<CryptoProvider>,
 }
 
 impl PinnedCert {
-    pub fn new(sha256: [u8; TOKEN_LEN]) -> PinnedCert {
+    pub(crate) fn new(sha256: [u8; TOKEN_LEN]) -> PinnedCert {
         PinnedCert {
             sha256,
             provider: provider(),

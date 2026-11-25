@@ -11,9 +11,9 @@ pub enum MainSize {
 
 impl MainSize {
     /// tmux's `main-pane-width` default.
-    pub const WIDTH: MainSize = MainSize::Cells(80);
+    pub(crate) const WIDTH: MainSize = MainSize::Cells(80);
     /// tmux's `main-pane-height` default.
-    pub const HEIGHT: MainSize = MainSize::Cells(24);
+    pub(crate) const HEIGHT: MainSize = MainSize::Cells(24);
 
     /// An option value as tmux reads it: `N` cells or `N%`. Anything else
     /// is `None`, which tmux replaces with the option's default.
@@ -53,7 +53,7 @@ pub enum Preset {
 
 impl Preset {
     /// tmux's preset names in its `next-layout` order.
-    pub const NAMES: [&str; 7] = [
+    pub(crate) const NAMES: [&str; 7] = [
         "even-horizontal",
         "even-vertical",
         "main-horizontal",
@@ -84,7 +84,7 @@ impl Preset {
     }
 
     /// This preset's place in [`Preset::NAMES`].
-    pub fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         match self {
             Preset::EvenHorizontal => 0,
             Preset::EvenVertical => 1,

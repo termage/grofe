@@ -188,7 +188,7 @@ fn strtol(s: &str) -> i64 {
 /// to `z`) chooses that pane, and the template runs with `%%` for its id
 /// (`select-pane -t "%%%"` by default). `-N` takes no keys. From the CLI
 /// the reply waits until the labels close, unless `-b`.
-pub fn display_panes(
+pub(crate) fn display_panes(
     state: &mut State,
     ctx: &ClientCtx,
     c: DisplayPanes,
@@ -219,7 +219,7 @@ pub fn display_panes(
 /// client, `command` run only on `y`. The command must parse now, as
 /// tmux parses it when the prompt opens. Without `-p` the prompt names the
 /// first command, as tmux 3.7b words it (`Confirm 'kill-pane'? (y/n)`).
-pub fn confirm_before(
+pub(crate) fn confirm_before(
     state: &mut State,
     ctx: &ClientCtx,
     c: ConfirmBefore,
@@ -258,7 +258,7 @@ pub fn confirm_before(
 /// with its command's words, and the command's own arguments follow. An
 /// alias is expanded once, never inside its own expansion. `argv` may hold
 /// several commands split at `;` arguments; each one's verb is looked up.
-pub fn expand_aliases(state: &State, argv: &[String]) -> Option<Vec<String>> {
+pub(crate) fn expand_aliases(state: &State, argv: &[String]) -> Option<Vec<String>> {
     let cmds = cmd::parse::split_argv(argv);
     let expanded: Vec<Option<Vec<Vec<String>>>> = cmds
         .iter()
@@ -290,14 +290,14 @@ pub fn expand_aliases(state: &State, argv: &[String]) -> Option<Vec<String>> {
 /// (or its value does not split). A `;` word in `argv` stays literal.
 /// [`super::run_split`] runs what this returns; `bind-key` stores it, as
 /// tmux expands an alias when the binding is made.
-pub fn expand_alias_command(state: &State, argv: &[String]) -> Option<Vec<Vec<String>>> {
+pub(crate) fn expand_alias_command(state: &State, argv: &[String]) -> Option<Vec<Vec<String>>> {
     let aliases = state.model.options.lookup_list("command-alias", &[])?;
     expand_alias(aliases.values(), argv)
 }
 
 /// [`expand_alias_command`] over an explicit `command-alias` list (the
 /// config loader's, for its bindings).
-pub fn expand_alias<'a>(
+pub(crate) fn expand_alias<'a>(
     aliases: impl IntoIterator<Item = &'a String>,
     argv: &[String],
 ) -> Option<Vec<Vec<String>>> {

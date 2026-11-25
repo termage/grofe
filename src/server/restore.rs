@@ -43,7 +43,7 @@ use crate::types::{PaneId, Rect, SessionId, WindowId, cap_size};
 
 /// What a restore brought back, for the log and `restore-done`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RestoreReport {
+pub(crate) struct RestoreReport {
     pub sessions: usize,
     pub windows: usize,
     pub panes: usize,
@@ -51,7 +51,7 @@ pub struct RestoreReport {
 
 /// Why a restore did not happen; the text is what the caller reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RestoreError(pub String);
+pub(crate) struct RestoreError(pub String);
 
 impl std::fmt::Display for RestoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,7 +81,7 @@ pub const NOT_EMPTY: &str = "server not empty: restore needs an empty server";
 
 /// Called once at server start, after the config is applied and before
 /// the server reports ready: restores the snapshot when asked to.
-pub fn at_start(state: &mut State) {
+pub(crate) fn at_start(state: &mut State) {
     let forced = requested();
     let configured = state.options.restore_on_start
         && state.model.options.lookup("restore-on-start", &[]) == Some("on");
@@ -214,7 +214,7 @@ impl Clock {
 /// no session. A session, window or pane the snapshot repeats is skipped
 /// with a log line; a window whose layout does not hold its panes gets
 /// them side by side.
-pub fn restore(state: &mut State, snap: Snapshot) -> Result<RestoreReport, RestoreError> {
+pub(crate) fn restore(state: &mut State, snap: Snapshot) -> Result<RestoreReport, RestoreError> {
     if !state.model.sessions.is_empty() {
         return Err(RestoreError(NOT_EMPTY.to_string()));
     }
@@ -639,7 +639,7 @@ fn keyed(g: &LayoutGeometry<String>, ids: &BTreeMap<&str, PaneId>) -> Option<Lay
 /// pane respawns as a shell in its `cwd`, same `uid`, with its resume
 /// cleared (`resume-changed`) and one log line. Not while the server is
 /// exiting.
-pub fn on_pane_exited(state: &mut State, pane: PaneId) -> bool {
+pub(crate) fn on_pane_exited(state: &mut State, pane: PaneId) -> bool {
     let Some(p) = state.model.panes.get(&pane) else {
         return false;
     };

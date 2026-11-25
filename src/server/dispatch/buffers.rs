@@ -113,7 +113,7 @@ fn file_error(e: &io::Error, path: &Path) -> String {
 /// write one. A FIFO waits for its other end, as tmux's client waits for
 /// it; the bound keeps a writer or reader that never comes from holding the
 /// request for good.
-pub const FILE_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const FILE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Runs a file's I/O (`io`) off the actor, so a FIFO or a terminal that
 /// blocks holds only the request that named it, not every client. Its
@@ -383,7 +383,7 @@ pub fn list_buffers(state: &mut State, _ctx: &ClientCtx, c: ListBuffers) -> Resu
 }
 
 /// `delete-buffer`: the `-b` buffer, else the newest automatic one.
-pub fn delete_buffer(
+pub(crate) fn delete_buffer(
     state: &mut State,
     _ctx: &ClientCtx,
     c: DeleteBuffer,
@@ -443,7 +443,7 @@ pub fn paste_buffer(state: &mut State, ctx: &ClientCtx, c: PasteBuffer) -> Resul
 
 /// `choose-buffer`: TC.9's chooser listing the buffers over the current
 /// pane; Enter pastes the chosen one, `d` deletes it.
-pub fn choose_buffer(
+pub(crate) fn choose_buffer(
     state: &mut State,
     ctx: &ClientCtx,
     c: ChooseBuffer,

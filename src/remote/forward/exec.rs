@@ -29,12 +29,12 @@ impl LinkCell {
     }
 
     /// Re-points the cell at `link` (after a reconnect).
-    pub fn set(&self, link: Link) {
+    pub(crate) fn set(&self, link: Link) {
         *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some(link);
     }
 
     /// The current link, if there is one.
-    pub fn get(&self) -> Option<Link> {
+    pub(crate) fn get(&self) -> Option<Link> {
         self.0.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 }
@@ -94,7 +94,7 @@ pub fn run_local(action: Action) -> Option<Input> {
 
 /// Runs an [`Action::Upload`] of `paste` into `dir`, stopping once
 /// `cancel` is set; the [`Input::Uploaded`] that answers it.
-pub fn upload(link: &Link, dir: &str, paste: FilePaste, cancel: &AtomicBool) -> Input {
+pub(crate) fn upload(link: &Link, dir: &str, paste: FilePaste, cancel: &AtomicBool) -> Input {
     let done = upload_files(link.conn(), dir, &paste.files, &paste.sizes, cancel);
     Input::Uploaded {
         paste,
@@ -107,7 +107,7 @@ pub fn upload(link: &Link, dir: &str, paste: FilePaste, cancel: &AtomicBool) -> 
 
 /// Where a paste's files go: the active pane's directory of `target` on the
 /// remote, else [`FALLBACK_UPLOAD_DIR`].
-pub fn upload_dir(conn: &ProxyConn, target: Option<&str>) -> UploadDir {
+pub(crate) fn upload_dir(conn: &ProxyConn, target: Option<&str>) -> UploadDir {
     let mut cwd = vec!["display-message".to_string(), "-p".to_string()];
     if let Some(t) = target {
         cwd.extend(["-t".to_string(), t.to_string()]);
@@ -264,7 +264,7 @@ impl<R: Read> Read for Cancellable<'_, R> {
 
 /// Each of `paths` with its size, when every one is a local regular file;
 /// `None` otherwise (a directory, a missing path: the paste stays text).
-pub fn check_files(paths: Vec<PathBuf>) -> Option<Vec<(PathBuf, u64)>> {
+pub(crate) fn check_files(paths: Vec<PathBuf>) -> Option<Vec<(PathBuf, u64)>> {
     paths
         .into_iter()
         .map(|p| {

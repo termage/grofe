@@ -210,7 +210,8 @@ pub struct StatusInputs<'a> {
 
 /// Renders tmux's default status row for `inputs.width` columns and
 /// returns the line alone; [`render_row`] also returns its ranges.
-pub fn render(inputs: &StatusInputs) -> StyledLine {
+#[cfg(test)]
+pub(crate) fn render(inputs: &StatusInputs) -> StyledLine {
     render_row(inputs).line
 }
 
@@ -311,20 +312,20 @@ pub fn draw_row(
 
 /// A blank row in `status-style`: a status line with no `status-format`
 /// entry for it, as tmux draws one.
-pub fn blank_row(style: &str, vars: &dyn FormatVars, width: u16) -> StatusRow {
+pub(crate) fn blank_row(style: &str, vars: &dyn FormatVars, width: u16) -> StatusRow {
     draw("", base_style(style, vars), width)
 }
 
 /// `#` doubled, so [`draw`] shows it as text (tmux's
 /// `status_prompt_escape`).
-pub fn escape_hashes(text: &str) -> String {
+pub(crate) fn escape_hashes(text: &str) -> String {
     text.replace('#', "##")
 }
 
 /// A style option's value as the base cell of a row: `#{...}` expanded
 /// first (tmux's `style_apply`), then parsed onto the terminal's default
 /// cell. An invalid style gives the default cell, as tmux does.
-pub fn base_style(value: &str, vars: &dyn FormatVars) -> Style {
+pub(crate) fn base_style(value: &str, vars: &dyn FormatVars) -> Style {
     let mut sy = DrawStyle::new(Style::default());
     if parse_directive(&mut sy, &Style::default(), &expand(value, vars)) {
         sy.cell
@@ -335,7 +336,7 @@ pub fn base_style(value: &str, vars: &dyn FormatVars) -> Style {
 
 /// Whether `value` is a style tmux's `style_parse` takes (a style option
 /// is checked when it is set, unless it holds a format).
-pub fn style_valid(value: &str) -> bool {
+pub(crate) fn style_valid(value: &str) -> bool {
     let mut sy = DrawStyle::new(Style::default());
     parse_directive(&mut sy, &Style::default(), value)
 }
@@ -1035,7 +1036,7 @@ pub fn draw(expanded: &str, base: Style, width: u16) -> StatusRow {
 /// [`draw`] onto cells that already hold something (a pane border's line
 /// glyphs): columns the format writes nothing to keep what they had, as
 /// tmux's pane status line draws over its border.
-pub fn draw_over(expanded: &str, base: Style, under: &[(char, Style)]) -> StatusRow {
+pub(crate) fn draw_over(expanded: &str, base: Style, under: &[(char, Style)]) -> StatusRow {
     let row = under
         .iter()
         .map(|(c, style)| Cell {

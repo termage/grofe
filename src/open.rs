@@ -13,14 +13,14 @@ pub const NO_SUBSCRIBER: &str = "open-url: no client is listening for urls";
 pub const OPENER_ENV: &str = "GROFE_OPENER";
 
 /// The longest URL that is opened, in bytes.
-pub const MAX_URL: usize = 4096;
+pub(crate) const MAX_URL: usize = 4096;
 
 /// The `BROWSER` a pane had before `forward-browser` set it to the
 /// `grofe-open` shim: `grofe open` runs it when no client opens the URL.
 pub const PREV_BROWSER_ENV: &str = "GROFE_PREV_BROWSER";
 
 /// Set in what an opener runs: a `grofe open` that finds it is a loop.
-pub const OPENING_ENV: &str = "GROFE_OPENING";
+pub(crate) const OPENING_ENV: &str = "GROFE_OPENING";
 
 /// Whether `url` may be opened: `http`, `https` or `file`, nothing with a
 /// control character in it. The error names the reason.
@@ -68,7 +68,7 @@ pub fn path_url(arg: &str) -> Option<String> {
 
 /// The path a `file:` URL names, percent-decoded; `None` for another
 /// scheme or a host other than this one.
-pub fn file_path(url: &str) -> Option<PathBuf> {
+pub(crate) fn file_path(url: &str) -> Option<PathBuf> {
     let (scheme, rest) = url.split_once(':')?;
     if !scheme.eq_ignore_ascii_case("file") {
         return None;
@@ -103,7 +103,7 @@ pub fn file_path(url: &str) -> Option<PathBuf> {
 
 /// Opens `url` with this machine's opener, once [`check`] passes (and, for
 /// a `file:` URL, once the path exists here).
-pub fn open_locally(url: &str) -> Result<(), String> {
+pub(crate) fn open_locally(url: &str) -> Result<(), String> {
     check(url)?;
     if url
         .split_once(':')

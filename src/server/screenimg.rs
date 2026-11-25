@@ -28,7 +28,7 @@ pub struct ImageCaps {
 }
 
 impl ImageCaps {
-    pub fn of(caps: &Caps) -> ImageCaps {
+    pub(crate) fn of(caps: &Caps) -> ImageCaps {
         ImageCaps {
             kitty: caps.kitty_graphics,
             sixel: caps.sixel,
@@ -38,7 +38,7 @@ impl ImageCaps {
 }
 
 /// The visible part of a placement: its cells `c0..c1` by `r0..r1`.
-pub type Crop = (u32, u32, u32, u32);
+pub(crate) type Crop = (u32, u32, u32, u32);
 
 /// An image on a client's screen.
 #[derive(Debug, Clone)]
@@ -89,7 +89,7 @@ impl PartialEq for ScreenImage {
 
 impl ScreenImage {
     /// The client cells the image covers: x, y, width, height.
-    pub fn rect(&self) -> (u16, u16, u16, u16) {
+    pub(crate) fn rect(&self) -> (u16, u16, u16, u16) {
         let (x, y, crop) = match self {
             ScreenImage::Kitty(k) => (k.x, k.y, k.crop),
             ScreenImage::Sixel(s) => (s.x, s.y, s.crop),
@@ -108,7 +108,7 @@ impl ScreenImage {
 /// Where a pane is on a client's screen and how much of the screen there
 /// is for it, all in client cells.
 #[derive(Debug, Clone, Copy)]
-pub struct Place {
+pub(crate) struct Place {
     /// The pane's top-left cell (negative where a crop hides it).
     pub origin: (i32, i32),
     pub size: (u16, u16),
@@ -121,7 +121,7 @@ pub struct Place {
 /// the others from the pane's `left` edge (tmux's end up at the terminal's
 /// column 0), none past its `right` edge.
 #[derive(Debug, Clone, Copy)]
-pub struct Fallback {
+pub(crate) struct Fallback {
     pub x: i32,
     pub y: i32,
     /// The image's size in cells, less the rows scrolled off the top.
@@ -142,7 +142,7 @@ pub fn clip(x: i32, y: i32, cols: u32, rows: u32, bounds: (i32, i32, i32, i32)) 
 
 /// Adds `pane`'s placements to `images`, for a client with `caps`. The
 /// sixel images that must be shown as text come back as `(x, y, lines)`.
-pub fn collect(
+pub(crate) fn collect(
     images: &mut Vec<ScreenImage>,
     fallbacks: &mut Vec<Fallback>,
     pane: PaneId,
@@ -214,7 +214,7 @@ pub fn collect(
 /// Paints tmux's text for a sixel image the client cannot show, as the
 /// terminal would show tmux's write of it: from `(x, y)`, wrapping at the
 /// pane's right edge, `\r` going back to its left edge, into blank cells.
-pub fn paint_fallback(screen: &mut Screen, f: Fallback) {
+pub(crate) fn paint_fallback(screen: &mut Screen, f: Fallback) {
     let text = sixel::fallback(f.cells.0, f.cells.1);
     let blank = Screen::new(1, 1).cells.remove(0);
     let right = f.right.min(i32::from(screen.cols));
@@ -250,7 +250,7 @@ pub fn paint_fallback(screen: &mut Screen, f: Fallback) {
 const MARK: char = '\u{FDD0}';
 
 /// Marks the cells under `screen.images[from..]`.
-pub fn mark_covered(screen: &mut Screen, from: usize) {
+pub(crate) fn mark_covered(screen: &mut Screen, from: usize) {
     let cols = screen.cols as usize;
     for image in &screen.images[from.min(screen.images.len())..] {
         let (x, y, w, h) = image.rect();
@@ -271,7 +271,7 @@ pub fn mark_covered(screen: &mut Screen, from: usize) {
 
 /// Leaves out the images that something drew over since [`mark_covered`]:
 /// one with a cell under it that is not marked any more. Unmarks the rest.
-pub fn hide_covered(screen: &mut Screen) {
+pub(crate) fn hide_covered(screen: &mut Screen) {
     if screen.images.is_empty() {
         return;
     }
@@ -292,7 +292,7 @@ pub fn hide_covered(screen: &mut Screen) {
 }
 
 /// Shifts every image `by` rows down (a status row above the window).
-pub fn shift_down(images: &mut [ScreenImage], by: u16) {
+pub(crate) fn shift_down(images: &mut [ScreenImage], by: u16) {
     for image in images {
         match image {
             ScreenImage::Kitty(k) => k.y += by,
@@ -374,7 +374,7 @@ pub fn wipe_rects(placed: &[ScreenImage], next: &[ScreenImage]) -> Vec<(u16, u16
 /// put again, sixel images drawn again where they are new or changed or
 /// where a cell under them was rewritten (`changed`). A `full` redraw
 /// starts from nothing.
-pub fn emit(
+pub(crate) fn emit(
     out: &mut Vec<u8>,
     next: &Screen,
     placed: &[ScreenImage],

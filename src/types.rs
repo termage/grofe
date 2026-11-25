@@ -75,7 +75,7 @@ pub struct ClientId(pub u32);
 /// The largest window or client dimension (tmux's `WINDOW_MAXIMUM`):
 /// larger sizes are capped to it, so no peer can make a pane allocate
 /// without bound.
-pub const WINDOW_MAXIMUM: u16 = 10_000;
+pub(crate) const WINDOW_MAXIMUM: u16 = 10_000;
 
 /// The most cells a client or window may have.
 // ponytail: tmux has no such cap (its grid lines are allocated as they are
@@ -83,11 +83,11 @@ pub const WINDOW_MAXIMUM: u16 = 10_000;
 // compose run on the actor, so a client's area is capped at 1M cells (a
 // 4K display at a small font is about 200k); past it, rows give way. The
 // upgrade path is to move resize and compose off the actor, then raise it.
-pub const MAX_CELLS: u32 = 1_000_000;
+pub(crate) const MAX_CELLS: u32 = 1_000_000;
 
 /// `(cols, rows)` within 1..=[`WINDOW_MAXIMUM`] each and [`MAX_CELLS`] in
 /// all, keeping the width.
-pub fn cap_size(cols: u16, rows: u16) -> (u16, u16) {
+pub(crate) fn cap_size(cols: u16, rows: u16) -> (u16, u16) {
     let cols = cols.clamp(1, WINDOW_MAXIMUM);
     let rows = rows.clamp(1, WINDOW_MAXIMUM);
     let max_rows = (MAX_CELLS / u32::from(cols)).min(u32::from(WINDOW_MAXIMUM)) as u16;

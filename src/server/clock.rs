@@ -27,7 +27,7 @@ use crate::server::{State, clients};
 use crate::types::{ClientId, PaneId, Rect};
 
 /// `pane_mode` for a pane showing the clock.
-pub const MODE_NAME: &str = "clock-mode";
+pub(crate) const MODE_NAME: &str = "clock-mode";
 
 /// `window_clock_table`: each of `0` to `9`, `:`, `A`, `P` and `M` as five
 /// rows of five cells.
@@ -58,18 +58,19 @@ pub struct Clocks {
 }
 
 impl Clocks {
-    pub fn is_active(&self, pane: PaneId) -> bool {
+    pub(crate) fn is_active(&self, pane: PaneId) -> bool {
         self.active.contains_key(&pane)
     }
 
     /// Drops the panes that are gone.
-    pub fn retain(&mut self, live: impl Fn(PaneId) -> bool) {
+    pub(crate) fn retain(&mut self, live: impl Fn(PaneId) -> bool) {
         self.active.retain(|p, _| live(*p));
         self.stop_if_idle();
     }
 
     /// Whether a timer is waiting; there is at most one.
-    pub fn is_timing(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_timing(&self) -> bool {
         self.timer.is_some()
     }
 
@@ -123,7 +124,7 @@ pub fn clock_mode(state: &mut State, ctx: &ClientCtx, c: ClockMode) -> Result<St
 }
 
 /// Puts `pane` in clock mode and starts the timer if none runs.
-pub fn enter(state: &mut State, pane: PaneId) {
+pub(crate) fn enter(state: &mut State, pane: PaneId) {
     if state.clocks.is_active(pane) {
         return;
     }
@@ -134,7 +135,7 @@ pub fn enter(state: &mut State, pane: PaneId) {
 }
 
 /// Takes `pane` out of clock mode; whether it was in it.
-pub fn leave(state: &mut State, pane: PaneId) -> bool {
+pub(crate) fn leave(state: &mut State, pane: PaneId) -> bool {
     let was = state.clocks.active.remove(&pane).is_some();
     state.clocks.stop_if_idle();
     if was {
@@ -145,7 +146,7 @@ pub fn leave(state: &mut State, pane: PaneId) -> bool {
 
 /// Drops the clocks of panes that no longer exist (after a command that may
 /// have killed one) and, with none left, the timer.
-pub fn sweep(state: &mut State) {
+pub(crate) fn sweep(state: &mut State) {
     if state.clocks.active.is_empty() {
         return;
     }
@@ -197,7 +198,7 @@ fn tick(state: &mut State) {
 }
 
 /// `pane_in_mode` and `pane_mode` for a pane showing the clock.
-pub fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
+pub(crate) fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
     // A view mode opened over the clock is on top and answers.
     if !state.clocks.is_active(pane) || state.copy.get(pane).is_some_and(|m| m.over_clock) {
         return None;
@@ -220,7 +221,7 @@ pub fn format_var(state: &State, pane: PaneId, name: &str) -> Option<String> {
 /// 3.7b's `server_client_key_callback` does: the prefix, and a key bound in
 /// the root table, run as usual; any other key takes the pane out of the
 /// mode and goes no further (`window_clock_key`).
-pub struct ClockHook;
+pub(crate) struct ClockHook;
 
 impl InputHook for ClockHook {
     fn on_input(
@@ -266,7 +267,7 @@ impl InputHook for ClockHook {
 // ---- Drawing -------------------------------------------------------------------
 
 /// Draws each visible pane showing the clock.
-pub struct ClockOverlay;
+pub(crate) struct ClockOverlay;
 
 impl Overlay for ClockOverlay {
     fn draw(&self, state: &State, client: ClientId, cx: &OverlayCtx, screen: &mut Screen) {
@@ -400,7 +401,7 @@ fn layout(
 }
 
 /// Registers the clock's input hook and overlay (`server::register_builtins`).
-pub fn register(state: &mut State) {
+pub(crate) fn register(state: &mut State) {
     crate::server::register_input_hook(state, Arc::new(ClockHook));
     crate::server::register_overlay(state, Arc::new(ClockOverlay));
 }

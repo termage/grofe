@@ -135,7 +135,7 @@ pub struct PaneLook {
 }
 
 /// How many cells the control tab ([`frame_tab`]) covers.
-pub const TAB_WIDTH: i32 = 9;
+pub(crate) const TAB_WIDTH: i32 = 9;
 
 /// The control tab of a frame's title (grofe identity, spec
 /// 2026-11-05-frames.md "Drawing"): zoom (`u` to unzoom), float (`t` to
@@ -159,7 +159,7 @@ pub fn frame_tab(ends: &str, zoomed: bool, floating: bool) -> String {
 
 /// `pane-frame-tab-ends`' two glyphs, escaped for a format; a space each
 /// when it is not two one-cell glyphs.
-pub fn tab_ends(ends: &str) -> (String, String) {
+pub(crate) fn tab_ends(ends: &str) -> (String, String) {
     let one = |c: &char| UnicodeWidthChar::width(*c) == Some(1);
     let esc = |c: char| {
         if c == '#' {
@@ -176,7 +176,7 @@ pub fn tab_ends(ends: &str) -> (String, String) {
 
 /// A status-line message's level, which picks its pill's colour and icon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Level {
+pub(crate) enum Level {
     Info,
     Warning,
     Error,
@@ -185,7 +185,7 @@ pub enum Level {
 impl Level {
     /// The theme option holding the pill's colour, the named colour without
     /// one, the named text colour that goes on it, and the icon.
-    pub fn look(self) -> (&'static str, &'static str, &'static str, char) {
+    pub(crate) fn look(self) -> (&'static str, &'static str, &'static str, char) {
         match self {
             Level::Info => ("@theme_blue", "blue", "brightwhite", 'ℹ'),
             Level::Warning => ("@theme_yellow", "yellow", "black", '▲'),
@@ -209,7 +209,7 @@ pub struct PillLook {
 
 impl PillLook {
     /// A `level` pill in named colours, between `ends`.
-    pub fn named(level: Level, ends: &str) -> PillLook {
+    pub(crate) fn named(level: Level, ends: &str) -> PillLook {
         let (_, colour, text, _) = level.look();
         PillLook {
             colour: colour.to_string(),
@@ -219,7 +219,7 @@ impl PillLook {
     }
 
     /// The body's style: the text's colour on the pill's, bold.
-    pub fn body(&self) -> Style {
+    pub(crate) fn body(&self) -> Style {
         crate::server::status::parse_style(&format!("bg={},fg={},bold", self.colour, self.text))
     }
 }
@@ -252,7 +252,7 @@ pub fn status_pill(screen: &mut Screen, row: u16, span: usize, look: &PillLook) 
 /// `cols` columns: short of the row's end it keeps a blank column at each
 /// side, a margin on the left and a gap before what follows; across the
 /// whole row its ends are the row's.
-pub fn pill_body(span: usize, cols: usize) -> (usize, usize) {
+pub(crate) fn pill_body(span: usize, cols: usize) -> (usize, usize) {
     if span < cols {
         (2, span.saturating_sub(4))
     } else {
@@ -282,7 +282,7 @@ fn pill_ends(screen: &mut Screen, row: u16, (l_col, r_col): (usize, usize), look
 /// A status-line message as a `level` pill over the first `span` columns
 /// of `row` ([`status_pill`]): its icon and `text` (an expanded format,
 /// its styles drawn) cut to fit.
-pub fn draw_message_pill(
+pub(crate) fn draw_message_pill(
     screen: &mut Screen,
     row: u16,
     span: usize,
@@ -338,7 +338,7 @@ pub struct PaneLooks {
 /// preview, and `rounded` lines where `pane-frames` is on and
 /// `pane-border-lines` is left at its default. A framed window has no
 /// `pane-border-status` (the title is in the frame).
-pub fn apply_frames(model: &Model, w: &Window, looks: &mut PaneLooks) {
+pub(crate) fn apply_frames(model: &Model, w: &Window, looks: &mut PaneLooks) {
     looks.drop_preview = w.drop_preview;
     if !w.frames {
         return;
@@ -931,7 +931,7 @@ fn pane_boxes(looks: &PaneLooks, rects: &[(PaneId, Rect)]) -> Vec<PaneBox> {
 }
 
 /// One pane's border title, drawn.
-pub struct Title {
+pub(crate) struct Title {
     pub pane: PaneId,
     /// The window row it is on and the column it starts at.
     pub row: i32,
@@ -947,7 +947,7 @@ pub struct Title {
 /// a window `size` cells big (`fallback` styles for a pane `looks` has none
 /// for): the pane's `pane-border-format` over its border, in its border
 /// style (the active one for `active`).
-pub fn border_titles(
+pub(crate) fn border_titles(
     looks: &PaneLooks,
     size: (i32, i32),
     rects: &[(PaneId, Rect)],
@@ -1184,7 +1184,7 @@ pub fn draw_floating(
 /// A window's composed screen with the status rows stacked above it
 /// (`top`) or below it, as one client screen: the window's cells and
 /// cursor move down by the rows above them (TC.11, `status-position`).
-pub fn with_status(window: Screen, status: &[StyledLine], top: bool) -> Screen {
+pub(crate) fn with_status(window: Screen, status: &[StyledLine], top: bool) -> Screen {
     let lines = status.len() as u16;
     let mut screen = Screen::new(window.cols, window.rows + lines);
     let above = if top { lines } else { 0 };
@@ -1205,7 +1205,7 @@ pub fn with_status(window: Screen, status: &[StyledLine], top: bool) -> Screen {
 }
 
 /// Draws `line` over row `row` of `screen`, from column 0.
-pub fn draw_row(screen: &mut Screen, row: u16, line: &StyledLine) {
+pub(crate) fn draw_row(screen: &mut Screen, row: u16, line: &StyledLine) {
     if row < screen.rows {
         draw_line(screen, row, line);
     }
@@ -1271,7 +1271,7 @@ pub fn diff(prev: Option<&Screen>, next: &Screen, caps: &Caps) -> Vec<u8> {
 /// [`diff`] for a terminal that shows the images `placed`, which are not
 /// always those of `prev` (a dropped frame forgets `prev`, not the
 /// terminal's images).
-pub fn diff_placed(
+pub(crate) fn diff_placed(
     prev: Option<&Screen>,
     next: &Screen,
     caps: &Caps,

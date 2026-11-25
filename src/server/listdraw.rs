@@ -15,12 +15,12 @@ use crate::types::Rect;
 
 /// The text of every row, split into columns.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Rows {
+pub(crate) struct Rows {
     pub cols: Vec<Vec<String>>,
 }
 
 /// A box `w_pct` by `h_pct` percent of the client, centred.
-pub fn centred(client: (u16, u16), w_pct: u16, h_pct: u16) -> Rect {
+pub(crate) fn centred(client: (u16, u16), w_pct: u16, h_pct: u16) -> Rect {
     let scale = |n: u16, pct: u16| (u32::from(n) * u32::from(pct.min(100)) / 100) as u16;
     let (cols, rows) = (scale(client.0, w_pct), scale(client.1, h_pct));
     Rect {
@@ -56,7 +56,7 @@ fn put_cell(screen: &mut Screen, x: usize, y: usize, c: char, style: &Style, fla
 /// Draws `text` from `x` and never past column `end` (exclusive). A wide
 /// character that does not fit whole is dropped, not split. Returns the
 /// column after the last cell drawn.
-pub fn put_text(
+pub(crate) fn put_text(
     screen: &mut Screen,
     mut x: usize,
     y: usize,
@@ -101,7 +101,7 @@ fn fill(screen: &mut Screen, x0: usize, x1: usize, y: usize, style: &Style) {
 /// Draws the list into `area`. `visible` indexes `rows` in display order;
 /// `st.selected` is a position in `visible`, `st.top` the first position
 /// shown (moved if needed to keep the selection on screen).
-pub fn draw_list(
+pub(crate) fn draw_list(
     screen: &mut Screen,
     area: Rect,
     title: &str,
@@ -117,7 +117,7 @@ pub fn draw_list(
 /// the width below which it is narrowed only once every other column has
 /// been narrowed to its own floor.
 #[derive(Debug, Clone, Copy)]
-pub struct Col {
+pub(crate) struct Col {
     pub cap: usize,
     pub floor: usize,
 }
@@ -153,7 +153,7 @@ fn fit_widths(natural: &[usize], cols: &[Col], inner: usize) -> Vec<usize> {
 }
 
 /// `text` on one line, cut to `max` cells with a trailing `…` when longer.
-pub fn fit_text(text: &str, max: usize) -> String {
+pub(crate) fn fit_text(text: &str, max: usize) -> String {
     let text = text.replace('\n', " ");
     if width(&text) <= max {
         return text;
@@ -176,7 +176,7 @@ pub fn fit_text(text: &str, max: usize) -> String {
 /// each column is capped, the widest are narrowed until a row fits, and a
 /// cell cut short ends in `…`.
 #[allow(clippy::too_many_arguments)]
-pub fn draw_list_fit(
+pub(crate) fn draw_list_fit(
     screen: &mut Screen,
     area: Rect,
     title: &str,

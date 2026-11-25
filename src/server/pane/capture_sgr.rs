@@ -9,7 +9,7 @@ use alacritty_terminal::vte::ansi::{Color, NamedColor};
 
 /// What a cell looks like to the capture.
 #[derive(Clone, PartialEq)]
-pub struct Pen {
+pub(crate) struct Pen {
     attrs: Flags,
     fg: Option<Color>,
     bg: Option<Color>,
@@ -46,7 +46,7 @@ impl Default for Pen {
 }
 
 impl Pen {
-    pub fn of(cell: &Cell) -> Pen {
+    pub(crate) fn of(cell: &Cell) -> Pen {
         let default = |c: Color, d: NamedColor| (c != Color::Named(d)).then_some(c);
         Pen {
             attrs: cell.flags & ATTRS.iter().fold(Flags::empty(), |a, (f, _)| a | *f),
@@ -122,7 +122,7 @@ fn hyperlink(out: &mut String, id: &str, uri: &str) {
 
 /// The code to write before a cell looking like `cur` after one looking like
 /// `last`. `has_link` tells whether a link is open on this line.
-pub fn code(last: &Pen, cur: &Pen, has_link: &mut bool) -> String {
+pub(crate) fn code(last: &Pen, cur: &Pen, has_link: &mut bool) -> String {
     let mut out = String::new();
     let mut s: Vec<u32> = Vec::new();
     let mut lastattr = last.attrs;
@@ -181,7 +181,7 @@ pub fn code(last: &Pen, cur: &Pen, has_link: &mut bool) -> String {
 }
 
 /// The sequence that closes a link a line leaves open.
-pub fn close_link() -> String {
+pub(crate) fn close_link() -> String {
     let mut out = String::new();
     hyperlink(&mut out, "", "");
     out

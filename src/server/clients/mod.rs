@@ -73,15 +73,15 @@ mod lifecycle;
 mod messages;
 mod sched;
 
-pub use self::attach::*;
-pub use self::commands::*;
-pub use self::compose::*;
-pub use self::entry::*;
-pub use self::geometry::*;
-pub use self::input::*;
-pub use self::lifecycle::*;
-pub use self::messages::*;
-pub use self::sched::*;
+pub(crate) use self::attach::*;
+pub(crate) use self::commands::*;
+pub(crate) use self::compose::*;
+pub(crate) use self::entry::*;
+pub(crate) use self::geometry::*;
+pub(crate) use self::input::*;
+pub(crate) use self::lifecycle::*;
+pub(crate) use self::messages::*;
+pub(crate) use self::sched::*;
 
 #[cfg(test)]
 mod tests;

@@ -18,7 +18,7 @@ use super::session::{Hook, HookCtx, Input};
 use crate::client;
 
 /// `auto` predicts from this smoothed RTT up.
-pub const AUTO_RTT: Duration = Duration::from_millis(50);
+pub(crate) const AUTO_RTT: Duration = Duration::from_millis(50);
 
 /// The RTT is reported again only after this long...
 const REPORT_EVERY: Duration = Duration::from_secs(2);
@@ -53,7 +53,7 @@ impl Mode {
     }
 
     /// Whether to predict at this smoothed RTT (none yet measured).
-    pub fn wants(self, rtt: Option<Duration>) -> bool {
+    pub(crate) fn wants(self, rtt: Option<Duration>) -> bool {
         match self {
             Mode::On => true,
             Mode::Off => false,
@@ -65,7 +65,7 @@ impl Mode {
 /// The RTT in milliseconds to report now, if any: the first one, then one
 /// that moved by more than [`REPORT_CHANGE_PCT`] percent, at most every
 /// [`REPORT_EVERY`].
-pub fn rtt_report(rtt: Duration, last: Option<(u64, Instant)>, now: Instant) -> Option<u64> {
+pub(crate) fn rtt_report(rtt: Duration, last: Option<(u64, Instant)>, now: Instant) -> Option<u64> {
     let ms = u64::try_from(rtt.as_millis()).unwrap_or(u64::MAX);
     let Some((sent, at)) = last else {
         return Some(ms);

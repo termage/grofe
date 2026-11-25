@@ -1,7 +1,7 @@
 use super::*;
 use crate::config::Ty;
 
-pub const REMAIN_ON_EXIT: &str = "remain-on-exit";
+pub(crate) const REMAIN_ON_EXIT: &str = "remain-on-exit";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -140,13 +140,13 @@ pub(super) const HINT_PATTERNS: &[&str] = &[
 
 /// [`HINT_PATTERNS`], for the tests of copy mode's hints.
 #[cfg(test)]
-pub fn default_hint_patterns() -> &'static [&'static str] {
+pub(crate) fn default_hint_patterns() -> &'static [&'static str] {
     HINT_PATTERNS
 }
 
 /// `pane-border-format`'s default, tmux 3.7b's: its `[z]` and `[x]`
 /// buttons are `control|8` and `control|9`.
-pub const PANE_BORDER_FORMAT: &str = "#{?pane_active,#[reverse],}#{pane_index}#[default] \
+pub(crate) const PANE_BORDER_FORMAT: &str = "#{?pane_active,#[reverse],}#{pane_index}#[default] \
      \"#{pane_title}\"#{?#{mouse},#[align=right]#[range=control|8]\
      [#{?#{window_zoomed_flag},u,z}]#[norange]#[range=control|9][x]#[norange],}";
 
@@ -156,7 +156,7 @@ pub const PANE_BORDER_FORMAT: &str = "#{?pane_active,#[reverse],}#{pane_index}#[
 /// between the tab's `ends` (`render::tab_ends`) in place of reversed, so
 /// the two match. A pane whose title no program has set (empty, or the
 /// hostname tmux gives it) shows its command and folder instead.
-pub fn frame_title_format(ends: &str) -> String {
+pub(crate) fn frame_title_format(ends: &str) -> String {
     let (l, r) = crate::server::render::tab_ends(ends);
     format!(
         "{l} #{{pane_index}} {r} \
@@ -167,7 +167,7 @@ pub fn frame_title_format(ends: &str) -> String {
 }
 
 /// Whether `name` is a built-in tmux's CLI must not see ([`GROFE_ONLY`]).
-pub fn is_grofe_only(name: &str) -> bool {
+pub(crate) fn is_grofe_only(name: &str) -> bool {
     GROFE_ONLY.contains(&name) || GROFE_ONLY_LISTS.contains(&name)
 }
 
@@ -472,7 +472,7 @@ pub(super) const BUILTINS: &[Builtin] = builtins! {
 };
 
 /// A built-in option's scope (a list's too), `None` for anything else.
-pub fn builtin_scope(name: &str) -> Option<OptionScope> {
+pub(crate) fn builtin_scope(name: &str) -> Option<OptionScope> {
     builtin(name)
         .map(|b| b.scope)
         .or_else(|| list_builtin(name).map(|l| l.scope))
@@ -480,7 +480,7 @@ pub fn builtin_scope(name: &str) -> Option<OptionScope> {
 
 /// Every built-in option's name tmux's CLI knows, in table order: all but
 /// [`grofe_only_names`].
-pub fn builtin_names() -> impl Iterator<Item = &'static str> {
+pub(crate) fn builtin_names() -> impl Iterator<Item = &'static str> {
     BUILTINS
         .iter()
         .map(|b| b.name)
@@ -488,7 +488,7 @@ pub fn builtin_names() -> impl Iterator<Item = &'static str> {
 }
 
 /// The built-ins only grofe's own CLI and config know ([`GROFE_ONLY`]).
-pub fn grofe_only_names() -> impl Iterator<Item = &'static str> {
+pub(crate) fn grofe_only_names() -> impl Iterator<Item = &'static str> {
     GROFE_ONLY.iter().copied()
 }
 
@@ -503,7 +503,7 @@ pub(super) fn builtin(name: &str) -> Option<&'static Builtin> {
 }
 
 /// Every built-in option as `(TOML key, option name)`, in table order.
-pub fn toml_names() -> impl Iterator<Item = (&'static str, &'static str)> {
+pub(crate) fn toml_names() -> impl Iterator<Item = (&'static str, &'static str)> {
     BUILTINS.iter().map(|b| (b.toml.unwrap_or(b.name), b.name))
 }
 

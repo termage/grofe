@@ -8,7 +8,7 @@ use super::*;
 /// must parse, as tmux checks at bind time; no command at all changes
 /// nothing, as in tmux. The binding keeps the request's dialect (spec
 /// §4.5), so a key bound through the tmux front end runs through it.
-pub fn bind_key(state: &mut State, ctx: &ClientCtx, c: BindKey) -> Result<String, String> {
+pub(crate) fn bind_key(state: &mut State, ctx: &ClientCtx, c: BindKey) -> Result<String, String> {
     let key = parse_key(&c.key).map_err(|_| format!("unknown key: {}", c.key))?;
     let cmds = match c.command.as_slice() {
         [one] => split_command_string(one).map_err(|e| e.to_string())?,
@@ -79,7 +79,7 @@ pub fn unbind_key(state: &mut State, _ctx: &ClientCtx, c: UnbindKey) -> Result<S
 /// key lists only its binding; `-1` only the first line; `-N` the notes
 /// ([`list_notes`]).
 // ponytail: tmux's padded `list-keys` layout is FE.4's.
-pub fn list_keys(state: &mut State, ctx: &ClientCtx, c: ListKeys) -> Result<String, String> {
+pub(crate) fn list_keys(state: &mut State, ctx: &ClientCtx, c: ListKeys) -> Result<String, String> {
     let only = match &c.key {
         Some(name) => Some(parse_key(name).map_err(|_| format!("invalid key: {name}"))?),
         None => None,

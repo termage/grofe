@@ -37,17 +37,17 @@ pub(super) const PASTE_END: &[u8] = b"\x1b[201~";
 /// Paste content held before it is passed on in chunks.
 pub(super) const PASTE_CAP: usize = 1 << 20;
 /// A paste with no data for this long ends, marker or not.
-pub const PASTE_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const PASTE_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl Decoder {
-    pub fn new() -> Decoder {
+    pub(crate) fn new() -> Decoder {
         Decoder::default()
     }
 
     /// A decoder that also tells the bytes each input came from
     /// ([`Decoder::feed_spans`]): for a client that must hold some keys back
     /// and pass others on as they were typed.
-    pub fn with_spans() -> Decoder {
+    pub(crate) fn with_spans() -> Decoder {
         Decoder {
             spans: Some(Spans::default()),
             ..Decoder::default()
@@ -56,7 +56,7 @@ impl Decoder {
 
     /// As [`Decoder::feed`], each input with the bytes it came from (a
     /// paste's include its markers). Needs [`Decoder::with_spans`].
-    pub fn feed_spans(
+    pub(crate) fn feed_spans(
         &mut self,
         bytes: &[u8],
         now: Instant,
@@ -74,7 +74,7 @@ impl Decoder {
 
     /// The bytes received and not yet decoded (a sequence or a paste still
     /// waiting), as they were typed; the decoder starts afresh.
-    pub fn take_waiting(&mut self) -> Vec<u8> {
+    pub(crate) fn take_waiting(&mut self) -> Vec<u8> {
         let mut out = self
             .spans
             .as_mut()
@@ -120,7 +120,7 @@ impl Decoder {
     }
 
     /// Sets the `user-keys` sequences (index and bytes).
-    pub fn set_user_keys(&mut self, keys: impl IntoIterator<Item = (u16, Vec<u8>)>) {
+    pub(crate) fn set_user_keys(&mut self, keys: impl IntoIterator<Item = (u16, Vec<u8>)>) {
         let mut keys: Vec<(Vec<u8>, u16)> = keys
             .into_iter()
             .filter(|(_, bytes)| !bytes.is_empty())
@@ -132,7 +132,7 @@ impl Decoder {
 
     /// Decode `bytes` received at `now`. Bytes already waiting longer than
     /// `escape_time` are resolved first (a lone ESC becomes Escape).
-    pub fn feed(&mut self, bytes: &[u8], now: Instant, escape_time: Duration) -> Vec<Input> {
+    pub(crate) fn feed(&mut self, bytes: &[u8], now: Instant, escape_time: Duration) -> Vec<Input> {
         let mut out = self.flush(now, escape_time);
         let waiting = self.buf.len();
         self.buf.extend_from_slice(bytes);
@@ -154,7 +154,7 @@ impl Decoder {
     /// incomplete sequence after `escape_time`, an unterminated paste after
     /// 5 s without data. The caller runs this when [`Decoder::deadline`] is
     /// reached.
-    pub fn flush(&mut self, now: Instant, escape_time: Duration) -> Vec<Input> {
+    pub(crate) fn flush(&mut self, now: Instant, escape_time: Duration) -> Vec<Input> {
         let mut out = Vec::new();
         if !self.deadline(escape_time).is_some_and(|d| now >= d) {
             return out;
@@ -178,7 +178,7 @@ impl Decoder {
     }
 
     /// When waiting bytes must be resolved, if any are waiting.
-    pub fn deadline(&self, escape_time: Duration) -> Option<Instant> {
+    pub(crate) fn deadline(&self, escape_time: Duration) -> Option<Instant> {
         let wait = if self.in_paste {
             PASTE_TIMEOUT
         } else {

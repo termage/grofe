@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 /// Loads every enabled, locked and installed pack in name order. A failing
 /// pack goes to the log and never stops the others.
-pub fn load_all(state: &mut State, specs: &[Spec], config_dir: &Path) {
+pub(crate) fn load_all(state: &mut State, specs: &[Spec], config_dir: &Path) {
     let lock = match Lock::read(&config_dir.join("pack-lock.toml")) {
         Ok(l) => l,
         Err(e) => {

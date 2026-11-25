@@ -45,7 +45,7 @@ where
 /// it pings every 5 s, so this is about three missed pings. A client whose
 /// network went away never closes the stream (the TCP connection under ssh
 /// lingers), and its server-side client would otherwise outlive it.
-pub const SILENCE: Duration = Duration::from_secs(20);
+pub(crate) const SILENCE: Duration = Duration::from_secs(20);
 
 /// Test hook: [`SILENCE`] in milliseconds. Test-only.
 pub const TEST_SILENCE_ENV: &str = "GROFE_TEST_PROXY_SILENCE_MS";

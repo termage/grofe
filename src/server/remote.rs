@@ -36,7 +36,7 @@ use crate::server::{Job, State, clients};
 use crate::types::{PaneId, SessionId};
 
 /// How often the poller looks: `ports-changed` is "at most every 2 s".
-pub const POLL: Duration = Duration::from_secs(2);
+pub(crate) const POLL: Duration = Duration::from_secs(2);
 
 /// What the poller last told subscribers, per pane.
 #[derive(Default)]
@@ -65,7 +65,7 @@ fn client_agent(client_env: &[(String, String)]) -> Option<&str> {
 
 /// A client's environment reached `session` (new-session, attach,
 /// switch-client): points the session's agent link at the client's agent.
-pub fn stable_agent(state: &State, session: SessionId, client_env: &[(String, String)]) {
+pub(crate) fn stable_agent(state: &State, session: SessionId, client_env: &[(String, String)]) {
     if !session_flag(state, session, "stable-ssh-agent") {
         return;
     }
@@ -119,12 +119,12 @@ fn repoint(link: &Path, target: &Path) -> io::Result<()> {
 }
 
 /// `session` is gone: its agent link goes too.
-pub fn session_closed(state: &State, session: SessionId) {
+pub(crate) fn session_closed(state: &State, session: SessionId) {
     let _ = std::fs::remove_file(paths::agent_link(&state.socket, session.0));
 }
 
 /// The server is starting or exiting: every agent link of this instance goes.
-pub fn remove_links(state: &State) {
+pub(crate) fn remove_links(state: &State) {
     let link = paths::agent_link(&state.socket, 0);
     let Some(prefix) = link
         .file_name()
@@ -148,7 +148,7 @@ pub fn remove_links(state: &State) {
 /// added last so they win: the agent link (dangling until a client with an
 /// agent attaches) and
 /// `BROWSER`.
-pub fn pane_env(state: &State, session: SessionId, env: &mut Vec<(String, String)>) {
+pub(crate) fn pane_env(state: &State, session: SessionId, env: &mut Vec<(String, String)>) {
     if session_flag(state, session, "stable-ssh-agent") {
         // Even before a client with an agent has made the link: a session
         // made over a control channel (`grofe -r host`) has none yet, and its
@@ -197,7 +197,7 @@ fn browser_env(state: &State, session: SessionId, env: &mut Vec<(String, String)
 static OPEN_SHIM: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
 /// The name of the shim `BROWSER` names.
-pub const OPEN_SHIM_NAME: &str = "grofe-open";
+pub(crate) const OPEN_SHIM_NAME: &str = "grofe-open";
 
 /// Writes `dir/grofe-open`, a script that runs `exe open "$@"`, and makes it
 /// the `BROWSER` of new panes. `BROWSER` must be one program: programs run
@@ -219,7 +219,7 @@ pub fn install_open_shim(dir: &Path, exe: &Path) -> io::Result<()> {
 /// Refused unless [`crate::open::check`] passes; fails with
 /// [`crate::open::NO_SUBSCRIBER`] when nobody listens, so `grofe open` can
 /// open it itself.
-pub fn open_url(state: &mut State, ctx: &ClientCtx, c: OpenUrl) -> Result<String, String> {
+pub(crate) fn open_url(state: &mut State, ctx: &ClientCtx, c: OpenUrl) -> Result<String, String> {
     crate::open::check(&c.url).map_err(|e| format!("open-url: refused {:?}: {e}", c.url))?;
     let event = Event::OpenUrl {
         url: c.url,
@@ -239,7 +239,7 @@ pub fn open_url(state: &mut State, ctx: &ClientCtx, c: OpenUrl) -> Result<String
 /// `set-client-info [-t client] <key> <value>`: stores what a remote client
 /// says about itself (`rtt` in whole milliseconds, `machines` as text) for
 /// `#{client_rtt}` and `#{client_machines}`, and redraws its status line.
-pub fn set_client_info(
+pub(crate) fn set_client_info(
     state: &mut State,
     ctx: &ClientCtx,
     c: SetClientInfo,
@@ -305,7 +305,7 @@ pub fn list_ports(state: &mut State, ctx: &ClientCtx, c: ListPorts) -> Result<St
 }
 
 /// `#{pane_ports}`: the ports comma-separated.
-pub fn join(ports: &[u16]) -> String {
+pub(crate) fn join(ports: &[u16]) -> String {
     ports
         .iter()
         .map(u16::to_string)
@@ -318,7 +318,7 @@ fn wanted(state: &State) -> bool {
 }
 
 /// Whether a subscription to `events` needs the poller.
-pub fn wants_poll(events: &[String]) -> bool {
+pub(crate) fn wants_poll(events: &[String]) -> bool {
     events
         .iter()
         .any(|e| e == "ports-changed" || e == "pane-echo")
@@ -327,7 +327,7 @@ pub fn wants_poll(events: &[String]) -> bool {
 /// After a `subscribe`: starts the poller if the subscription needs it.
 /// `fresh` is a new subscription to one of its events, which is owed the
 /// state of every pane however many others there are.
-pub fn ensure_poller(state: &mut State, fresh: bool) {
+pub(crate) fn ensure_poller(state: &mut State, fresh: bool) {
     if !wanted(state) {
         return;
     }

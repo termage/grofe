@@ -17,14 +17,14 @@ use super::LOCAL;
 
 /// A machine's link, as the multi-machine client sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Link {
+pub(crate) enum Link {
     Connected,
     Reconnecting,
     Offline,
 }
 
 impl Link {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Link::Connected => "connected",
             Link::Reconnecting => "reconnecting",
@@ -35,7 +35,7 @@ impl Link {
 
 /// One agent on a machine, from its `agent list`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentView {
+pub(crate) struct AgentView {
     /// The agent's kind (`claude`), or its pane id when it reported none.
     pub name: String,
     /// The server's word for it: working, blocked, done, idle or error.
@@ -45,7 +45,7 @@ pub struct AgentView {
 /// What the picker and `#{client_machines}` know about one machine. For an
 /// offline machine the sessions and agents are the last known ones.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MachineView {
+pub(crate) struct MachineView {
     pub name: String,
     pub link: Link,
     pub sessions: Vec<String>,
@@ -55,14 +55,14 @@ pub struct MachineView {
 
 impl MachineView {
     /// A blocked agent or an unread notification: the machine wants you.
-    pub fn wants_attention(&self) -> bool {
+    pub(crate) fn wants_attention(&self) -> bool {
         self.unread || self.agents.iter().any(|a| a.state == "blocked")
     }
 }
 
 /// `#{client_machines}`: the machines' names, space separated, each
 /// followed by `!` when it [wants attention](MachineView::wants_attention).
-pub fn client_machines(machines: &[MachineView]) -> String {
+pub(crate) fn client_machines(machines: &[MachineView]) -> String {
     machines
         .iter()
         .map(|m| {
@@ -77,7 +77,7 @@ pub fn client_machines(machines: &[MachineView]) -> String {
 
 /// What a key in the picker asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PickerOutcome {
+pub(crate) enum PickerOutcome {
     /// Attach to the machine at this index.
     Choose(usize),
     /// Close the picker without switching.
@@ -86,7 +86,7 @@ pub enum PickerOutcome {
 
 /// The `M-m` picker's state: which row is selected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Picker {
+pub(crate) struct Picker {
     pub selected: usize,
 }
 
@@ -97,7 +97,7 @@ impl Picker {
     /// as the server decodes them, so legacy bytes and the kitty keyboard
     /// protocol's both work. The first key that chooses or closes ends the
     /// input; other keys are ignored.
-    pub fn handle(&mut self, input: &[u8], count: usize) -> Option<PickerOutcome> {
+    pub(crate) fn handle(&mut self, input: &[u8], count: usize) -> Option<PickerOutcome> {
         let keys = Decoder::new().feed(input, Instant::now(), Duration::ZERO);
         for key in keys {
             let Decoded::Key(key) = key else {
@@ -257,7 +257,7 @@ pub fn render_picker(machines: &[MachineView], selected: usize, cols: u16, rows:
 
 /// One machine's part of `agent list --all-machines`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AgentListing {
+pub(crate) enum AgentListing {
     /// The `agent list` output the machine just gave.
     Online(String),
     /// Unreachable: the last output seen from it, if any.
@@ -268,7 +268,7 @@ pub enum AgentListing {
 /// leading `machine` column padded to the longest name, in the order given
 /// (the caller puts [`LOCAL`] first). An offline machine's last known lines
 /// end in `offline`; with none known it gets one `<name> offline` line.
-pub fn combined_agent_list(listings: &[(String, AgentListing)]) -> String {
+pub(crate) fn combined_agent_list(listings: &[(String, AgentListing)]) -> String {
     let width = listings.iter().map(|(n, _)| n.width()).max().unwrap_or(0);
     let mut out = String::new();
     for (name, listing) in listings {
@@ -294,14 +294,14 @@ pub fn combined_agent_list(listings: &[(String, AgentListing)]) -> String {
 
 /// Where the last `agent list` output of machine `name` is kept, for its
 /// offline rows: `<state-dir>/machines/<name>.agents`.
-pub fn last_known_path(state_dir: &Path, name: &str) -> PathBuf {
+pub(crate) fn last_known_path(state_dir: &Path, name: &str) -> PathBuf {
     state_dir.join("machines").join(format!("{name}.agents"))
 }
 
 /// Keeps `text` as machine `name`'s last known agents.
 // ponytail: one cache per machine, whatever `-F` the listing used; an
 // offline row after a custom format shows the last text as it was.
-pub fn save_last_known(state_dir: &Path, name: &str, text: &str) -> Result<(), String> {
+pub(crate) fn save_last_known(state_dir: &Path, name: &str, text: &str) -> Result<(), String> {
     let path = last_known_path(state_dir, name);
     let dir = path.parent().unwrap_or(state_dir);
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -314,7 +314,7 @@ pub fn save_last_known(state_dir: &Path, name: &str, text: &str) -> Result<(), S
 }
 
 /// Machine `name`'s last known agents, if any were kept.
-pub fn last_known(state_dir: &Path, name: &str) -> Option<String> {
+pub(crate) fn last_known(state_dir: &Path, name: &str) -> Option<String> {
     std::fs::read_to_string(last_known_path(state_dir, name)).ok()
 }
 
