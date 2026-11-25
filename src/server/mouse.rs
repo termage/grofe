@@ -176,6 +176,8 @@ struct Click {
     generation: u64,
     /// The last press, where `DoubleClick` is placed.
     event: Mouse,
+    /// When the last press came.
+    at: Instant,
 }
 
 /// The mouse event a bound command runs for (M36-R3's "the pane or status
@@ -569,6 +571,19 @@ fn classify(
     client: ClientId,
     m: &Mouse,
 ) -> Option<(MouseAction, u8, (u16, u16))> {
+    // The click timer is a job, which a busy server can run after the next
+    // press: a wait past its time is over, whether the timer ran or not.
+    let expired = state
+        .mouse
+        .pointers
+        .get(&client)
+        .and_then(|p| p.click)
+        .filter(|c| c.at.elapsed() >= CLICK_TIMEOUT);
+    if let Some(c) = expired
+        && matches!(m.kind, MouseKind::Down(_))
+    {
+        click_timeout(state, client, c.generation);
+    }
     let at = (m.col, m.row);
     let generation = state.mouse.generation + 1;
     let p = state.mouse.pointers.entry(client).or_default();
@@ -627,6 +642,7 @@ fn classify(
                     second: action == MouseAction::SecondClick,
                     generation,
                     event: *m,
+                    at: Instant::now(),
                 });
                 waits = true;
             }
@@ -2008,6 +2024,75 @@ mod tests {
             classify(&mut state, c, &down).map(|k| k.0),
             Some(MouseAction::Down)
         );
+    }
+
+    /// A press past the click timeout is a fresh click even when the timer
+    /// has not run yet (a busy server, or none at all, as here).
+    #[test]
+    fn a_press_after_the_timeout_is_a_fresh_click_before_the_timer() {
+        let mut state = crate::server::test_state();
+        let c = ClientId(1);
+        let down = report(MouseKind::Down(LEFT), 2, 2);
+        classify(&mut state, c, &down);
+        std::thread::sleep(CLICK_TIMEOUT + Duration::from_millis(50));
+        assert_eq!(
+            classify(&mut state, c, &down).map(|k| k.0),
+            Some(MouseAction::Down)
+        );
+        // Within the timeout it is still a second click.
+        assert_eq!(
+            classify(&mut state, c, &down).map(|k| k.0),
+            Some(MouseAction::SecondClick)
+        );
+    }
+
+    /// A press past an expired second click, before its timer ran, fires
+    /// the pending `DoubleClick` first and is then a fresh `Down`, not a
+    /// `TripleClick`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_press_after_an_expired_second_click_fires_the_double_first() {
+        let mut state = crate::server::test_state();
+        let ctx = crate::server::test_ctx();
+        let run = |state: &mut State, words: &[&str]| {
+            let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+            crate::server::dispatch::run(state, &ctx, &argv)
+                .unwrap_or_else(|e| panic!("{words:?}: {e}"));
+        };
+        run(&mut state, &["new-session", "-d", "-s", "a", "sleep 600"]);
+        run(&mut state, &["set-option", "-g", "mouse", "on"]);
+        for (key, tag) in [
+            ("MouseDown1Pane", "d"),
+            ("SecondClick1Pane", "s"),
+            ("DoubleClick1Pane", "D"),
+            ("TripleClick1Pane", "t"),
+        ] {
+            let cmd = format!("set-option -ga @keys {tag}");
+            run(&mut state, &["bind-key", "-n", key, &cmd]);
+        }
+        let accepted = crate::server::clients::attach(
+            &mut state,
+            crate::server::clients::AttachRequest {
+                ctx: crate::server::test_ctx(),
+                size: (80, 24),
+                term: "xterm".into(),
+                caps: Default::default(),
+                pid: None,
+                target: Some("a".into()),
+                detach_others: false,
+                nest: false,
+                tty: None,
+                created: false,
+                extras: Default::default(),
+            },
+        )
+        .expect("attach");
+        let c = accepted.id;
+        let down = report(MouseKind::Down(LEFT), 5, 5);
+        on_mouse(&mut state, c, &down);
+        on_mouse(&mut state, c, &down);
+        std::thread::sleep(CLICK_TIMEOUT + Duration::from_millis(50));
+        on_mouse(&mut state, c, &down);
+        assert_eq!(state.model.options.lookup("@keys", &[]), Some("dsDd"));
     }
 
     fn mouse_target(target: &str, range: Option<Option<RangeKind>>) -> MouseTarget {

@@ -464,8 +464,13 @@ fn an_upload_prompt_lost_with_the_link_comes_back_and_typing_reaches_the_pane() 
     std::thread::sleep(Duration::from_millis(800));
     h.wait_for("upload 1 file (1 B) to box:");
     h.send("n\r");
-    std::thread::sleep(Duration::from_millis(300));
-    h.send("\recho after-the-drop\r");
+    h.wait_until("the prompt gone", WAIT, |t| !t.contains("upload 1 file"));
+    // One line at a time: typed ahead of a shell in canonical mode, the
+    // second line is echoed before the first one's output, and its own
+    // output then follows the prompt on one line.
+    h.send("\r");
+    h.wait_for(&format!("\n{}", local.display()));
+    h.send("echo after-the-drop\r");
     h.wait_for("\nafter-the-drop");
     detach(h);
 }
