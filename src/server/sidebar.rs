@@ -19,11 +19,12 @@ use super::agents::{Agent, Rank, rank};
 use super::borders::{PaneBox, PaneLines};
 use super::clients;
 use super::dispatch::agent;
-use super::dispatch::options::{self, FormatCtx, ServerVars};
+use super::dispatch::options::{FormatCtx, ServerVars};
+use super::frameopts;
 use super::input::{Input, InputHook, MouseButton, MouseKind, Routed};
 use super::listview::{ListAction, ListState};
 use super::pane::{CellFlags, SnapCell};
-use super::render::{self, Frame, Overlay, OverlayCtx, PaneLooks, Screen};
+use super::render::{self, Frame, Overlay, OverlayCtx, Screen};
 use super::status::{self, Style};
 pub use crate::cmd::SidebarOp;
 use crate::cmd::expand;
@@ -412,34 +413,18 @@ struct Look {
 }
 
 fn look(state: &State, client: ClientId, focused: bool) -> Option<Look> {
-    let model = &state.model;
-    let c = state.clients.get(&client)?;
-    let w = model
-        .sessions
-        .get(&c.session)
-        .and_then(|s| model.windows.get(&s.active))?;
-    let chain = options::chain(model, w.active);
-    let opt = |name: &str| model.options.lookup(name, &chain).unwrap_or("");
-    let mut looks = PaneLooks {
-        lines: PaneLines::parse(opt("pane-border-lines")),
-        ..Default::default()
-    };
-    render::apply_frames(model, w, &mut looks);
-    let inner = FormatCtx::new(model, w.active);
-    let vars = ServerVars::fresh(state, w.active, &inner);
-    let style = |name: &str| status::base_style(opt(name), &vars);
     let border = if focused {
         "pane-active-border-style"
     } else {
         "pane-border-style"
     };
-    Some(Look {
-        lines: looks.lines,
-        title: looks.frame_title,
-        ends: opt("pane-frame-tab-ends").to_string(),
-        frame: style(border),
-        mode: style("mode-style"),
-        blocked: style("agent-blocked-border-style"),
+    frameopts::with_frame_options(state, client, |f| Look {
+        lines: f.lines,
+        title: f.title,
+        ends: f.opt("pane-frame-tab-ends").to_string(),
+        frame: f.style(border),
+        mode: f.style("mode-style"),
+        blocked: f.style("agent-blocked-border-style"),
     })
 }
 

@@ -24,6 +24,7 @@ pub mod dispatch;
 pub mod drop;
 pub mod events;
 pub mod floating;
+pub(crate) mod frameopts;
 pub mod graphics;
 pub(crate) mod grid;
 pub mod hooks;
