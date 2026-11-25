@@ -67,12 +67,12 @@ selected command to that key. If the key is bound, the menu shows
 
 ## Layouts section
 
-The Layouts section lists the files in `layouts/` next to your config, with a
+The Layouts section lists the files in `layouts/` in your config folder, with a
 drawing of the first window's panes beside the list. `Enter` sets
 `default-layout` to the selected layout; save it with `C-s`.
 
 With `default-layout` set, `new-session` without a command builds that
-layout from the `layouts/` folder next to the server's config file. An
+layout from the `layouts/` folder in the server's config folder. An
 unknown name makes a plain session; the `grofe` command line
 prints `grofe: default-layout: no layout <name>` and logs it for
 `show-messages`. The command line builds the layout, not the server, so a

@@ -2,7 +2,9 @@
 //!
 //! The config is TOML, read in layers (spec §5.1): built-in defaults,
 //! `config.toml` (or the `--file` layers that replace it, R5),
-//! `conf.d/*.toml` in lexical order, then `user.toml`. Later layers win,
+//! `conf.d/*.toml` in lexical order, then `user.toml`, then `settings.toml`.
+//! The folder comes from `--config-dir`, `$GROFE_CONFIG_DIR`, the `--config`
+//! file's parent or XDG, in that order ([`Env::from_process`]). Later layers win,
 //! and every resolved value records the file that set it.
 //!
 //! Loading needs no server. [`load`] reads every layer and reports every
