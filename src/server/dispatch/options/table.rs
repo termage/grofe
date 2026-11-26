@@ -155,15 +155,25 @@ pub(crate) const PANE_BORDER_FORMAT: &str = "#{?pane_active,#[reverse],}#{pane_i
 /// control tab takes over (`render::frame_tab`), and with the pane index
 /// between the tab's `ends` (`render::tab_ends`) in place of reversed, so
 /// the two match. A pane whose title no program has set (empty, or the
-/// hostname tmux gives it) shows its command and folder instead.
+/// hostname tmux gives it) shows its working directory instead, with
+/// $HOME as `~` (`pane_current_path_home`).
 pub(crate) fn frame_title_format(ends: &str) -> String {
     let (l, r) = crate::server::render::tab_ends(ends);
-    format!(
-        "{l} #{{pane_index}} {r} \
-         #{{?#{{||:#{{==:#{{pane_title}},}},#{{||:#{{==:#{{pane_title}},#{{host}}}},\
-         #{{==:#{{pane_title}},#{{host_short}}}}}}}},\
-         #{{pane_current_command}} · #{{b:pane_current_path}},\"#{{pane_title}}\"}}"
-    )
+    format!("{l} #{{pane_index}} {r} {}", untitled_label())
+}
+
+/// `pane-border-format`'s default with its quoted title swapped for
+/// [`untitled_label`], for a grofe-identity frame without the control tab.
+pub(crate) fn grofe_border_format() -> String {
+    PANE_BORDER_FORMAT.replace("\"#{pane_title}\"", &untitled_label())
+}
+
+/// The pane's quoted title, or its working directory when no program set one.
+fn untitled_label() -> String {
+    "#{?#{||:#{==:#{pane_title},},#{||:#{==:#{pane_title},#{host}},\
+     #{==:#{pane_title},#{host_short}}}},\
+     #{pane_current_path_home},\"#{pane_title}\"}"
+        .to_string()
 }
 
 /// Whether `name` is a built-in tmux's CLI must not see ([`GROFE_ONLY`]).
@@ -355,7 +365,7 @@ pub(super) const BUILTINS: &[Builtin] = builtins! {
     { "pane-border-style", Kind::String, Window, "default", "Style of the borders or frames of inactive panes."; toml = "pane-border.style" }
     // tmux 3.7b's: yellow in a mode, red while panes are synchronized.
     { "pane-active-border-style", Kind::String, Window, "#{?pane_in_mode,fg=yellow,#{?synchronize-panes,fg=red,fg=green}}", "Style of the active pane's border or frame."; toml = "pane-border.active-style" }
-    { "pane-border-format", Kind::String, Window, PANE_BORDER_FORMAT, "Format of the pane status line shown in a border, and of a frame's title when it is changed from the default."; toml = "pane-border.format" }
+    { "pane-border-format", Kind::String, Window, PANE_BORDER_FORMAT, "Format of the pane status line shown in a border, and of a frame's title when it is changed from the default. Under grofe identity the default shows an untitled pane's working directory, with $HOME as ~, in place of the host name."; toml = "pane-border.format" }
     // B1c: tmux 3.7b's names, values, window scope and defaults
     // (options-table.c). `pane-border-status` makes the panes along the
     // top or bottom edge give up a row to a title line.

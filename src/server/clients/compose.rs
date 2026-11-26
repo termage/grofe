@@ -225,6 +225,11 @@ pub(super) fn pane_looks(
             f if tabbed && f == options::PANE_BORDER_FORMAT => {
                 options::frame_title_format(opt("pane-frame-tab-ends"))
             }
+            f if f == options::PANE_BORDER_FORMAT
+                && model.identity != crate::compat::Identity::Tmux =>
+            {
+                options::grofe_border_format()
+            }
             f => f.to_string(),
         };
         let title = if !titled {

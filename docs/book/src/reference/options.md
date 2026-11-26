@@ -1061,7 +1061,7 @@ Default under tmux identity: `0`
 
 ## pane-border-format
 
-Format of the pane status line shown in a border, and of a frame's title when it is changed from the default.
+Format of the pane status line shown in a border, and of a frame's title when it is changed from the default. Under grofe identity the default shows an untitled pane's working directory, with $HOME as ~, in place of the host name.
 
 - **TOML key**: `pane-border.format` (string)
 - **Scope**: window
