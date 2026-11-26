@@ -135,12 +135,7 @@ fn home_short(state: &State, pane: PaneId) -> String {
         return String::new();
     };
     let cwd = p.cwd.to_string_lossy().into_owned();
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && cwd.starts_with(&home) => {
-            format!("~{}", &cwd[home.len()..])
-        }
-        _ => cwd,
-    }
+    super::dispatch::options::home_tilde(&cwd)
 }
 
 fn view(state: &State, query: &str) -> View {

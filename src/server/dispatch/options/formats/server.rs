@@ -64,17 +64,24 @@ impl<'a> ServerVars<'a> {
     }
 }
 
-/// `path` with the server's `$HOME` written `~`, whether `$HOME` is spelled
-/// as is or resolved (the pane's path is the resolved cwd). An empty or `/`
-/// home leaves the path absolute.
-fn home_as_tilde(path: &str, home: &str) -> String {
-    use std::path::{Path, PathBuf};
-    let resolved = std::fs::canonicalize(home).ok();
-    for h in [Some(PathBuf::from(home)), resolved] {
+/// `path` with the server's `$HOME` written `~`.
+pub(crate) fn home_tilde(path: &str) -> String {
+    static RESOLVED: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    let home = std::env::var("HOME").unwrap_or_default();
+    let resolved = RESOLVED.get_or_init(|| std::fs::canonicalize(&home).ok());
+    home_as_tilde(path, &home, resolved.as_deref())
+}
+
+/// `path` with `home` written `~`, whether `home` is spelled as is or
+/// `resolved` (the pane's path is the resolved cwd). An empty or `/` home
+/// leaves the path absolute.
+fn home_as_tilde(path: &str, home: &str, resolved: Option<&std::path::Path>) -> String {
+    use std::path::Path;
+    for h in [Some(Path::new(home)), resolved] {
         let Some(h) = h.filter(|h| h.parent().is_some()) else {
             continue;
         };
-        let t = crate::config::provenance::tilde(Path::new(path), Some(&h));
+        let t = crate::config::provenance::tilde(Path::new(path), Some(h));
         if t != path {
             return t;
         }
@@ -132,8 +139,7 @@ impl FormatVars for ServerVars<'_> {
             // grofe's own: the working directory with the server's $HOME as `~`.
             "pane_current_path_home" => {
                 let path = self.get("pane_current_path")?;
-                let home = std::env::var("HOME").unwrap_or_default();
-                Some(home_as_tilde(&path, &home))
+                Some(home_tilde(&path))
             }
             "pane_tty" => {
                 let p = self.state.model.panes.get(&self.pane)?;
@@ -399,23 +405,21 @@ impl<'a> ServerVars<'a> {
 #[cfg(test)]
 mod tilde_tests {
     use super::home_as_tilde;
+    use std::path::Path;
 
     #[test]
     fn empty_or_root_home_stays_absolute() {
-        assert_eq!(home_as_tilde("/etc", ""), "/etc");
-        assert_eq!(home_as_tilde("/etc", "/"), "/etc");
+        assert_eq!(home_as_tilde("/etc", "", None), "/etc");
+        assert_eq!(home_as_tilde("/etc", "/", Some(Path::new("/"))), "/etc");
     }
 
     #[test]
-    fn a_symlinked_home_matches_the_resolved_cwd() {
-        let dir = std::env::temp_dir().join(format!("grofe-tilde-{}", std::process::id()));
-        let real = dir.join("real");
-        let link = dir.join("link");
-        std::fs::create_dir_all(&real).unwrap();
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        let cwd = std::fs::canonicalize(&real).unwrap().join("x");
-        let got = home_as_tilde(&cwd.display().to_string(), &link.display().to_string());
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(got, "~/x");
+    fn a_resolved_home_matches_the_resolved_cwd() {
+        let real = Path::new("/real/home");
+        assert_eq!(home_as_tilde("/real/home/x", "/link", Some(real)), "~/x");
+        assert_eq!(
+            home_as_tilde("/real/homes", "/link", Some(real)),
+            "/real/homes"
+        );
     }
 }

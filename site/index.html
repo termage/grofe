@@ -496,7 +496,7 @@
               </ul>
             </div>
             <div class="pane main active" id="agentpane">
-              <div class="ptab"><samp id="pane-title">( 2 ) claude · infra</samp><samp>( z f x )</samp></div>
+              <div class="ptab"><samp id="pane-title">( 2 ) ~/infra</samp><samp>( z f x )</samp></div>
               <div id="pane-body"><pre class="out"><span class="dim">Ready when you are.</span>
 &gt; </pre></div>
             </div>
@@ -565,7 +565,7 @@
         <div class="win editor" data-ui aria-label="An init.luau status widget open in a grofe pane">
           <div class="tiles">
             <div class="pane main active">
-              <div class="ptab"><samp>( 1 ) nvim · init.luau</samp><samp>( z f x )</samp></div>
+              <div class="ptab"><samp>( 1 ) ~/api</samp><samp>( z f x )</samp></div>
 <pre class="out"><span class="k">local function</span> <span class="p">refresh</span>()
   grofe.<span class="p">system</span>({ <span class="s">"git"</span>, <span class="s">"rev-parse"</span>, <span class="s">"--abbrev-ref"</span>, <span class="s">"HEAD"</span> }, <span class="k">function</span>(r)
     <span class="k">local</span> branch = r.code == 0 <span class="k">and</span> r.stdout:<span class="p">gsub</span>(<span class="s">"%s+$"</span>, <span class="s">""</span>) <span class="k">or</span> <span class="s">""</span>
@@ -937,7 +937,7 @@ start-from-tmux = <span class="k">true</span>
       b.setAttribute('aria-current', String(a.id === focus));
     });
     var a = agents.find(function (x) { return x.id === focus; });
-    titleEl.textContent = '( 2 ) ' + a.kind + ' · ' + a.where;
+    titleEl.textContent = '( 2 ) ~/' + a.where;
     paneEl.className = 'pane main ' + (a.state === 'blocked' ? 'blocked' : 'active');
     bodyEl.innerHTML = BODY[a.state](a);
     winEl.innerHTML = agents.map(function (x, i) {

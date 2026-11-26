@@ -104,41 +104,87 @@ fn framed() -> TestServer {
     srv
 }
 
+/// A one-pane framed server (config `extra` after `pane-frames`) whose pane
+/// started in `~/proj`, attached with the mouse `mouse`.
+fn labelled(extra: &str, mouse: &str) -> (TestServer, Harness) {
+    let srv = TestServer::builder().frames(true).unstarted();
+    let dir = srv.config_home.join("grofe");
+    fs::create_dir_all(&dir).expect("mkdir config");
+    fs::write(
+        dir.join("config.toml"),
+        format!("pane-frames = true\n{extra}"),
+    )
+    .expect("write config");
+    let sub = srv.home.join("proj");
+    fs::create_dir_all(&sub).expect("mkdir sub");
+    let sub = fs::canonicalize(&sub).expect("canonical sub");
+    ok(&srv, &["start-server"]);
+    ok(&srv, &["set-option", "-g", "mouse", mouse]);
+    let sub = sub.display().to_string();
+    ok(
+        &srv,
+        &[
+            "new-session",
+            "-d",
+            "-s",
+            "main",
+            "-x",
+            "80",
+            "-y",
+            "23",
+            "-c",
+            &sub,
+            "cat",
+        ],
+    );
+    let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
+    a.wait_for("[main]");
+    (srv, a)
+}
+
 /// An untitled pane started in a subdirectory of the server's home is
 /// labelled `~/<sub>`, with the mouse on (the tab) and off.
 #[test]
 fn an_untitled_pane_shows_its_directory_under_home_as_a_tilde() {
     for mouse in ["on", "off"] {
-        let srv = TestServer::builder().frames(true).unstarted();
-        let dir = srv.config_home.join("grofe");
-        fs::create_dir_all(&dir).expect("mkdir config");
-        fs::write(dir.join("config.toml"), "pane-frames = true\n").expect("write config");
-        let sub = srv.home.join("proj");
-        fs::create_dir_all(&sub).expect("mkdir sub");
-        let sub = fs::canonicalize(&sub).expect("canonical sub");
-        ok(&srv, &["start-server"]);
-        ok(&srv, &["set-option", "-g", "mouse", mouse]);
-        let sub = sub.display().to_string();
-        ok(
-            &srv,
-            &[
-                "new-session",
-                "-d",
-                "-s",
-                "main",
-                "-x",
-                "80",
-                "-y",
-                "23",
-                "-c",
-                &sub,
-                "cat",
-            ],
-        );
-        let mut a = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
-        a.wait_for("[main]");
+        let (_srv, mut a) = labelled("", mouse);
         a.wait_until("~/proj in the frame", WAIT, |s| s.contains("~/proj"));
     }
+}
+
+/// A pane a program titled keeps its quoted title, not the directory.
+#[test]
+fn a_titled_pane_keeps_its_title() {
+    for mouse in ["on", "off"] {
+        let (srv, mut a) = labelled("", mouse);
+        ok(&srv, &["select-pane", "-T", "foo"]);
+        a.wait_until("the title", WAIT, |s| s.contains("\"foo\""));
+        assert!(!a.text().contains("~/proj"), "{}", a.text());
+    }
+}
+
+/// Under tmux identity an untitled pane keeps tmux's quoted host name.
+#[test]
+fn tmux_identity_keeps_the_hostname_label() {
+    for mouse in ["on", "off"] {
+        let (srv, mut a) = labelled("compat-identity = \"tmux\"\n", mouse);
+        let host = var(&srv, "%0", "#{pane_title}");
+        assert!(!host.is_empty(), "no title");
+        a.wait_until("the host name", WAIT, |s| {
+            s.contains(&format!("\"{host}\""))
+        });
+        assert!(!a.text().contains("~/"), "{}", a.text());
+    }
+}
+
+/// An unframed pane with `pane-border-status` and the default format also
+/// shows the directory under grofe identity.
+#[test]
+fn a_pane_border_status_line_shows_the_directory() {
+    let (srv, mut a) = labelled("", "off");
+    ok(&srv, &["set-option", "-g", "pane-frames", "off"]);
+    ok(&srv, &["set-option", "-w", "pane-border-status", "top"]);
+    a.wait_until("~/proj in the border", WAIT, |s| s.contains("~/proj"));
 }
 
 fn attach(srv: &TestServer) -> Harness {
