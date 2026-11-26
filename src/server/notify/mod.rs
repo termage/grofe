@@ -44,15 +44,15 @@ impl Default for NotifyConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notification {
     pub id: u64,
-    pub pane: PaneId,
+    /// `None` for a job's: it has a pane no more than a `label` names.
+    pub pane: Option<PaneId>,
     pub uid: String,
     pub kind: Option<String>,
     pub state: String,
     pub msg: Option<String>,
     pub at: Instant,
     pub read: bool,
-    /// What a headless agent was called: its notification outlives the
-    /// record, so the tray cannot look the name up.
+    /// What a job was called, for a notification with no pane.
     pub label: Option<String>,
 }
 
@@ -89,21 +89,15 @@ impl Notifier {
     ) -> Option<Raised> {
         // Leaving the state an item was raised for reads it.
         for it in &mut self.items {
-            if it.pane == pane && Some(it.state.as_str()) != new {
+            if it.pane == Some(pane) && Some(it.state.as_str()) != new {
                 it.read = true;
             }
         }
         let new = new?;
+        if !self.wanted(new, seen, worked) {
+            return None;
+        }
         let cfg = &self.cfg;
-        if !cfg.enabled || !cfg.on.iter().any(|s| s == new) {
-            return None;
-        }
-        if seen && cfg.skip_when_seen {
-            return None;
-        }
-        if new == "done" && worked < cfg.done_min_work {
-            return None;
-        }
         let muted = self.muted(now);
         let toast = cfg.toast.iter().any(|s| s == new) && !muted;
         let desktop = cfg.desktop.iter().any(|s| s == new) && !muted && configured_kind;
@@ -111,13 +105,54 @@ impl Notifier {
         if let Some(it) = self
             .items
             .iter_mut()
-            .find(|it| it.pane == pane && now.saturating_duration_since(it.at) < min_interval)
+            .find(|it| it.pane == Some(pane) && now.saturating_duration_since(it.at) < min_interval)
         {
             it.state = new.to_string();
             it.msg = msg.map(str::to_string);
             it.read = false;
             return None;
         }
+        let id = self.push(Some(pane), uid, kind, new, msg, None, now);
+        Some(Raised { id, toast, desktop })
+    }
+
+    /// A job that showed as `kind` called `label` ended in `new` (`done` or
+    /// `error`): the same rules as [`Notifier::on_change`], minus the ones
+    /// about a pane (seen, rate limit, desktop).
+    pub fn on_job_end(
+        &mut self,
+        kind: &str,
+        label: &str,
+        new: &str,
+        msg: Option<&str>,
+        worked: Duration,
+        now: Instant,
+    ) {
+        if self.wanted(new, false, worked) {
+            self.push(None, "", Some(kind), new, msg, Some(label), now);
+        }
+    }
+
+    /// Whether a change to `new` is one the config raises a notification for.
+    fn wanted(&self, new: &str, seen: bool, worked: Duration) -> bool {
+        let cfg = &self.cfg;
+        cfg.enabled
+            && cfg.on.iter().any(|s| s == new)
+            && !(seen && cfg.skip_when_seen)
+            && !(new == "done" && worked < cfg.done_min_work)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push(
+        &mut self,
+        pane: Option<PaneId>,
+        uid: &str,
+        kind: Option<&str>,
+        state: &str,
+        msg: Option<&str>,
+        label: Option<&str>,
+        now: Instant,
+    ) -> u64 {
         self.next_id += 1;
         let id = self.next_id;
         self.items.insert(
@@ -127,49 +162,31 @@ impl Notifier {
                 pane,
                 uid: uid.to_string(),
                 kind: kind.map(str::to_string),
-                state: new.to_string(),
+                state: state.to_string(),
                 msg: msg.map(str::to_string),
                 at: now,
                 read: false,
-                label: None,
+                label: label.map(str::to_string),
             },
         );
         self.items.truncate(self.cfg.history);
-        Some(Raised { id, toast, desktop })
+        id
     }
 
     /// Adds an entry a script asked for, past the raise rules: no toast, no
     /// desktop message. `level` is the entry's state.
     pub fn post(&mut self, pane: PaneId, uid: &str, level: &str, text: &str, now: Instant) {
-        self.next_id += 1;
-        self.items.insert(
-            0,
-            Notification {
-                id: self.next_id,
-                pane,
-                uid: uid.to_string(),
-                kind: None,
-                state: level.to_string(),
-                msg: Some(text.to_string()),
-                at: now,
-                read: false,
-                label: None,
-            },
-        );
-        self.items.truncate(self.cfg.history);
-    }
-
-    /// Names notification `id` after a headless agent.
-    pub fn set_label(&mut self, id: u64, label: &str) {
-        if let Some(it) = self.items.iter_mut().find(|i| i.id == id) {
-            it.label = Some(label.to_string());
-        }
+        self.push(Some(pane), uid, None, level, Some(text), None, now);
     }
 
     /// Marks the pane's notifications read; true if any changed.
     pub fn seen(&mut self, pane: PaneId) -> bool {
         let mut changed = false;
-        for it in self.items.iter_mut().filter(|i| i.pane == pane && !i.read) {
+        for it in self
+            .items
+            .iter_mut()
+            .filter(|i| i.pane == Some(pane) && !i.read)
+        {
             it.read = true;
             changed = true;
         }

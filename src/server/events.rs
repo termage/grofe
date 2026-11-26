@@ -75,8 +75,6 @@ pub(crate) const NAMES: &[&str] = &[
     "ports-changed",
     "pane-echo",
     "notify",
-    "pane-created",
-    "pane-closed",
 ];
 
 /// `pane-output` is sent only to subscribers that name it: a bare
@@ -554,7 +552,7 @@ pub(crate) fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agent
         kind: change.kind.clone(),
         old: change.old.map(|s| s.as_str().to_string()),
         new: change.new.map(|s| s.as_str().to_string()),
-        msg: state.agents.get(pane).and_then(|a| a.msg.clone()),
+        msg: change.msg.clone(),
     });
     crate::server::hooks::agent_changed(state, pane);
 }

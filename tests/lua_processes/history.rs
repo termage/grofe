@@ -95,3 +95,24 @@ fn history_takes_any_pane_target() {
     seed(&srv);
     assert_eq!(history(&srv, "main", 2), "h:m2|m3");
 }
+
+#[test]
+fn agent_changed_carries_the_reports_own_msg_not_the_stored_one() {
+    let srv = server();
+    let id = opt_pane(&srv);
+    lua_ok(
+        &srv,
+        "n = 0; grofe.on('agent-changed', function(p) n = n + 1; \
+         grofe.cmd{'set-option','-g','@e' .. n, tostring(p.msg)} end)",
+    );
+    let report = |args: &[&str]| {
+        let mut argv = vec!["agent", "report", "blocked", "-t", &id];
+        argv.extend_from_slice(args);
+        srv.cmd(&argv).expect("agent report");
+    };
+    report(&["--ts", "1", "--msg", "X"]);
+    assert_eq!(wait_opt(&srv, "@e1"), "X");
+    // Same state, no msg, a new reason: the record keeps X, the event has none.
+    report(&["--ts", "2", "--blocked", "permission"]);
+    assert_eq!(wait_opt(&srv, "@e2"), "nil");
+}

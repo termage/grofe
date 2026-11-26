@@ -47,18 +47,23 @@ fn now_micros() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX))
 }
 
-/// One line per agent pane, most urgent first.
+/// One line per agent pane, most urgent first, then one per running job.
 fn list(state: &State, format: &str) -> String {
-    state
+    let panes = state
         .agents
         .by_urgency()
         .into_iter()
-        .filter(|p| state.model.panes.contains_key(p) || state.agents.is_headless(*p))
+        .filter(|p| state.model.panes.contains_key(p))
         .map(|p| {
             let vars = FormatCtx::new(&state.model, p);
             format!("{}\n", expand(format, &ServerVars::fresh(state, p, &vars)))
-        })
-        .collect()
+        });
+    let jobs = state
+        .agents
+        .jobs
+        .iter()
+        .map(|j| format!("{}\n", expand(format, &j.vars())));
+    panes.chain(jobs).collect()
 }
 
 /// Jumps to the most urgent pane that needs attention, oldest first
@@ -68,7 +73,7 @@ fn next(state: &mut State, ctx: &ClientCtx) -> Result<String, String> {
         state
             .agents
             .get(*p)
-            .is_some_and(|a| a.label.is_none() && rank(a) <= Rank::Unseen)
+            .is_some_and(|a| rank(a) <= Rank::Unseen)
     });
     match target {
         Some(pane) => agent::jump(state, ctx, pane).map(|()| String::new()),

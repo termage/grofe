@@ -15,26 +15,28 @@ use crate::lua::api::{Payload, SystemJob};
 use crate::server::agents::headless;
 use crate::server::events::{QUEUE, Scope};
 use crate::server::{Job, events::Events, lua_host};
-use crate::types::PaneId;
 
 #[derive(Default)]
 pub(crate) struct Async {
     tasks: HashMap<u32, AbortHandle>,
+    /// The generation of the runtime this belongs to (see `lua_host`).
+    generation: u64,
 }
 
 fn post(id: u32, payload: Payload) -> Job {
     Box::new(move |state| lua_host::call_job(state, id, payload))
 }
 
-/// The job that ends a `system` run: its headless record is finished and
-/// forgotten, then the callback runs.
-fn finished(id: u32, payload: Payload, headless: Option<PaneId>) -> Job {
+/// The job that ends a `system` run of runtime `generation`: if that runtime is
+/// still running, the job's list entry ends (and the tray hears of it), then
+/// the callback runs.
+fn finished(generation: u64, id: u32, payload: Payload) -> Job {
     Box::new(move |state| {
-        if let Some(pane) = headless {
-            if let Payload::System { code, .. } = &payload {
-                headless::finish(state, pane, *code);
-            }
-            lua_host::forget_headless(state, id);
+        if !lua_host::is_current(state, generation) {
+            return;
+        }
+        if let Payload::System { code, .. } = &payload {
+            headless::finish(state, generation, id, *code);
         }
         lua_host::call_job(state, id, payload)
     })
@@ -198,6 +200,17 @@ async fn run_system(job: SystemJob, jobs: mpsc::Sender<Job>) -> Payload {
 }
 
 impl Async {
+    pub(crate) fn new(generation: u64) -> Async {
+        Async {
+            generation,
+            ..Async::default()
+        }
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.tasks.len()
@@ -241,6 +254,7 @@ impl Async {
         let (tx, mut rx) = mpsc::channel(QUEUE);
         events.subscribe_owned(vec![name.to_string()], scope, tx)?;
         let jobs = jobs.clone();
+        let generation = self.generation;
         let task = tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
                 let value = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
@@ -249,26 +263,21 @@ impl Async {
                 }
             }
             // The server dropped the subscription: its scope is gone.
-            let end: Job = Box::new(move |state| lua_host::forget_subscription(state, id));
+            let end: Job =
+                Box::new(move |state| lua_host::forget_subscription(state, generation, id));
             let _ = jobs.send(end).await;
         });
         self.track(id, task.abort_handle());
         Ok(())
     }
 
-    /// Runs `job`; `headless` is the agent record that follows it, finished
-    /// when the job ends, just before its callback runs.
-    pub(crate) fn system(
-        &mut self,
-        jobs: &mpsc::Sender<Job>,
-        job: SystemJob,
-        headless: Option<PaneId>,
-        id: u32,
-    ) {
+    /// Runs `job`; when it ends, its callback `id` runs.
+    pub(crate) fn system(&mut self, jobs: &mpsc::Sender<Job>, job: SystemJob, id: u32) {
         let jobs = jobs.clone();
+        let generation = self.generation;
         let task = tokio::spawn(async move {
             let payload = run_system(job, jobs.clone()).await;
-            let _ = jobs.send(finished(id, payload, headless)).await;
+            let _ = jobs.send(finished(generation, id, payload)).await;
         });
         self.track(id, task.abort_handle());
     }
@@ -399,12 +408,7 @@ mod tests {
             _ => panic!("not a system payload"),
         }
         let (tx, mut rx) = mpsc::channel::<Job>(1);
-        Async::default().system(
-            &tx,
-            job(vec!["true".into()], Duration::from_secs(5)),
-            None,
-            7,
-        );
+        Async::default().system(&tx, job(vec!["true".into()], Duration::from_secs(5)), 7);
         assert!(rx.recv().await.is_some());
     }
 

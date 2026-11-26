@@ -154,7 +154,6 @@ impl FormatVars for ServerVars<'_> {
             "pane_unseen_changes" => Some(crate::server::unseen::format_var(self.state, self.pane)),
             "config_files" => Some(super::config_files_list()),
             "agent_kind"
-            | "agent_label"
             | "agent_state"
             | "agent_msg"
             | "agent_blocked_kind"
@@ -271,8 +270,7 @@ impl<'a> ServerVars<'a> {
     pub(in crate::server::dispatch::options) fn agent_var(&self, name: &str) -> String {
         use crate::server::agents::{self, AgentState, Rank};
         let agents = &self.state.agents;
-        // A headless agent (a job) never asks for you.
-        let needs_you = |a: &agents::Agent| a.label.is_none() && agents::rank(a) <= Rank::Unseen;
+        let needs_you = |a: &agents::Agent| agents::rank(a) <= Rank::Unseen;
         let counts = |keep: &dyn Fn(&agents::Agent) -> bool| {
             agents.iter().filter(|(_, a)| keep(a)).count().to_string()
         };
@@ -292,7 +290,7 @@ impl<'a> ServerVars<'a> {
                 .filter_map(|(rank, option)| {
                     let n = agents
                         .iter()
-                        .filter(|(_, a)| a.label.is_none() && agents::rank(a) == *rank)
+                        .filter(|(_, a)| agents::rank(a) == *rank)
                         .count();
                     (n > 0).then(|| format!("{}{n}", glyph(option)))
                 })
@@ -337,7 +335,6 @@ impl<'a> ServerVars<'a> {
         };
         match name {
             "agent_kind" => a.kind.clone().unwrap_or_default(),
-            "agent_label" => a.label.clone().unwrap_or_default(),
             "agent_state" => a.state.as_str().to_string(),
             "agent_msg" => a.msg.clone().unwrap_or_default(),
             "agent_blocked_kind" => a.blocked.clone().unwrap_or_default(),

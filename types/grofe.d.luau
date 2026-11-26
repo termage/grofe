@@ -24,7 +24,6 @@ export type SystemOptions = {
 export type HeadlessAgent = {
 	kind: string,
 	label: string,
-	state: string?,
 }
 
 export type OnOptions = {

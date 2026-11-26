@@ -200,23 +200,23 @@ turned into `-`. Set `agents.new.worktree-command` to use another tool (for
 example worktrunk); when its last line of output is an existing directory,
 that directory is used.
 
-## Headless agents
+## Jobs shown as working rows
 
-A Lua script can make a background job show as an agent, with no pane behind
-it: `grofe.system(argv, fn, { agent = { kind = "triage", label = "issue 7" } })`
+A Lua script can make a background job show up next to your agents:
+`grofe.system(argv, fn, { agent = { kind = "triage", label = "issue 7" } })`
 (see Running processes in the Lua scripting chapter). `kind` and `label` are
-required; `state` is the state while it runs (`working` by default). While the
-job runs it appears in `agent list`, the sidebar and the grid, but it never
-needs you: it is not unseen, `agent next` skips it, and the badge and
-`#{agents_attention}` do not count it. It has no pane, so Enter on its row does
-nothing.
+required. A job is not an agent: it has no pane and no record in the agent
+store, so no `agent-changed` event, hook, `agent next` or attention count
+involves it. While it runs it is one `working` row in the sidebar, the grid
+and `agent list`; Enter on the row does nothing. Two jobs with the same label
+are two rows.
 
-The record lives only while the job runs. When the process exits (0 is `done`,
+The row lives only while that job runs. When the process exits (0 is `done`,
 anything else `error`), times out, is cancelled with `grofe.cancel`, or the
-config is reloaded, the record is removed. On exit or timeout the tray still
-gets its usual `done` or `error` entry, under the notification rules
-(`notifications.on` and the rest). Starting the same label again replaces a
-running record.
+config is reloaded, the row goes. On exit or timeout the tray gets a `done` or
+`error` entry under the job's label, under the notification rules
+(`notifications.on` and the rest; with no pane there is no seen check, rate
+limit or desktop message).
 
 ## How grofe learns an agent's state
 
@@ -318,7 +318,7 @@ For your own status line or scripts:
 | Variable | Value |
 |---|---|
 | `agent_kind`, `agent_state`, `agent_msg`, `agent_blocked_kind` | the pane's agent; empty when none |
-| `agent_label` | a headless agent's label; empty for a pane's agent |
+| `agent_label` | a job's label (`agent list` only); empty for a pane's agent |
 | `agent_since` | seconds in the current state |
 | `agent_unseen`, `agent_attention` | `1` or `0` |
 | `window_agent_state`, `session_agent_state` | the most urgent state in the window or session |

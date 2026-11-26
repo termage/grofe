@@ -13,6 +13,7 @@
 - The plugin is `bifurc`, in its own repo, installed as a `[[pack]]`; config file `bifurc.toml`.
 - grofe core gets the API the plugin needs first (Part A), in four PRs (A2 splits into A2a processes and events, A2b agent control and detection); the plugin (Part B) starts after A3 (2026-11-26).
 - The plugin repo is `termage/bifurc`, private for now (2026-11-26).
+- 2026-11-26 ruling: headless jobs are their own list, one entry per running job, shown as working rows in sidebar, grid and tray, not agents: no agent-changed events, hooks, agent next or attention counts; finish posts a done/error tray entry.
 - Herdr-style additions (2026-11-26): `agent prompt --wait` and `agent read`, per-kind detection files with `agent explain`, worktrees grouped under their repo, the unseen `done` state rolled up, and agents resumed after a restore. Herdr's mobile app and plugin marketplace are not copied.
 
 ## Agent profiles
@@ -44,7 +45,7 @@ Audit of src/lua, src/server/lua_host.rs, src/server/pack_load.rs, src/server/ag
 - A2 processes and agents (PRs 2 and 3; A2a is the first five bullets, A2b the rest):
   - `grofe.system` takes `env`, `stdin`, an `on_line` streaming callback, a `timeout_ms` up to 1 hour, and kills the process group on timeout.
   - `agent new <kind> -c <dir> [-e K=V] -- <args...>` prints the new pane id (`-P` like `new-window`).
-  - Headless agent records: a `system` job can register as an agent (`kind`, label, state) so triage runs show in the sidebar, grid and tray.
+  - Headless jobs: a `system` job can show as a `working` row (`kind`, label) in the sidebar, grid and tray while it runs (see the 2026-11-26 ruling).
   - `agent-changed` carries `msg`; `grofe.agent.history(pane, n)` returns the last n messages.
   - `pane-created` and `pane-closed` events; `grofe.on(event, fn, {pane = id})` scopes a subscription.
   - `agent prompt <pane> [--wait] [--until idle,blocked,done] [--timeout <s>] -- <text>` types the text and Enter into the pane; with `--wait` it returns when the agent reaches one of the `--until` states (default `idle,blocked,done`) and prints that state; exit 1 on timeout, exit 2 when the pane closes. Lua: `grofe.agent.prompt(pane, text, {until?, timeout_ms?}, fn(state))`.

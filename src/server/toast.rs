@@ -42,7 +42,7 @@ fn shown(state: &State, client: ClientId, now: Instant) -> Option<&Notification>
         .model
         .sessions
         .get(&state.clients.get(&client)?.session)?;
-    let looking = state.model.windows.get(&session.active)?.active == n.pane;
+    let looking = Some(state.model.windows.get(&session.active)?.active) == n.pane;
     (!looking).then_some(n)
 }
 
@@ -76,10 +76,13 @@ fn glyph(state: &str) -> &'static str {
 }
 
 fn target_label(state: &State, n: &Notification) -> String {
-    let vars = FormatCtx::new(&state.model, n.pane);
+    let Some(pane) = n.pane else {
+        return n.label.clone().unwrap_or_default();
+    };
+    let vars = FormatCtx::new(&state.model, pane);
     expand(
         "#{session_name}:#{window_index}.#{pane_index}",
-        &ServerVars::fresh(state, n.pane, &vars),
+        &ServerVars::fresh(state, pane, &vars),
     )
 }
 
@@ -182,11 +185,14 @@ impl InputHook for ToastHook {
         if m.row == a.y + 1 && m.col == a.x + a.cols - 2 {
             state.notify.dismiss(id);
         } else {
-            let ctx = state.clients.get(&client)?.ctx.clone();
-            if let Err(e) = agent::jump(state, &ctx, pane) {
-                clients::show_message(state, client, &e);
+            // A job's notification has no pane to jump to.
+            if let Some(pane) = pane {
+                let ctx = state.clients.get(&client)?.ctx.clone();
+                if let Err(e) = agent::jump(state, &ctx, pane) {
+                    clients::show_message(state, client, &e);
+                }
+                state.notify.seen(pane);
             }
-            state.notify.seen(pane);
         }
         clients::mark_all_dirty(state);
         Some(Routed::Consumed)

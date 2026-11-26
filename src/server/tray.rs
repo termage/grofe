@@ -50,10 +50,9 @@ pub fn client_gone(state: &mut State, id: ClientId) {
 }
 
 fn target_label(state: &State, n: &Notification) -> String {
-    if let Some(label) = &n.label {
-        return label.clone();
-    }
-    let pane = n.pane;
+    let Some(pane) = n.pane else {
+        return n.label.clone().unwrap_or_default();
+    };
     if !state.model.panes.contains_key(&pane) {
         return pane.to_string();
     }
@@ -210,15 +209,17 @@ fn click(state: &mut State, size: (u16, u16), st: &mut ListState, m: &Mouse) {
 
 /// Jumps to the notification's pane and marks it read.
 fn enter(state: &mut State, client: ClientId, n: &Notification) {
+    // A job's notification has no pane to jump to.
+    let Some(pane) = n.pane else {
+        return;
+    };
     let ctx = state.clients.get(&client).map(|c| c.ctx.clone());
-    // A headless agent has no pane to jump to.
-    if n.label.is_none()
-        && let Some(ctx) = ctx
-        && let Err(e) = agent::jump(state, &ctx, n.pane)
+    if let Some(ctx) = ctx
+        && let Err(e) = agent::jump(state, &ctx, pane)
     {
         clients::show_message(state, client, &e);
     }
-    state.notify.seen(n.pane);
+    state.notify.seen(pane);
 }
 
 pub struct TrayOverlay;
@@ -345,8 +346,8 @@ mod tests {
         let window = state.model.panes[&p1].window;
         assert_eq!(state.model.windows[&window].active, p1);
         let items = state.notify.items();
-        assert!(items.iter().find(|n| n.pane == p1).expect("p1").read);
-        assert!(!items.iter().find(|n| n.pane == p2).expect("p2").read);
+        assert!(items.iter().find(|n| n.pane == Some(p1)).expect("p1").read);
+        assert!(!items.iter().find(|n| n.pane == Some(p2)).expect("p2").read);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -356,7 +357,7 @@ mod tests {
         press(&mut state, client, "C-x");
         let items = state.notify.items();
         assert_eq!(items.len(), 1);
-        assert!(items.iter().all(|n| n.pane != p2));
+        assert!(items.iter().all(|n| n.pane != Some(p2)));
         assert!(state.trays.is_open(client));
     }
 
@@ -396,7 +397,7 @@ mod tests {
         TrayHook.on_input(&mut state, client, &click(col), Instant::now());
         let items = state.notify.items();
         assert_eq!(items.len(), 1);
-        assert!(items.iter().all(|n| n.pane != p2));
+        assert!(items.iter().all(|n| n.pane != Some(p2)));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

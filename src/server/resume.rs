@@ -305,8 +305,7 @@ fn sweep_agents(state: &mut State) {
         .agents
         .iter()
         .filter(|(pane, a)| {
-            (!state.model.panes.contains_key(pane) && a.label.is_none())
-                || a.binding.is_some_and(|b| !b.alive())
+            !state.model.panes.contains_key(pane) || a.binding.is_some_and(|b| !b.alive())
         })
         .map(|(pane, _)| pane)
         .collect();
@@ -319,6 +318,7 @@ fn sweep_agents(state: &mut State) {
             new: None,
             kind: old.kind,
             session_changed: false,
+            msg: None,
         };
         crate::server::events::emit_agent_changed(state, pane, &change);
         crate::server::clients::redraw_all(state, std::time::Instant::now());

@@ -250,7 +250,7 @@ fn test_system_options_reach_the_host() {
         &mut h,
         "grofe.system({'cat'}, function() end, {env = {A = 'b'}, stdin = 'in', \
          on_line = function() end, timeout_ms = 3600000, \
-         agent = {kind = 'triage', label = 'x', state = 'idle'}})",
+         agent = {kind = 'triage', label = 'x'}})",
     )
     .unwrap();
     let job = &h.jobs[0];
@@ -259,10 +259,7 @@ fn test_system_options_reach_the_host() {
     assert_eq!(job.timeout_ms, 3_600_000);
     assert!(job.on_line.is_some());
     let agent = job.agent.as_ref().unwrap();
-    assert_eq!(
-        (&*agent.kind, &*agent.label, agent.state.as_deref()),
-        ("triage", "x", Some("idle"))
-    );
+    assert_eq!((&*agent.kind, &*agent.label), ("triage", "x"));
 }
 
 #[test]

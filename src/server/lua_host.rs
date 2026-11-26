@@ -7,15 +7,15 @@ use crate::lua::api::{self, Host, Payload, SystemJob};
 use crate::lua::runtime::{Limits, LuaError, Runtime};
 use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
-use crate::server::agents::headless;
+use crate::server::agents::{headless, valid_kind};
 use crate::server::events::Scope;
 use crate::server::input::{Binding, BindingSource, Key, parse_key};
 use crate::server::lua_async::Async;
 use crate::server::{State, clients, dispatch, prompt};
-use crate::types::PaneId;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const PLUGIN: &str = "lua";
 
@@ -24,9 +24,11 @@ pub struct LuaHost {
     async_: Async,
     /// Per bind id, the key it took and what held that key before.
     replaced: HashMap<u32, Replaced>,
-    /// Per `system` callback id, the headless record its job shows as.
-    headless: HashMap<u32, PaneId>,
 }
+
+/// The generation the next runtime gets. Callback ids restart at 1 with each
+/// runtime, so a job queued by an earlier one must be told apart by this.
+static GENERATION: AtomicU64 = AtomicU64::new(1);
 
 struct Replaced {
     table: String,
@@ -81,7 +83,6 @@ struct StateHost<'a> {
     state: &'a mut State,
     async_: &'a mut Async,
     replaced: &'a mut HashMap<u32, Replaced>,
-    headless: &'a mut HashMap<u32, PaneId>,
     ctx: ClientCtx,
     /// No request owns this call: see [`with_client_less_host`].
     client_less: bool,
@@ -179,17 +180,16 @@ impl Host for StateHost<'_> {
     }
 
     fn system(&mut self, job: SystemJob, id: u32) -> Result<(), String> {
-        let pane = match &job.agent {
-            Some(a) => {
-                let running = headless::check(&a.kind, a.state.as_deref())?;
-                Some(headless::start(self.state, &a.kind, &a.label, running))
+        if let Some(a) = &job.agent {
+            if !valid_kind(&a.kind) {
+                return Err(format!(
+                    "grofe.system: agent kind {:?} is not a name",
+                    a.kind
+                ));
             }
-            None => None,
-        };
-        if let Some(pane) = pane {
-            self.headless.insert(id, pane);
+            headless::start(self.state, self.async_.generation(), id, &a.kind, &a.label);
         }
-        self.async_.system(&self.state.jobs, job, pane, id);
+        self.async_.system(&self.state.jobs, job, id);
         Ok(())
     }
 
@@ -201,9 +201,7 @@ impl Host for StateHost<'_> {
 
     fn cancel(&mut self, id: u32) {
         self.async_.cancel(id);
-        if let Some(pane) = self.headless.remove(&id) {
-            headless::remove(self.state, pane);
-        }
+        headless::cancel(self.state, self.async_.generation(), id);
         let Some(r) = self.replaced.remove(&id) else {
             return;
         };
@@ -267,9 +265,8 @@ fn with_host<R>(
             api::install(&rt)?;
             LuaHost {
                 rt,
-                async_: Async::default(),
+                async_: Async::new(GENERATION.fetch_add(1, Ordering::Relaxed)),
                 replaced: HashMap::new(),
-                headless: HashMap::new(),
             }
         }
     };
@@ -279,7 +276,6 @@ fn with_host<R>(
             state,
             async_: &mut lua.async_,
             replaced: &mut lua.replaced,
-            headless: &mut lua.headless,
             ctx,
             client_less,
         },
@@ -347,10 +343,8 @@ pub(crate) fn reset(state: &mut State) {
     }
     if let Some(mut lua) = state.lua.take() {
         lua.async_.cancel_all();
-        for pane in lua.headless.into_values() {
-            headless::remove(state, pane);
-        }
     }
+    headless::clear(state);
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
 }
@@ -507,18 +501,20 @@ pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
     }
 }
 
-/// The job behind `system` callback `id` ended: its record is not Lua's to
-/// cancel any more.
-pub(crate) fn forget_headless(state: &mut State, id: u32) {
-    if let Some(lua) = state.lua.as_mut() {
-        lua.headless.remove(&id);
-    }
+/// Whether runtime generation `generation` is the one running: a job queued by an
+/// earlier runtime names callbacks that are not this one's.
+pub(crate) fn is_current(state: &State, generation: u64) -> bool {
+    state
+        .lua
+        .as_ref()
+        .is_some_and(|l| l.async_.generation() == generation)
 }
 
-/// The subscription behind callback `id` ended on the server's side (its
-/// pane, window or session closed): its callback is freed.
-pub(crate) fn forget_subscription(state: &mut State, id: u32) {
+/// The subscription behind callback `id` of runtime `generation` ended on the
+/// server's side (its pane, window or session closed): its callback is freed.
+pub(crate) fn forget_subscription(state: &mut State, generation: u64, id: u32) {
     if let Some(lua) = state.lua.as_mut()
+        && lua.async_.generation() == generation
         && lua.async_.forget(id)
     {
         api::release(&lua.rt, id);

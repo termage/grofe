@@ -393,6 +393,7 @@ async fn emit_agent_changed_names_the_pane_and_states() {
         new: Some(AgentState::Idle),
         kind: None,
         session_changed: false,
+        msg: None,
     };
     emit_agent_changed(&mut state, pane, &change);
     state.events.flush(&state.model);

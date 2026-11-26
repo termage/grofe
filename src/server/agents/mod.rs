@@ -80,9 +80,6 @@ pub(crate) struct Agent {
     pub reported: bool,
     pub last_report: u64,
     pub binding: Option<Binding>,
-    /// Set for a headless record (a `system` job, no pane): what it shows
-    /// in place of a window name.
-    pub label: Option<String>,
     /// The messages reports carried, oldest first, up to [`HISTORY_CAP`].
     pub history: VecDeque<String>,
 }
@@ -105,7 +102,6 @@ impl Agent {
             reported: false,
             last_report: 0,
             binding,
-            label: None,
             history: VecDeque::new(),
         }
     }
@@ -120,14 +116,15 @@ pub struct Change {
     pub new: Option<AgentState>,
     pub kind: Option<String>,
     pub session_changed: bool,
+    /// The message the report itself carried (sanitised), not the stored one.
+    pub msg: Option<String>,
 }
 
 #[derive(Debug, Default)]
 pub struct Agents {
     map: HashMap<PaneId, Agent>,
-    /// How many headless records were made: each gets the next id down from
-    /// the top, never one a record had before.
-    headless_made: u32,
+    /// The `system` jobs running that asked to show: not agents.
+    pub(crate) jobs: Vec<headless::Job>,
 }
 
 impl Agents {
@@ -146,6 +143,7 @@ impl Agents {
                     new: None,
                     kind: a.kind,
                     session_changed: false,
+                    msg: None,
                 });
             }
             ReportState::Set(s) => s,
@@ -169,8 +167,9 @@ impl Agents {
         } else {
             None
         };
-        let msg = match r.msg {
-            Some(m) => Some(sanitize(&m)),
+        let reported = r.msg.map(|m| sanitize(&m));
+        let msg = match reported.clone() {
+            Some(m) => Some(m),
             None if state_changed => None,
             None => a.msg.clone(),
         };
@@ -182,11 +181,11 @@ impl Agents {
                 a.session_id = Some(s);
                 changed
             });
-        if let Some(m) = msg.as_ref().filter(|m| a.history.back() != Some(*m)) {
+        if let Some(m) = reported.clone() {
             if a.history.len() == HISTORY_CAP {
                 a.history.pop_front();
             }
-            a.history.push_back(m.clone());
+            a.history.push_back(m);
         }
         let content_changed = blocked != a.blocked || msg != a.msg;
         a.blocked = blocked;
@@ -206,6 +205,7 @@ impl Agents {
             new: Some(state),
             kind: a.kind.clone(),
             session_changed,
+            msg: reported,
         })
     }
 
@@ -253,31 +253,6 @@ impl Agents {
             a.msg = msg;
         }
         changed
-    }
-
-    /// A headless record of `kind` called `label`, under a pane id no pane
-    /// has (ids count down from the top of the space).
-    pub(crate) fn insert_headless(&mut self, kind: &str, label: &str, now: Instant) -> PaneId {
-        let pane = PaneId(u32::MAX - self.headless_made);
-        self.headless_made = self.headless_made.wrapping_add(1);
-        let mut a = Agent::new(AgentState::Idle, now, None);
-        a.kind = Some(kind.to_string());
-        a.label = Some(label.to_string());
-        self.map.insert(pane, a);
-        pane
-    }
-
-    pub(crate) fn is_headless(&self, pane: PaneId) -> bool {
-        self.map.get(&pane).is_some_and(|a| a.label.is_some())
-    }
-
-    /// The headless records called `label`.
-    pub(crate) fn headless_labelled(&self, label: &str) -> Vec<PaneId> {
-        self.map
-            .iter()
-            .filter(|(_, a)| a.label.as_deref() == Some(label))
-            .map(|(p, _)| *p)
-            .collect()
     }
 
     /// The last `n` messages of `pane`, oldest first.
@@ -353,7 +328,8 @@ mod tests {
                 old: Some(AgentState::Working),
                 new: Some(AgentState::Done),
                 kind: None,
-                session_changed: false
+                session_changed: false,
+                msg: None
             })
         );
         assert!(ag.get(P).unwrap().unseen);
@@ -396,7 +372,8 @@ mod tests {
                 old: Some(AgentState::Working),
                 new: None,
                 kind: None,
-                session_changed: false
+                session_changed: false,
+                msg: None
             })
         );
         assert!(ag.get(P).is_none());
@@ -497,14 +474,32 @@ mod tests {
     }
 
     #[test]
-    fn headless_records_get_fresh_ids_and_are_found_by_label() {
+    fn history_takes_every_report_that_carried_a_message() {
         let mut ag = Agents::default();
         let now = Instant::now();
-        let a = ag.insert_headless("triage", "x", now);
-        ag.remove(a);
-        let b = ag.insert_headless("triage", "x", now);
-        assert_ne!(a, b);
-        assert!(ag.is_headless(b) && !ag.is_headless(P));
-        assert_eq!(ag.headless_labelled("x"), [b]);
+        let mut say = |state, ts, msg: Option<&str>| {
+            let mut r = set(state, ts);
+            r.msg = msg.map(String::from);
+            ag.apply(P, r, true, now)
+        };
+        say(AgentState::Working, 1, Some("A"));
+        say(AgentState::Done, 2, None);
+        say(AgentState::Working, 3, Some("A"));
+        assert_eq!(ag.history(P, 9), ["A", "A"]);
+    }
+
+    #[test]
+    fn a_change_carries_the_reports_own_msg() {
+        let (mut ag, now) = with(AgentState::Blocked, 1);
+        let mut r = set(AgentState::Blocked, 2);
+        r.msg = Some("X".into());
+        assert_eq!(ag.apply(P, r, true, now).unwrap().msg.as_deref(), Some("X"));
+        let mut r = set(AgentState::Blocked, 3);
+        r.blocked = Some("permission".into());
+        let c = ag.apply(P, r, true, now).unwrap();
+        assert_eq!(
+            (c.msg, ag.get(P).unwrap().msg.as_deref()),
+            (None, Some("X"))
+        );
     }
 }

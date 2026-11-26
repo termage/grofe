@@ -1,90 +1,91 @@
-//! Headless agent records: a `grofe.system` job that shows as an agent
-//! (sidebar, grid, `agent list`) while it runs, with no pane behind it. The
-//! record lives in the agent store under a pane id no pane has, only as long
-//! as the job runs; the surfaces ask `Agents::is_headless` where they would
-//! look the pane up. It never needs attention: it is not `unseen`, and the
-//! badge, the attention count and `agent next` skip it.
+//! Jobs a script asked to show (`grofe.system`'s `opts.agent`). They are not
+//! agents: one entry per running job, in `Agents::jobs`, shown as `working`
+//! rows by the sidebar, grid and tray and dropped when the job ends.
 
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
-use super::{AgentState, Change, Report, ReportState, valid_kind};
-use crate::server::dispatch::agent;
-use crate::server::{State, clients, events};
-use crate::types::PaneId;
+use crate::cmd::FormatVars;
+use crate::server::{State, clients};
 
-fn report(state: ReportState, msg: Option<String>) -> Report {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
-    Report {
-        state,
-        kind: None,
-        msg,
-        blocked: None,
-        session_id: None,
-        ts,
+/// A running job. `generation` is the Lua runtime's generation and `id` the job's
+/// callback id in it: together they name the job, as ids restart at a reload.
+#[derive(Debug, Clone)]
+pub(crate) struct Job {
+    pub generation: u64,
+    pub id: u32,
+    pub kind: String,
+    pub label: String,
+    pub started: Instant,
+}
+
+impl Job {
+    /// The agent variables a job has, for `agent list`.
+    pub(crate) fn vars(&self) -> impl FormatVars + '_ {
+        JobVars(self)
     }
 }
 
-/// Checks the record a `system` call asks for; its running state.
-pub(crate) fn check(kind: &str, state: Option<&str>) -> Result<AgentState, String> {
-    if !valid_kind(kind) {
-        return Err(format!("grofe.system: agent kind {kind:?} is not a name"));
-    }
-    match state.map(ReportState::parse) {
-        None => Ok(AgentState::Working),
-        Some(Some(ReportState::Set(s))) => Ok(s),
-        Some(_) => Err(format!(
-            "grofe.system: agent state {:?} is not a state",
-            state.unwrap_or_default()
-        )),
+struct JobVars<'a>(&'a Job);
+
+impl FormatVars for JobVars<'_> {
+    fn get(&self, name: &str) -> Option<String> {
+        Some(match name {
+            "agent_kind" => self.0.kind.clone(),
+            "agent_label" => self.0.label.clone(),
+            "agent_state" => "working".to_string(),
+            "agent_since" => self.0.started.elapsed().as_secs().to_string(),
+            _ => return None,
+        })
     }
 }
 
-/// Registers a record of `kind` called `label`, in `running` state, in place
-/// of any earlier one with that label.
-pub(crate) fn start(state: &mut State, kind: &str, label: &str, running: AgentState) -> PaneId {
-    for old in state.agents.headless_labelled(label) {
-        remove(state, old);
-    }
-    let pane = state.agents.insert_headless(kind, label, Instant::now());
-    agent::apply(state, pane, report(ReportState::Set(running), None));
-    state.agents.mark_seen(pane);
-    pane
-}
-
-/// The job ended with `code`: the tray hears `done` for 0, else `error` (the
-/// usual notification rules apply), and the record goes.
-pub(crate) fn finish(state: &mut State, pane: PaneId, code: i32) {
-    if !state.agents.is_headless(pane) {
-        return;
-    }
-    let r = if code == 0 {
-        report(ReportState::Set(AgentState::Done), None)
-    } else {
-        report(
-            ReportState::Set(AgentState::Error),
-            Some(format!("exit {code}")),
-        )
-    };
-    agent::apply(state, pane, r);
-    remove(state, pane);
-}
-
-/// Drops a headless record, as `agent-changed` with no new state.
-pub(crate) fn remove(state: &mut State, pane: PaneId) {
-    if !state.agents.is_headless(pane) {
-        return;
-    }
-    let Some(old) = state.agents.remove(pane) else {
-        return;
-    };
-    let change = Change {
-        old: Some(old.state),
-        new: None,
-        kind: old.kind,
-        session_changed: false,
-    };
-    events::emit_agent_changed(state, pane, &change);
+pub(crate) fn start(state: &mut State, generation: u64, id: u32, kind: &str, label: &str) {
+    state.agents.jobs.push(Job {
+        generation,
+        id,
+        kind: kind.to_string(),
+        label: label.to_string(),
+        started: Instant::now(),
+    });
     clients::mark_all_dirty(state);
+}
+
+fn take(state: &mut State, generation: u64, id: u32) -> Option<Job> {
+    let at = state
+        .agents
+        .jobs
+        .iter()
+        .position(|j| j.generation == generation && j.id == id)?;
+    clients::mark_all_dirty(state);
+    Some(state.agents.jobs.remove(at))
+}
+
+/// The job was cancelled: it just goes.
+pub(crate) fn cancel(state: &mut State, generation: u64, id: u32) {
+    take(state, generation, id);
+}
+
+/// A reload: every job goes.
+pub(crate) fn clear(state: &mut State) {
+    if !state.agents.jobs.is_empty() {
+        state.agents.jobs.clear();
+        clients::mark_all_dirty(state);
+    }
+}
+
+/// The job ended with `code`: it goes, and the tray hears `done` for 0, else
+/// `error` (the usual notification rules apply, bar those about a pane).
+pub(crate) fn finish(state: &mut State, generation: u64, id: u32, code: i32) {
+    let Some(job) = take(state, generation, id) else {
+        return;
+    };
+    let (new, msg) = match code {
+        0 => ("done", None),
+        c => ("error", Some(format!("exit {c}"))),
+    };
+    let worked = job.started.elapsed();
+    let now = Instant::now();
+    state
+        .notify
+        .on_job_end(&job.kind, &job.label, new, msg.as_deref(), worked, now);
 }

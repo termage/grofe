@@ -50,8 +50,7 @@ pub(crate) fn is_seen(state: &State, pane: PaneId) -> bool {
 /// foreground process, raises `agent-changed`, redraws, and sets the pane's
 /// resume when the session id changed.
 pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
-    let headless = state.agents.is_headless(pane);
-    if !state.agents_enabled || !(headless || state.model.panes.contains_key(&pane)) {
+    if !state.agents_enabled || !state.model.panes.contains_key(&pane) {
         return;
     }
     let now = Instant::now();
@@ -77,6 +76,7 @@ pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
             new: Some(a.state),
             kind: a.kind.clone(),
             session_changed: false,
+            msg: None,
         }),
         (c, false) => c,
     };
@@ -100,10 +100,8 @@ pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
 /// Offers a state change to the notification store (spec §6.1) and delivers
 /// what it raises.
 fn raise(state: &mut State, pane: PaneId, change: &Change, worked: Duration, now: Instant) {
-    let uid = match state.model.panes.get(&pane) {
-        Some(p) => p.uid.clone(),
-        None if state.agents.is_headless(pane) => format!("headless{pane}"),
-        None => return,
+    let Some(uid) = state.model.panes.get(&pane).map(|p| p.uid.clone()) else {
+        return;
     };
     let msg = state
         .agents
@@ -127,9 +125,6 @@ fn raise(state: &mut State, pane: PaneId, change: &Change, worked: Duration, now
         now,
     );
     if let Some(raised) = raised {
-        if let Some(label) = state.agents.get(pane).and_then(|a| a.label.clone()) {
-            state.notify.set_label(raised.id, &label);
-        }
         emit_notify(state, raised);
         deliver(state, raised);
         clients::mark_all_dirty(state);
@@ -141,14 +136,17 @@ fn emit_notify(state: &mut State, raised: Raised) {
     let Some(n) = state.notify.items().iter().find(|n| n.id == raised.id) else {
         return;
     };
+    let Some(pane) = n.pane else {
+        return;
+    };
     let session = state
         .model
         .panes
-        .get(&n.pane)
+        .get(&pane)
         .and_then(|p| state.model.windows.get(&p.window))
         .map(|w| w.session);
     let event = crate::event::Event::Notify {
-        pane: n.pane,
+        pane,
         session,
         kind: n.kind.clone(),
         state: n.state.clone(),
@@ -167,7 +165,10 @@ pub(crate) fn deliver(state: &mut State, raised: Raised) {
     let Some(n) = state.notify.items().iter().find(|n| n.id == raised.id) else {
         return;
     };
-    let (pane, state_name) = (n.pane, n.state.clone());
+    let Some(pane) = n.pane else {
+        return;
+    };
+    let state_name = n.state.clone();
     let title = format!("grofe: {}", n.kind.as_deref().unwrap_or("agent"));
     let label = pane_label(state, pane);
     let message = match &n.msg {
@@ -214,9 +215,6 @@ pub(crate) fn deliver(state: &mut State, raised: Raised) {
 }
 
 pub(crate) fn pane_label(state: &State, pane: PaneId) -> String {
-    if let Some(label) = state.agents.get(pane).and_then(|a| a.label.clone()) {
-        return label;
-    }
     let vars = FormatCtx::new(&state.model, pane);
     expand(
         "#{session_name}:#{window_index}.#{pane_index}",
@@ -277,10 +275,6 @@ pub(crate) fn configure(state: &mut State, r: &Resolved) {
 /// that holds the pane's window (linked windows included), else switches to
 /// the pane's session; then the window and pane are selected.
 pub(crate) fn jump(state: &mut State, ctx: &ClientCtx, pane: PaneId) -> Result<(), String> {
-    // A headless record has no pane: nothing to show.
-    if state.agents.is_headless(pane) {
-        return Ok(());
-    }
     let window = state
         .model
         .panes

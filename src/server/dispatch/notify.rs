@@ -21,7 +21,8 @@ pub(crate) fn run(state: &mut State, _ctx: &ClientCtx, c: NotifyCmd) -> Result<S
                 format!(
                     "{} {} {} {} {}\n",
                     n.id,
-                    n.pane,
+                    n.pane
+                        .map_or_else(|| n.label.clone().unwrap_or_default(), |p| p.to_string()),
                     n.kind.as_deref().unwrap_or("-"),
                     n.state,
                     n.msg.as_deref().unwrap_or("")

@@ -115,8 +115,9 @@ pane closes.
   newline). The result still holds all of stdout.
 - `timeout_ms`: at most 3600000 (one hour), default 10000. At the timeout grofe kills the process
   and everything it started (its whole process group) and reports `code = -1`.
-- `agent`: `{ kind, label, state? }` shows the job as an agent while it runs; see
-  [Headless agents](agents.md#headless-agents). `kind` and `label` are required.
+- `agent`: `{ kind, label }` shows the job as a `working` row while it runs; see
+  [Jobs shown as working rows](agents.md#jobs-shown-as-working-rows). `kind` and `label` are
+  required.
 
 A bad option raises an error when `system` is called. Output that is not valid UTF-8 is
 converted with replacement characters.

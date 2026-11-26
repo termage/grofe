@@ -1,8 +1,8 @@
-//! A2a bullet 3: a `system` job registers as a headless agent record.
-//! Assumed shape (open question): `opts.agent = {kind, label, state?}`.
+//! A2a bullet 3: a `system` job shows as a `working` row while it runs. It
+//! is not an agent. Assumed shape (open question): `opts.agent = {kind, label}`.
 
 use crate::harness;
-use crate::helpers::{server, wait_opt};
+use crate::helpers::{server, stays_empty, wait_opt};
 use crate::support::{lua, lua_ok};
 
 const LIST: &str = "#{agent_kind}|#{agent_label}|#{agent_state}";
@@ -43,25 +43,19 @@ fn agent_record_without_kind_is_an_error() {
 }
 
 #[test]
-fn headless_record_shows_in_the_sidebar_until_replaced() {
+fn two_jobs_with_one_label_are_two_rows() {
     let srv = server();
     let mut a = harness::Harness::spawn_attach_with_env(srv.command(), "main", &[], 160, 30);
     a.wait_for_output(b"\x1b[2J", 0);
-    lua_ok(
-        &srv,
-        "grofe.system({'sleep','3'}, function() end, \
-         {agent = {kind = 'triage', label = 'zebrafish-7'}})",
-    );
+    for _ in 0..2 {
+        lua_ok(&srv, &job("zebrafish-7", "sleep 3"));
+    }
     a.send("\x02");
     a.send("b");
     a.wait_for("zebrafish-7");
-    // The same label again replaces the record: still one.
-    lua_ok(
-        &srv,
-        "grofe.system({'sleep','3'}, function() end, \
-         {agent = {kind = 'triage', label = 'zebrafish-7'}})",
-    );
-    assert_eq!(list(&srv).lines().count(), 1, "{:?}", list(&srv));
+    crate::common::quiet_period(std::time::Duration::from_millis(300));
+    assert_eq!(a.text().matches("zebrafish-7").count(), 2, "{}", a.text());
+    assert_eq!(list(&srv).lines().count(), 2, "{:?}", list(&srv));
 }
 
 fn notes(srv: &crate::common::TestServer) -> String {
@@ -73,6 +67,41 @@ fn job(label: &str, script: &str) -> String {
         "grofe.system({{'sh','-c','{script}'}}, function() end, \
          {{agent = {{kind = 'triage', label = '{label}'}}}})"
     )
+}
+
+#[test]
+fn two_failing_jobs_with_one_label_give_two_notifications() {
+    let srv = server();
+    for _ in 0..2 {
+        lua_ok(&srv, &job("twin", "exit 3"));
+    }
+    srv.wait_for(
+        || notes(&srv).matches("triage error exit 3").count() == 2,
+        crate::support::WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
+    assert_eq!(list(&srv).trim(), "");
+}
+
+#[test]
+fn a_job_raises_no_agent_changed_event() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        "grofe.on('agent-changed', function() grofe.cmd{'set-option','-g','@ev','x'} end)",
+    );
+    lua_ok(
+        &srv,
+        "grofe.system({'sh','-c','exit 3'}, function() grofe.cmd{'set-option','-g','@r','fin'} end, \
+         {agent = {kind = 'triage', label = 'quiet-job'}})",
+    );
+    wait_opt(&srv, "@r");
+    srv.wait_for(
+        || notes(&srv).contains("triage error exit 3"),
+        crate::support::WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
+    stays_empty(&srv, "@ev");
 }
 
 #[test]
@@ -101,10 +130,12 @@ fn running_record_shows_in_the_grid_and_its_notification_in_the_tray() {
     a.send("\x02");
     a.send("O");
     a.wait_for("grid-job");
-    // Enter on a headless row has nothing to jump to, and says nothing.
+    // Enter on a job's row does nothing: the grid stays open, with no message.
     a.send("\r");
     crate::common::quiet_period(std::time::Duration::from_millis(500));
+    assert!(a.text().contains("agents>"), "{}", a.text());
     assert!(!a.text().contains("find pane"), "{}", a.text());
+    a.send("\x1b");
     srv.wait_for(|| notes(&srv).contains("error"), crate::support::WAIT)
         .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
     a.send("\x02");

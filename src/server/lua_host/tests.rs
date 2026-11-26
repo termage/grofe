@@ -471,3 +471,38 @@ async fn the_on_line_callback_is_freed_when_the_job_ends_or_is_cancelled() {
     job(&mut state);
     assert!(callback_freed(&state, 3));
 }
+
+#[tokio::test]
+async fn jobs_queued_before_a_reload_are_ignored_by_the_new_runtime() {
+    let (mut state, mut rx) = crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
+    let ctx = test_ctx();
+    run_chunk(
+        &mut state,
+        &ctx,
+        "grofe.system({'true'}, function() old = 1 end)",
+    )
+    .unwrap();
+    let old = state.lua.as_ref().unwrap().async_.generation();
+    // The job has ended and is queued, but has not run yet.
+    let ended = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    reset(&mut state);
+    // The new runtime hands out callback id 1 again, to a timer.
+    run_chunk(
+        &mut state,
+        &ctx,
+        "grofe.every(60000, function() new = 1 end)",
+    )
+    .unwrap();
+    assert_ne!(state.lua.as_ref().unwrap().async_.generation(), old);
+    ended(&mut state);
+    forget_subscription(&mut state, old, 1);
+    assert_eq!(
+        run_chunk(&mut state, &ctx, "return tostring(new)"),
+        Ok("nil".into())
+    );
+    assert_eq!(state.lua.as_ref().map(|l| l.async_.len()), Some(1));
+    assert!(!callback_freed(&state, 1));
+}

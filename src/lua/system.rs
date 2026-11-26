@@ -7,13 +7,12 @@ pub const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 /// The longest a job may run.
 pub const MAX_TIMEOUT_MS: u64 = 3_600_000;
 
-/// `opts.agent`: the job shows as an agent of `kind` called `label`, in
-/// `state` while it runs (`working` when not given).
+/// `opts.agent`: the job shows as a `working` row of `kind` called `label`
+/// while it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentRecord {
     pub kind: String,
     pub label: String,
-    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,10 +35,10 @@ fn agent_of(t: Table) -> mlua::Result<AgentRecord> {
     for pair in t.pairs::<Value, Value>() {
         let (k, _) = pair?;
         match &k {
-            Value::String(s) if ["kind", "label", "state"].contains(&&*s.to_str()?) => {}
+            Value::String(s) if ["kind", "label"].contains(&&*s.to_str()?) => {}
             other => {
                 return Err(err(format!(
-                    "grofe.system: unknown agent field {}; fields are kind, label, state",
+                    "grofe.system: unknown agent field {}; fields are kind, label",
                     other.to_string()?
                 )));
             }
@@ -53,7 +52,6 @@ fn agent_of(t: Table) -> mlua::Result<AgentRecord> {
     Ok(AgentRecord {
         kind: need("kind")?,
         label: need("label")?,
-        state: t.get("state")?,
     })
 }
 
@@ -110,7 +108,6 @@ impl SystemJob {
             let agent = lua.create_table()?;
             agent.set("kind", a.kind.clone())?;
             agent.set("label", a.label.clone())?;
-            agent.set("state", a.state.clone())?;
             t.set("agent", agent)?;
         }
         Ok(t)
