@@ -252,7 +252,8 @@ says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
 - **The screen:** for a pane that has never had a report, grofe reads the last
   `lines` lines of the screen once its output rests, and matches them against
   the kind's detection file, `working` first, then `blocked`, then `idle`. A
-  screen that matches nothing changes nothing. Files for `claude`, `codex`,
+  screen that matches nothing changes nothing, except that a `working` or
+  `blocked` state the screen gave falls back to `idle`. Files for `claude`, `codex`,
   `gemini`, `opencode` and `aider` are built in and only match obvious prompts.
   `<config dir>/agents/<kind>.toml` replaces the built-in file for that kind:
 
@@ -276,7 +277,8 @@ says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
   types the text and Enter into an agent pane, and into that pane only. The text
   is untrusted, so control characters other than newline and tab are removed.
   A pane with bracketed paste on gets the text as one paste; otherwise newlines
-  and tabs become spaces. With `--wait` it waits for the
+  and tabs become spaces. Once the text is typed the agent is `working`
+  (`agent-changed` fires). With `--wait` it waits for the
   agent's next change to one of the `--until` states (default
   `idle,blocked,done`; any of `idle`, `working`, `blocked`, `done`, `error`) and
   prints it. Exit 1 is a timeout (default one hour), exit 2 a pane that

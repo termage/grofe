@@ -24,6 +24,7 @@
 - 2026-11-26 ruling: detection files are TOML with `working`, `blocked`, `idle` (a regex string or an array of them) and `lines` (default 20); the built-in files for claude, codex, gemini, opencode and aider are embedded in the binary and conservative; `<config dir>/agents/<kind>.toml` replaces the built-in one; an invalid regex keeps the built-in file and reports file and key in `show-messages`; screen detection applies only to a record that has had no report.
 - 2026-11-26 ruling: `agent explain <pane>` prints kind, state and source (`report`, `osc`, `screen`, `bell`), and for `screen` the file and the matching rule.
 - 2026-11-26 ruling: resume after a restore needs no change; its tests pass today.
+- 2026-11-27 ruling: `agent prompt` marks the agent `working` once the text is typed, through the normal agent state path (`agent-changed` fires, the sidebar updates), before any wait starts; a wait then settles on the next real change to one of the `--until` states, and `idle` after `working` counts as a change. Screen detection does not read output from before the prompt, and the first read after it cannot end the work with `idle`.
 - Herdr-style additions (2026-11-26): `agent prompt --wait` and `agent read`, per-kind detection files with `agent explain`, worktrees grouped under their repo, the unseen `done` state rolled up, and agents resumed after a restore. Herdr's mobile app and plugin marketplace are not copied.
 
 ## Agent profiles

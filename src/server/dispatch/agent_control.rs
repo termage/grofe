@@ -8,7 +8,7 @@ use crate::cmd::{AgentPrompt, Resolve, Target};
 use crate::lua::api::{Payload, PromptJob};
 use crate::protocol::{ClientCtx, Failure};
 use crate::server::agents::waiters::{Reply, Timer, Waiter};
-use crate::server::agents::{AgentState, Change, Source};
+use crate::server::agents::{AgentState, Change, ReportState, Source};
 use crate::server::pane::CaptureExtra;
 use crate::server::{State, clients, lua_async, lua_host};
 use crate::types::{CaptureBound, CaptureOpts, PaneId};
@@ -32,18 +32,6 @@ enum Outcome {
     Left,
 }
 
-fn state_named(name: &str) -> Option<AgentState> {
-    [
-        AgentState::Idle,
-        AgentState::Working,
-        AgentState::Blocked,
-        AgentState::Done,
-        AgentState::Error,
-    ]
-    .into_iter()
-    .find(|s| s.as_str() == name)
-}
-
 /// The states of `--until`, or the default ones when none are named.
 fn parse_until(names: &[String]) -> Result<Vec<AgentState>, String> {
     if names.is_empty() {
@@ -51,7 +39,13 @@ fn parse_until(names: &[String]) -> Result<Vec<AgentState>, String> {
     }
     names
         .iter()
-        .map(|n| state_named(n).ok_or_else(|| format!("unknown agent state in --until: {n}")))
+        .map(|n| {
+            match ReportState::parse(n) {
+                Some(ReportState::Set(s)) => Some(s),
+                _ => None,
+            }
+            .ok_or_else(|| format!("unknown agent state in --until: {n}"))
+        })
         .collect()
 }
 
@@ -191,12 +185,29 @@ fn wait(state: &mut State, pane: PaneId, until: Vec<AgentState>, timeout: Durati
     }
 }
 
+/// The text was typed into `pane`: its agent is `working` (announced as any
+/// state change), before a wait starts. Output from before the text is not
+/// read, and the first read after it cannot end the work with `idle`.
+fn mark_prompted(state: &mut State, pane: PaneId) {
+    let now = Instant::now();
+    let before = state.agents.get(pane).map(|a| (a.state, a.since));
+    let Some(change) = state.agents.mark_working(pane, now) else {
+        return;
+    };
+    state.agents.scan.pending.remove(&pane);
+    if state.agents.get(pane).is_some_and(|a| !a.reported) {
+        state.agents.scan.armed.insert(pane);
+    }
+    agent::announce(state, pane, &change, before, now);
+}
+
 /// `agent prompt`: types the text, and with `--wait` answers when the agent
 /// reaches a state of `--until`.
 pub(crate) fn prompt(state: &mut State, ctx: &ClientCtx, c: AgentPrompt) -> Result<String, String> {
     let until = parse_until(&c.until)?;
     let pane = agent_pane(state, ctx, &c.target)?;
     type_text(state, pane, &c.text)?;
+    mark_prompted(state, pane);
     if c.wait {
         let timeout = c.timeout_secs.map_or(DEFAULT_TIMEOUT, Duration::from_secs);
         let tx = super::defer_reply(state);
@@ -218,6 +229,7 @@ pub(crate) fn prompt_lua(
     let target = crate::cmd::target::parse_target(&req.pane).map_err(|e| e.to_string())?;
     let pane = agent_pane(state, ctx, &target)?;
     type_text(state, pane, &req.text)?;
+    mark_prompted(state, pane);
     let timeout = req
         .timeout_ms
         .map_or(DEFAULT_TIMEOUT, Duration::from_millis);
@@ -354,8 +366,10 @@ pub(crate) fn deadline(state: &State) -> Option<Instant> {
 
 /// Screen detection (A2): reads the screens of the panes with settled
 /// output, and takes the state their last lines show. A record that has had
-/// a report is not judged; a screen that matches nothing changes nothing, except that a
-/// `working` or `blocked` state the screen gave falls back to `idle`.
+/// a report is not judged. A screen that matches nothing changes nothing,
+/// except that a `working` or `blocked` state the screen gave falls back to
+/// `idle`. After
+/// `agent prompt` the first read cannot say `idle`.
 pub(crate) fn scan_pending(state: &mut State, now: Instant) {
     if state.agents.scan.at.is_none_or(|at| at > now) {
         return;
@@ -363,6 +377,7 @@ pub(crate) fn scan_pending(state: &mut State, now: Instant) {
     state.agents.scan.at = None;
     state.agents.scan.first = None;
     for pane in std::mem::take(&mut state.agents.scan.pending) {
+        let armed = state.agents.scan.armed.remove(&pane);
         let Some(a) = state.agents.get(pane).filter(|a| !a.reported) else {
             continue;
         };
@@ -385,6 +400,9 @@ pub(crate) fn scan_pending(state: &mut State, now: Instant) {
             }
             None => continue,
         };
+        if armed && new == AgentState::Idle {
+            continue;
+        }
         let source = Source::Screen {
             file: file.source.clone(),
             rule,

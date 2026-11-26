@@ -415,7 +415,7 @@ fn a_report_that_only_brings_a_message_does_not_end_a_wait() {
         .cmd(&[
             "agent",
             "report",
-            "blocked",
+            "working",
             "-t",
             &pane,
             "--msg",
@@ -425,4 +425,64 @@ fn a_report_that_only_brings_a_message_does_not_end_a_wait() {
     let out = child.wait_with_output().expect("agent prompt ends");
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(String::from_utf8_lossy(&out.stderr).contains("timed out"));
+}
+
+#[test]
+fn prompt_marks_working_and_a_report_ends_the_wait() {
+    let f = start(Some(DETECT));
+    let pane = f.agent();
+    f.srv
+        .cmd(&["agent", "report", "done", "-t", &pane, "--kind", "fake"])
+        .expect("agent report");
+    f.wait_state(&pane, "done");
+    let child = f
+        .srv
+        .command()
+        .args([
+            "agent",
+            "prompt",
+            &pane,
+            "--wait",
+            "--timeout",
+            "10",
+            "--",
+            "hello",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn agent prompt");
+    f.wait_state(&pane, "working");
+    crate::common::quiet_period(Duration::from_millis(400));
+    assert_eq!(f.state(&pane), "working");
+    f.srv
+        .cmd(&["agent", "report", "done", "-t", &pane, "--kind", "fake"])
+        .expect("agent report");
+    let out = child.wait_with_output().expect("agent prompt ends");
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "done");
+}
+
+#[test]
+fn prompt_wait_on_an_idle_only_screen_kind_ends_when_the_prompt_returns() {
+    let f = start(Some("blocked = \"APPROVE\\\\?\"\nidle = \"READY>\"\n"));
+    let pane = f.agent();
+    let t = Instant::now();
+    let out = f.srv.run(&[
+        "agent",
+        "prompt",
+        &pane,
+        "--wait",
+        "--timeout",
+        "8",
+        "--",
+        "work",
+    ]);
+    assert_eq!(code(&out), Some(0), "{out:?}");
+    assert_eq!(out.stdout.trim(), "idle");
+    assert!(
+        t.elapsed() >= Duration::from_millis(700),
+        "{:?}",
+        t.elapsed()
+    );
 }

@@ -1,5 +1,6 @@
 # Built-in screen detection for Claude Code. Only obvious prompts count; a
-# screen that matches nothing leaves the state as it was.
+# screen that matches nothing leaves the state as it was, except that a
+# working or blocked state the screen gave falls back to idle.
 lines = 20
 working = ["esc to interrupt"]
 blocked = ["Do you want to (proceed|make this edit|create|run)", "Do you want to allow"]

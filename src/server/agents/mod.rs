@@ -240,6 +240,30 @@ impl Agents {
         true
     }
 
+    /// The text of `agent prompt` was typed: the agent is `working` from now.
+    /// `None` when it already was. Not a report, so screen detection still
+    /// judges the record.
+    pub(crate) fn mark_working(&mut self, pane: PaneId, now: Instant) -> Option<Change> {
+        let a = self.map.get_mut(&pane)?;
+        if a.state == AgentState::Working {
+            return None;
+        }
+        let old = a.state;
+        a.state = AgentState::Working;
+        a.since = now;
+        a.unseen = false;
+        a.blocked = None;
+        a.msg = None;
+        a.source = Some(Source::Report);
+        Some(Change {
+            old: Some(old),
+            new: Some(AgentState::Working),
+            kind: a.kind.clone(),
+            session_changed: false,
+            msg: None,
+        })
+    }
+
     /// Clear `unseen`. True when it was set.
     pub(crate) fn mark_seen(&mut self, pane: PaneId) -> bool {
         self.map

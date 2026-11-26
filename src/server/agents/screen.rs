@@ -14,6 +14,9 @@ pub(crate) struct Scan {
     pub pending: BTreeSet<PaneId>,
     pub at: Option<Instant>,
     pub first: Option<Instant>,
+    /// Panes prompted since their last read: that read shows the typed text
+    /// at best, so an `idle` in it does not count.
+    pub armed: BTreeSet<PaneId>,
 }
 
 impl Agents {
