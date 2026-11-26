@@ -50,7 +50,8 @@ Each of these is a Lua error, logged like any other:
 There is one `require`, and it looks where the running code lives. Your `init.luau`, and
 anything it calls later, loads from the config folder; a pack, at load time and in its
 callbacks, loads from the pack's own folder, so two packs can each have an `ui.luau`. A pack
-does not see your config folder. Without a config folder, `require` in your own code is an
+does not see your config folder. (Before this change a pack's `require` also read the config
+folder; a pack that relied on that must move those modules into its own folder.) Without a config folder, `require` in your own code is an
 error.
 
 ## The no-freeze contract
@@ -102,7 +103,8 @@ event as a table.
 
 `grofe.notify(text, { pane = ..., level = ... })` adds an entry to the notification tray (see
 `notify list`). `text` must be a string. `pane` is a pane id such as `"%3"`; without it the
-entry belongs to the active pane, and an unknown pane is an error. `level` is `"info"`
+entry belongs to the active pane. A tray entry always belongs to a pane (the tray jumps to it),
+so with no pane given and no session, or with an unknown pane, the call raises an error. `level` is `"info"`
 (default), `"warn"` or `"error"` and is shown as the entry's state. It never raises a toast or
 a desktop message by itself.
 
@@ -238,7 +240,11 @@ What a pack can use besides the API above:
   directory (`<state dir>/packs/<name>/store.json`). `store.get(key)` returns the value or
   `nil`, `store.set(key, value)` saves a string, number, boolean or table (a function or
   userdata raises an error; `nil` deletes), and `store.delete(key)` removes it. Every call reads
-  or writes the file, so keep values small. Outside a pack it raises an error.
+  or writes the file (writes are locked, so two servers can share it), so keep values small. Outside a pack it raises an error.
+
+Inside a pack's files, `require`, `grofe.store`, `grofe.options()`, `grofe.pack_dir()` and the
+callbacks you register belong to that pack wherever they are called from, so a function the pack
+returns can be called from your `init.luau`.
 
 Errors name their pack. A callback that fails is logged as `pack <name> callback <id>: <error>`.
 A pack that fails while loading, whether the error is in its `init.luau`, a `require` or a
