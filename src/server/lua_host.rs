@@ -198,6 +198,31 @@ fn with_host<R>(
     result
 }
 
+/// [`with_host`] for work no client request owns (timers, events, system
+/// callbacks, init, packs). A command it ran that answers later left a reply
+/// nobody waits for: the next request would take it as its own. Keep it
+/// alive on a task instead, so what the command held back still runs.
+fn with_client_less_host<R>(
+    state: &mut State,
+    f: impl FnOnce(&Runtime, &mut dyn Host) -> Result<R, LuaError>,
+) -> Result<R, LuaError> {
+    let had_held = state.held.is_some();
+    let result = with_host(state, client_less_ctx(), f);
+    // Run inside a request (`reload` loading init), the outer request would
+    // take what a command here held back, and answer with it.
+    if !had_held && let Some(held) = state.held.take() {
+        dispatch::client::hold_rest(state, &client_less_ctx(), held, String::new(), None, None);
+    }
+    if let Some(reply) = state.deferred_reply.take()
+        && let Ok(rt) = tokio::runtime::Handle::try_current()
+    {
+        rt.spawn(async move {
+            let _ = reply.await;
+        });
+    }
+    result
+}
+
 fn log_error(state: &mut State, e: &LuaError) {
     log(state, format!("lua: {e}"));
 }
@@ -233,7 +258,7 @@ pub fn reset_at(state: &mut State, config_dir: &Path) {
 }
 
 fn set_folder(state: &mut State, config_dir: &Path) {
-    let r = with_host(state, client_less_ctx(), |rt, _| {
+    let r = with_client_less_host(state, |rt, _| {
         require::set_dir(rt.lua(), config_dir).map_err(|e| LuaError {
             who: "require".into(),
             message: e.to_string(),
@@ -263,7 +288,7 @@ pub(crate) fn load_pack(state: &mut State, name: &str, dir: &Path) -> Result<(),
     }
     let file = init_file(dir).ok_or_else(|| format!("{name}: no init.luau"))?;
     let src = std::fs::read_to_string(&file).map_err(|e| format!("{name}: {e}"))?;
-    with_host(state, client_less_ctx(), |rt, host| {
+    with_client_less_host(state, |rt, host| {
         api::enter(rt, host, name, |lua| {
             let value = lua.load(&src).set_name(name).eval::<mlua::Value>()?;
             api::set_plugin(rt, name, value).map_err(mlua::Error::external)
@@ -300,7 +325,7 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
         Ok(s) => s,
         Err(e) => return log(state, format!("lua: {who}: {e}")),
     };
-    let r = with_host(state, client_less_ctx(), |rt, host| {
+    let r = with_client_less_host(state, |rt, host| {
         api::enter(rt, host, &who, |lua| {
             require::set_dir(lua, config_dir)?;
             lua.load(&src).set_name(&who).exec()
@@ -323,9 +348,7 @@ pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result
 }
 
 pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
-    let r = with_host(state, client_less_ctx(), |rt, host| {
-        api::call(rt, host, id, payload)
-    });
+    let r = with_client_less_host(state, |rt, host| api::call(rt, host, id, payload));
     if let Err(e) = r {
         log_error(state, &e);
     }

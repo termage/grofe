@@ -511,8 +511,6 @@ fn run_job(state: &mut State, job: Job) {
     job(state);
     // A job is no CLI request: nothing waits for its hooks.
     drop(hooks::take_reply_hold(state));
-    // Nor does anything wait for a reply a deferring command registered.
-    state.deferred_reply = None;
     state.events.flush(&state.model);
 }
 

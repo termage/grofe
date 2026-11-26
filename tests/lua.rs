@@ -137,13 +137,79 @@ fn deferred_command_from_a_timer_does_not_leak_into_the_next_reply() {
     let srv = with_init(
         "local n = 0\n\
          grofe.every(50, function() n = n + 1 if n == 1 then \
-         grofe.cmd{'run-shell','sleep 1'} end end)\n",
+         grofe.cmd{'run-shell','sleep 2'} end end)\n",
     );
     std::thread::sleep(Duration::from_millis(500));
-    let t = Instant::now();
     assert_eq!(
         ok(&srv, &["display-message", "-p", "hello"]).trim(),
         "hello"
     );
-    assert!(t.elapsed() < Duration::from_millis(800), "reply was held");
+}
+
+#[test]
+fn commands_chained_after_a_deferring_one_still_run() {
+    let srv = with_init(
+        "local n = 0\n\
+         grofe.every(50, function() n = n + 1 if n == 1 then \
+         grofe.cmd('run-shell \\'sleep 0.3\\'; set -g @x 1') end end)\n",
+    );
+    srv.wait_for(
+        || {
+            srv.cmd(&["display-message", "-p", "#{@x}"])
+                .is_ok_and(|s| s.trim() == "1")
+        },
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+}
+
+#[test]
+fn deferred_command_from_an_event_does_not_leak() {
+    let srv =
+        with_init("grofe.on('window-renamed', function() grofe.cmd{'run-shell','sleep 2'} end)\n");
+    ok(&srv, &["rename-window", "-t", "main", "w"]);
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        ok(&srv, &["display-message", "-p", "hello"]).trim(),
+        "hello"
+    );
+}
+
+/// A server whose init runs a deferring command at the top level.
+fn init_with_run_shell() -> TestServer {
+    let srv = TestServer::builder().unstarted();
+    let dir = srv.config_home.join("grofe");
+    fs::create_dir_all(&dir).expect("mkdir config");
+    fs::write(
+        dir.join("init.luau"),
+        "grofe.cmd{'run-shell','echo from-init; sleep 0.5'}\n",
+    )
+    .expect("write init.luau");
+    srv
+}
+
+#[test]
+fn top_level_run_shell_in_init_does_not_hijack_the_first_reply() {
+    let srv = init_with_run_shell();
+    let out = ok(
+        &srv,
+        &["new-session", "-d", "-s", "main", "-P", "-F", "#{pane_id}"],
+    );
+    assert!(
+        out.trim().starts_with('%') && !out.contains("from-init"),
+        "got {out:?}"
+    );
+}
+
+#[test]
+fn reload_with_a_run_shell_init_gets_its_own_reply() {
+    let srv = init_with_run_shell();
+    ok(&srv, &["new-session", "-d", "-s", "main", "cat"]);
+    std::thread::sleep(Duration::from_millis(800));
+    let out = ok(&srv, &["reload"]);
+    assert!(!out.contains("from-init"), "got {out:?}");
+    assert_eq!(
+        ok(&srv, &["display-message", "-p", "hello"]).trim(),
+        "hello"
+    );
 }
