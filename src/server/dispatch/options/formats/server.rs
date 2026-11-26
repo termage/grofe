@@ -64,16 +64,22 @@ impl<'a> ServerVars<'a> {
     }
 }
 
-/// `path` with a leading `home` directory written `~`; a sibling that only
-/// shares the prefix (`/Users/ab` under `/Users/a`) stays absolute.
+/// `path` with the server's `$HOME` written `~`, whether `$HOME` is spelled
+/// as is or resolved (the pane's path is the resolved cwd). An empty or `/`
+/// home leaves the path absolute.
 fn home_as_tilde(path: &str, home: &str) -> String {
-    let home = home.trim_end_matches('/');
-    match path.strip_prefix(home) {
-        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
-            format!("~{rest}")
+    use std::path::{Path, PathBuf};
+    let resolved = std::fs::canonicalize(home).ok();
+    for h in [Some(PathBuf::from(home)), resolved] {
+        let Some(h) = h.filter(|h| h.parent().is_some()) else {
+            continue;
+        };
+        let t = crate::config::provenance::tilde(Path::new(path), Some(&h));
+        if t != path {
+            return t;
         }
-        _ => path.to_string(),
     }
+    path.to_string()
 }
 
 impl FormatVars for ServerVars<'_> {
@@ -395,17 +401,21 @@ mod tilde_tests {
     use super::home_as_tilde;
 
     #[test]
-    fn home_becomes_a_tilde() {
-        assert_eq!(home_as_tilde("/Users/a/x", "/Users/a"), "~/x");
-        assert_eq!(home_as_tilde("/Users/a", "/Users/a"), "~");
-        assert_eq!(home_as_tilde("/Users/a/x", "/Users/a/"), "~/x");
+    fn empty_or_root_home_stays_absolute() {
+        assert_eq!(home_as_tilde("/etc", ""), "/etc");
+        assert_eq!(home_as_tilde("/etc", "/"), "/etc");
     }
 
     #[test]
-    fn only_a_whole_component_matches() {
-        assert_eq!(home_as_tilde("/Users/ab", "/Users/a"), "/Users/ab");
-        assert_eq!(home_as_tilde("/etc", "/Users/a"), "/etc");
-        assert_eq!(home_as_tilde("/etc", ""), "/etc");
-        assert_eq!(home_as_tilde("/etc", "/"), "/etc");
+    fn a_symlinked_home_matches_the_resolved_cwd() {
+        let dir = std::env::temp_dir().join(format!("grofe-tilde-{}", std::process::id()));
+        let real = dir.join("real");
+        let link = dir.join("link");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let cwd = std::fs::canonicalize(&real).unwrap().join("x");
+        let got = home_as_tilde(&cwd.display().to_string(), &link.display().to_string());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(got, "~/x");
     }
 }

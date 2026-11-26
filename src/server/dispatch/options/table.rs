@@ -159,12 +159,21 @@ pub(crate) const PANE_BORDER_FORMAT: &str = "#{?pane_active,#[reverse],}#{pane_i
 /// $HOME as `~` (`pane_current_path_home`).
 pub(crate) fn frame_title_format(ends: &str) -> String {
     let (l, r) = crate::server::render::tab_ends(ends);
-    format!(
-        "{l} #{{pane_index}} {r} \
-         #{{?#{{||:#{{==:#{{pane_title}},}},#{{||:#{{==:#{{pane_title}},#{{host}}}},\
-         #{{==:#{{pane_title}},#{{host_short}}}}}}}},\
-         #{{pane_current_path_home}},\"#{{pane_title}}\"}}"
-    )
+    format!("{l} #{{pane_index}} {r} {}", untitled_label())
+}
+
+/// `pane-border-format`'s default with its quoted title swapped for
+/// [`untitled_label`], for a grofe-identity frame without the control tab.
+pub(crate) fn grofe_border_format() -> String {
+    PANE_BORDER_FORMAT.replace("\"#{pane_title}\"", &untitled_label())
+}
+
+/// The pane's quoted title, or its working directory when no program set one.
+fn untitled_label() -> String {
+    "#{?#{||:#{==:#{pane_title},},#{||:#{==:#{pane_title},#{host}},\
+     #{==:#{pane_title},#{host_short}}}},\
+     #{pane_current_path_home},\"#{pane_title}\"}"
+        .to_string()
 }
 
 /// Whether `name` is a built-in tmux's CLI must not see ([`GROFE_ONLY`]).
