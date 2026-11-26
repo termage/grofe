@@ -11,7 +11,9 @@
 - Configuration is global (`<grofe config dir>/bifurc.toml`) and per project (`.grofe/bifurc.toml` at the repo root); project keys override global keys.
 - v1 covers delegate, status back, steering, triage and loops.
 - The plugin is `bifurc`, in its own repo, installed as a `[[pack]]`; config file `bifurc.toml`.
-- grofe core gets the API the plugin needs first (Part A), in three PRs; the plugin (Part B) starts after A1.
+- grofe core gets the API the plugin needs first (Part A), in four PRs (A2 splits into A2a processes and events, A2b agent control and detection); the plugin (Part B) starts after A3 (2026-11-26).
+- The plugin repo is `termage/bifurc`, private for now (2026-11-26).
+- Herdr-style additions (2026-11-26): `agent prompt --wait` and `agent read`, per-kind detection files with `agent explain`, worktrees grouped under their repo, the unseen `done` state rolled up, and agents resumed after a restore. Herdr's mobile app and plugin marketplace are not copied.
 
 ## Agent profiles
 
@@ -20,7 +22,7 @@
   - `command`, `args`: the interactive agent, e.g. `claude`, `codex`, `aider`.
   - `prompt`: `"arg"` (positional), `"flag:<name>"` (e.g. `flag:--message`), `"stdin"`, or `"keys"` (typed into the pane after start).
   - `env`: added environment; this is how models are chosen: `ANTHROPIC_BASE_URL` plus `ANTHROPIC_AUTH_TOKEN` for Claude Code through LiteLLM or Ollama; `OPENAI_BASE_URL` / `AIDER_OPENAI_API_BASE` for OpenAI-compatible endpoints such as OpenRouter; `GOOSE_PROVIDER` for goose. Secrets come from env var names (`env_from = {ANTHROPIC_AUTH_TOKEN = "LITELLM_KEY"}`), never literals in the file.
-  - `state`: `"hooks"` (grofe's existing agent setup for claude, codex, gemini), `"notify"` (the agent's notify command calls `grofe agent report`, e.g. aider `--notifications-command`, codex `notify`), or `"screen"` (pane heuristics: idle prompt pattern, spinner pattern, from the profile).
+  - `state`: `"hooks"` (grofe's existing agent setup for claude, codex, gemini), `"notify"` (the agent's notify command calls `grofe agent report`, e.g. aider `--notifications-command`, codex `notify`), or `"screen"` (the kind's detection file, see A2; a profile may name its own `detect` file).
   - `headless`: the one-shot form for triage, e.g. `claude -p --output-format stream-json`, `codex exec --json`, `opencode run --format json`, `goose run --output-format json`, with `output = "text" | "json"`.
   - `acp`: optional ACP command (e.g. `opencode acp`, `claude-agent-acp`) used for headless jobs instead of `headless`; out of scope for v1 beyond the field (see Out of scope).
 - The plugin ships example profiles for claude, codex, opencode, aider, goose, and "claude via LiteLLM", "aider via OpenRouter", "Ollama local".
@@ -39,27 +41,35 @@ Audit of src/lua, src/server/lua_host.rs, src/server/pack_load.rs, src/server/ag
   - `grofe.store`: a durable per-pack key-value store (survives reload and restart) for sessions and comment ids.
   - Per-pack error attribution: errors carry the pack name; pack load errors go to `show-messages`; a pack that fails to load is unloaded, not half-registered.
   - Manifest: `min_api` instead of an exact `api` match, and `[options]` defaults readable from Lua.
-- A2 processes and agents (PR 2):
+- A2 processes and agents (PRs 2 and 3; A2a is the first five bullets, A2b the rest):
   - `grofe.system` takes `env`, `stdin`, an `on_line` streaming callback, a `timeout_ms` up to 1 hour, and kills the process group on timeout.
   - `agent new <kind> -c <dir> [-e K=V] -- <args...>` prints the new pane id (`-P` like `new-window`).
   - Headless agent records: a `system` job can register as an agent (`kind`, label, state) so triage runs show in the sidebar, grid and tray.
   - `agent-changed` carries `msg`; `grofe.agent.history(pane, n)` returns the last n messages.
   - `pane-created` and `pane-closed` events; `grofe.on(event, fn, {pane = id})` scopes a subscription.
-- A3 UI (PR 3):
+  - `agent prompt <pane> [--wait] [--until idle,blocked,done] [--timeout <s>] -- <text>` types the text and Enter into the pane; with `--wait` it returns when the agent reaches one of the `--until` states (default `idle,blocked,done`) and prints that state; exit 1 on timeout, exit 2 when the pane closes. Lua: `grofe.agent.prompt(pane, text, {until?, timeout_ms?}, fn(state))`.
+  - `agent read <pane> [-n <lines>]` prints the last n lines of the pane, from the alternate screen when the agent uses one, otherwise visible screen plus scrollback. Lua: `grofe.agent.read(pane, n)`.
+  - Detection files: `<config dir>/agents/<kind>.toml` with `working`, `blocked` and `idle` regexes matched on the last `lines` (default 20) of the screen, checked in that order; grofe ships files for claude, codex, gemini, opencode and aider; a user file replaces the built-in one for that kind; hooks and reports still win over screen detection.
+  - `agent explain <pane>` prints the kind, the state, its source (`hooks`, `report`, `osc`, `screen`, `bell`), and for `screen` the file and the rule that matched.
+  - Unseen `done`: `done` stays until a client shows the pane, then turns `idle` (exists today); sidebar session and window rows show the most urgent state of their panes (`blocked` > `done` > `working` > `idle`). Tests prove both; only the roll-up is new code if missing.
+  - Resume after restore: a restored agent pane runs its kind's resume command with the reported session id (exists today in src/server/restore.rs). An e2e test proves it for a fake kind; gaps found are fixed here.
+- A3 UI (PR 4):
   - `grofe.choose(items, fn, {title?, preview?})` opens the fuzzy chooser and calls `fn(item)` (nil on cancel).
   - `grofe.input(prompt, fn)` reads a line of text.
   - Callbacks get their context: client, pane and cwd of the key press.
   - Sidebar and grid label formats (`agent-sidebar-format`, `agent-grid-format`) so `#{@issue}` can show.
   - Tray reply: Enter on an agent entry can open `grofe.input` and send the text to the pane (opt-in per entry).
+  - Worktree grouping: sidebar and picker rows of sessions whose cwd is a git worktree sit under their main repo (by git common dir), with the branch as the row label.
 - Later, not needed for v1: per-pack Lua isolation (one VM per pack), a pack test harness and local dev link.
 
 ## Part B: the plugin
 
 - Adapter interface (`adapters/<name>.luau`), all async with callbacks: `list(query)`, `get(id)`, `comment(id, text)`, `edit_comment(id, cid, text)`, `comments_since(id, since)`, `set_status(id, status)` with status one of `todo`, `in_progress`, `needs_input`, `in_review`, `done`, and `link(id, url)`.
-- Delegate: chooser of issues from the configured query; pick one, and the plugin creates a worktree and branch `<prefix>/<id>-<slug>`, starts the chosen profile with the issue prompt (template in config), tags the pane `@issue=<id>`, records the session in `grofe.store`, and sets `in_progress`.
+- Delegate: chooser of issues from the configured query; pick one, and the plugin creates a worktree and branch `<prefix>/<id>-<slug>` with `git worktree add` (or `wt` when `delegate.worktree = "wt"`), starts the chosen profile with the issue prompt (template in config), tags the pane `@issue=<id>`, records the session in `grofe.store`, and sets `in_progress`.
 - Status back: on `agent-changed` for a tagged pane, one status comment per session is edited in place; `blocked` -> `needs_input`; `done` -> `in_review` with the PR link (`gh pr list --head <branch>`); `error` -> comment and tray entry.
 - Steering: issue comments starting with the trigger (default `/agent`) from a human are typed into the pane once; tray reply (A3) sends text from grofe.
 - Triage: issues matching `triage.query` run the triage profile's headless form; each of labels, assignee, duplicates is `suggest` (comment) or `apply`.
+- Status back waits with `grofe.agent.prompt`/`agent-changed` and reads the agent's last output with `grofe.agent.read` for the final comment.
 - Loops: `[[loop]]` with `every`, `query`, `action = "delegate" | "triage"`, optional `agent`; never a second session for an issue; `max_sessions` cap.
 
 ## Acceptance criteria
@@ -75,6 +85,11 @@ Audit of src/lua, src/server/lua_host.rs, src/server/pack_load.rs, src/server/ag
 - AC9 A loop delegates on schedule, skips issues with a live session, respects `max_sessions`.
 - AC10 A new tracker adapter is one file loaded by name from config.
 - AC11 `gh` and agent errors show in the tray with the plugin's name and never stop the pack; sessions survive `grofe reload`.
+- AC12 `agent prompt --wait` returns the state the agent reached, exits 1 on timeout and 2 when the pane closes; `agent read` returns the agent's last lines, alternate screen included.
+- AC13 A user detection file for a kind changes that kind's screen state, and `agent explain` names the file and rule.
+- AC14 A session with one `blocked` pane shows `blocked` on its sidebar row; a `done` pane turns `idle` once shown.
+- AC15 After a restore, an agent pane with a resume command and session id runs that command.
+- AC16 Two worktrees of one repo show grouped under that repo in the sidebar.
 
 ## Edge cases
 
@@ -85,11 +100,15 @@ Audit of src/lua, src/server/lua_host.rs, src/server/pack_load.rs, src/server/ag
 - Agent command not found: tray error naming the profile.
 - Headless output that is not valid JSON when `output = "json"`: triage comments nothing, tray error.
 - Board without the mapped column: status skipped, one tray warning.
+- `agent prompt` to a pane that is not an agent: error, exit 1; `--until` with an unknown state: error naming it.
+- Detection file with an invalid regex: the built-in file stays in use, error in `show-messages` naming file and key.
+- `agent read -n 0` prints nothing; a huge `-n` is capped at the pane's history.
 
 ## Test list
 
 - A0: e2e, `display-menu` from a Lua timer, then a client `display -p` gets its own reply.
 - A1-A3: Rust e2e per API, a positive case and its error case each, on private sockets.
+- AC12-AC16: Rust e2e with a fake agent script that prints a prompt, a spinner and an approval line on cue.
 - B: Luau unit tests with a fake adapter and fake profiles for AC2-AC4, AC6, AC7, AC9; e2e with a stub `gh` and a stub agent script on PATH recording calls for AC1, AC3, AC5, AC8, AC11.
 
 ## Naming
@@ -103,3 +122,5 @@ Audit of src/lua, src/server/lua_host.rs, src/server/pack_load.rs, src/server/ag
 - Webhooks or a hosted service; everything polls from the user's machine.
 - A cloud sandbox; agents run locally in worktrees.
 - Per-pack Lua isolation and a pack test harness (grofe follow-ups).
+- A mobile app and a plugin marketplace (herdr has both; not wanted).
+- Fetching detection files from the network; they ship with grofe or come from the user.
