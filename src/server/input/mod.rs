@@ -39,6 +39,7 @@ mod defaults;
 mod encoder;
 mod keys;
 mod state;
+mod stock;
 mod tables;
 
 pub(crate) use self::decoder::*;
@@ -46,7 +47,10 @@ pub use self::defaults::*;
 pub(crate) use self::encoder::*;
 pub use self::keys::*;
 pub use self::state::*;
+pub use self::stock::*;
 pub use self::tables::*;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_stock_keys;

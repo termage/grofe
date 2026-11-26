@@ -296,7 +296,7 @@ impl KeyTables {
         for (key, b) in add {
             self.insert(PREFIX_TABLE, key, b);
         }
-        // grofe's own default `root` rows ([`GROFE_PANE_MENU`]) give way to
+        // grofe's own default `root` rows ([`grofe_pane_menu`]) give way to
         // tmux's stock ones.
         if let Some(t) = self.tables.get_mut(ROOT_TABLE) {
             t.retain(|_, b| !(b.source == BindingSource::Default && b.dialect == Dialect::Grofe));
