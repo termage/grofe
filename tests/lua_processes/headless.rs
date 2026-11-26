@@ -235,3 +235,24 @@ fn reload_removes_the_record() {
     srv.cmd(&["reload"]).expect("reload");
     wait_gone(&mut a, "triage · reloaded");
 }
+
+#[test]
+fn a_label_is_sanitised_in_the_entry() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        "grofe.system({'sh','-c','exit 3'}, function() end, \
+         {agent = {kind = 'triage', label = 'a\\27[31mb#[x]'}})",
+    );
+    srv.wait_for(
+        || notes(&srv).contains(" - triage error "),
+        crate::support::WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
+    let out = notes(&srv);
+    assert!(!out.contains('\x1b'), "{out:?}");
+    assert!(
+        out.contains(" - triage error a[31mb##[x] exit 3"),
+        "{out:?}"
+    );
+}

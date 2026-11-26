@@ -504,3 +504,62 @@ async fn pane_created_and_closed_follow_the_model_in_order() {
         ]
     );
 }
+
+/// A pane spawned and then rolled back (the `split-window` and popup
+/// failure paths, which a command cannot reach) is closed exactly once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rolled_back_pane_is_closed_once() {
+    use crate::server::{dispatch, test_ctx, test_state};
+    let mut state = test_state();
+    let ctx = test_ctx();
+    let argv: Vec<String> = ["new-session", "-d", "-s", "a", "sleep 600"]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    dispatch::run(&mut state, &ctx, &argv).expect("new-session");
+    let (session, window) = {
+        let w = state.model.windows.values().next().expect("window");
+        (w.session, w.id)
+    };
+    let (tx, mut rx) = mpsc::channel(16);
+    state
+        .events
+        .subscribe(names(&["pane-closed"]), None, tx)
+        .expect("subscribe");
+    let size = (80, 24);
+    let cwd = std::env::temp_dir();
+    let new = dispatch::spawn_pane(&mut state, (session, window), vec![], None, cwd, size, None)
+        .expect("spawn");
+    state.model.take_panes(&[new], Some(session));
+    crate::server::hooks::run_pending(&mut state);
+    crate::server::hooks::run_pending(&mut state);
+    state.events.flush(&state.model);
+    assert_eq!(rx.try_recv().ok(), Some(Event::PaneClosed { pane: new }));
+    assert!(rx.try_recv().is_err());
+}
+
+/// A pane hidden into the scratchpad history is alive for a pane scope; once
+/// the history drops it, the scope is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hidden_scratchpad_is_in_scope() {
+    use crate::server::{dispatch, test_ctx, test_state};
+    let mut state = test_state();
+    let ctx = test_ctx();
+    for words in [
+        &["new-session", "-d", "-s", "a", "sleep 600"][..],
+        &["new-scratchpad", "sleep 600"],
+    ] {
+        let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        dispatch::run(&mut state, &ctx, &argv).expect("command");
+    }
+    let pad = *state.model.panes.keys().last().expect("pad");
+    let scope = Scope::Pane(pad);
+    assert!(scope.alive(&state.model));
+    state.model.stash_pane(pad).expect("hide");
+    assert!(!state.model.panes.contains_key(&pad));
+    assert!(scope.alive(&state.model));
+    state
+        .model
+        .drop_stashed(pad, state.model.scratch[0].pane.handle.generation());
+    assert!(!scope.alive(&state.model));
+}

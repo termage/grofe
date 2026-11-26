@@ -27,6 +27,7 @@ export type HeadlessAgent = {
 }
 
 export type OnOptions = {
+	-- a pane target only; a session or window target is an error
 	pane: string?,
 }
 

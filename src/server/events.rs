@@ -16,7 +16,7 @@
 //! `handle_pane_event` (a process exit) and [`Events::panes_killed`] (a
 //! kill), `pane-created` in `dispatch::spawn_pane_delayed` (the one place a
 //! pane enters the model), `pane-closed` in [`Events::panes_closed`] (the
-//! panes `Model::take_panes` and the scratchpad history dropped),
+//! panes `Model::note_closed` was told of: every removal calls it),
 //! `pane-output` in `handle_pane_event`, `option-changed` in the
 //! option and status-source code, `pane-died`, `session-created`,
 //! `session-closed`, `client-session-changed`, `client-resized` and the
@@ -125,7 +125,10 @@ impl Scope {
 
     fn alive(self, model: &Model) -> bool {
         match self {
-            Scope::Pane(p) => model.panes.contains_key(&p),
+            // A hidden scratchpad is out of the pane map but alive.
+            Scope::Pane(p) => {
+                model.panes.contains_key(&p) || model.scratch.iter().any(|s| s.pane.id == p)
+            }
             Scope::Window(w) => model.windows.contains_key(&w),
             Scope::Session(s) | Scope::Client { session: s, .. } => model.sessions.contains_key(&s),
         }

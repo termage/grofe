@@ -392,8 +392,7 @@ impl Model {
                 if pane.dead.is_none() {
                     removed.extend(self.push_stash(pane, f));
                 } else {
-                    let place = self.place_of(&pane);
-                    self.closed_panes.push((pane.id, place));
+                    self.note_closed(&pane, None);
                 }
             }
         }

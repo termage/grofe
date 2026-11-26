@@ -111,32 +111,52 @@ fn a_pane_created_and_killed_in_one_chunk_fires_both() {
 }
 
 #[test]
-fn session_scoped_subscription_hears_a_closed_pane_of_its_session() {
+fn a_session_or_window_target_is_not_a_pane_scope() {
     let srv = server();
-    srv.cmd(&["new-session", "-d", "-s", "other", "cat"])
-        .expect("other");
-    let inside = srv
-        .cmd(&[
-            "new-window",
-            "-d",
-            "-t",
-            "other",
-            "-P",
-            "-F",
-            "#{pane_id}",
-            "cat",
-        ])
-        .expect("window")
+    for target in ["main", "main:", "@0"] {
+        let err = crate::support::lua(
+            &srv,
+            &format!("grofe.on('pane-closed', function() end, {{pane = '{target}'}})"),
+        )
+        .expect_err(target);
+        assert!(err.contains("not a pane target"), "{target}: {err}");
+    }
+}
+
+#[test]
+fn an_unknown_option_key_is_an_error_naming_it() {
+    let srv = server();
+    let err = crate::support::lua(
+        &srv,
+        "grofe.on('pane-closed', function() end, {pnae = '%0'})",
+    )
+    .expect_err("unknown key");
+    assert!(err.contains("unknown option pnae"), "{err}");
+}
+
+#[test]
+fn a_hidden_scratchpad_is_alive_for_a_pane_scope() {
+    let srv = server();
+    srv.cmd(&["new-scratchpad", "-t", "main", "sleep 60"])
+        .expect("scratchpad");
+    let pad = srv
+        .cmd(&["display-message", "-p", "-t", "main", "#{pane_id}"])
+        .expect("pad id")
         .trim()
         .to_string();
-    let outside = new_pane(&srv);
     lua_ok(
         &srv,
-        &format!("grofe.on('pane-closed', function(p) {APPEND} end, {{pane = 'other'}})"),
+        &format!("grofe.on('pane-closed', function(p) {APPEND} end, {{pane = '{pad}'}})"),
     );
-    srv.cmd(&["kill-pane", "-t", &outside])
-        .expect("kill outside");
+    srv.cmd(&["toggle-scratchpad", "-t", &pad]).expect("hide");
     stays_empty(&srv, "@r");
-    srv.cmd(&["kill-pane", "-t", &inside]).expect("kill inside");
-    assert_eq!(wait_opt(&srv, "@r"), format!("{inside},"));
+    srv.cmd(&["show-scratchpad", "-t", "main:", &pad])
+        .expect("show");
+    stays_empty(&srv, "@r");
+    srv.cmd(&["kill-pane", "-t", &pad]).expect("kill");
+    assert_eq!(wait_opt(&srv, "@r"), format!("{pad},"));
+    let other = new_pane(&srv);
+    srv.cmd(&["kill-pane", "-t", &other]).expect("kill other");
+    crate::common::quiet_period(std::time::Duration::from_millis(400));
+    assert_eq!(opt(&srv, "@r"), format!("{pad},"));
 }

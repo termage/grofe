@@ -17,12 +17,14 @@ pub(crate) struct Job {
     pub started: Instant,
 }
 
+/// The label is the script's own text: sanitised here, once, as every row
+/// and the job's notification read it from the record.
 pub(crate) fn start(state: &mut State, generation: u64, id: u32, kind: &str, label: &str) {
     state.agents.jobs.push(Job {
         generation,
         id,
         kind: kind.to_string(),
-        label: label.to_string(),
+        label: super::text::sanitize(label),
         started: Instant::now(),
     });
     clients::mark_all_dirty(state);

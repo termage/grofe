@@ -118,7 +118,20 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, (event, f, opts): (String, Function, Option<Table>)| {
             let host = host_fn(lua, "on")?;
             let pane = match opts {
-                Some(o) => o.get::<Option<String>>("pane")?,
+                Some(o) => {
+                    for pair in o.pairs::<Value, Value>() {
+                        match pair?.0 {
+                            Value::String(s) if &*s.to_str()? == "pane" => {}
+                            other => {
+                                return Err(err(format!(
+                                    "grofe.on: unknown option {}; options are pane",
+                                    other.to_string()?
+                                )));
+                            }
+                        }
+                    }
+                    o.get::<Option<String>>("pane")?
+                }
                 None => None,
             };
             add_callback(lua, f, |id| host.call((event, id, pane)))

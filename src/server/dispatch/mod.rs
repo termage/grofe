@@ -361,6 +361,7 @@ fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, Str
                 ctx.dialect,
             );
             let live = state.model.live_panes();
+            state.model.note_all_closed();
             state.events.panes_killed(&mut state.model, live);
             state.exit = true;
             Ok(String::new())

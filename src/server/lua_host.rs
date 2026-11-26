@@ -164,6 +164,9 @@ impl Host for StateHost<'_> {
         let scope = match pane {
             Some(p) => {
                 let target = cmd::target::parse_target(p).map_err(|e| e.to_string())?;
+                if !matches!(target, cmd::Target::Pane(_) | cmd::Target::Current) {
+                    return Err(format!("grofe.on: pane = {p:?} is not a pane target"));
+                }
                 Some(Scope::resolve(&self.state.model, &self.ctx, &target)?)
             }
             None => None,

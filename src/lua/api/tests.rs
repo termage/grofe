@@ -297,3 +297,17 @@ fn test_on_takes_a_pane_scope_and_history_passes_through() {
     assert_eq!(out, "%4:2");
     assert_eq!(h.subs[0].1.as_deref(), Some("%4"));
 }
+
+#[test]
+fn test_on_rejects_an_unknown_option_key() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let e = eval::<()>(
+        &rt,
+        &mut h,
+        "grofe.on('pane-closed', function() end, {pane = '%1', scope = 'x'})",
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("unknown option scope"), "{e}");
+    assert!(h.subs.is_empty());
+}

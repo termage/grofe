@@ -103,8 +103,9 @@ pane enters or leaves the server, in order with the other events of the command:
 `pane-created` comes before that command's `window-created` and any `agent-changed` for the pane,
 and a kill's `pane-closed` after its `pane-exited`. `agent-changed`
 carries the report's text as `msg`, which is absent when the report had none. Pass `{ pane = "%3" }` to `grofe.on` to hear
-only events of that pane; an unknown pane raises an error, and the subscription ends when the
-pane closes.
+only events of that pane. The option takes a pane target only: an unknown pane, a session or a
+window raises an error, as does any other option key. The subscription ends when the pane closes
+(a scratchpad that is merely hidden is still alive).
 
 ### Running processes
 

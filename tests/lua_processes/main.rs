@@ -12,6 +12,7 @@ mod headless;
 mod helpers;
 mod history;
 mod new;
+mod pane_closed;
 #[allow(dead_code)]
 #[path = "../lua_runtime_api/support.rs"]
 mod support;
