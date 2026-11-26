@@ -77,6 +77,28 @@ async fn a_report_that_changes_nothing_keeps_the_source() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_first_report_of_the_same_state_takes_the_source_from_the_screen() {
+    let (mut state, pane) = state_with_pane();
+    state.agents.ensure(pane, "claude", None, Instant::now());
+    let screen = Source::Screen {
+        file: "f".into(),
+        rule: "r".into(),
+    };
+    let seen = is_seen(&state, pane);
+    state
+        .agents
+        .screen(pane, AgentState::Working, screen, seen, Instant::now());
+    apply(
+        &mut state,
+        pane,
+        report(ReportState::Set(AgentState::Working), 1),
+    );
+    let a = state.agents.get(pane).expect("record");
+    assert!(a.reported);
+    assert_eq!(a.source, Some(Source::Report));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn report_sets_resume_from_session_id() {
     let (mut state, pane) = state_with_pane();
     let mut r = report(ReportState::Set(AgentState::Done), 1);

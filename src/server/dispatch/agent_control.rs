@@ -8,7 +8,7 @@ use crate::cmd::{AgentPrompt, Resolve, Target};
 use crate::lua::api::{Payload, PromptJob};
 use crate::protocol::{ClientCtx, Failure};
 use crate::server::agents::waiters::{Reply, Timer, Waiter};
-use crate::server::agents::{AgentState, Source};
+use crate::server::agents::{AgentState, Change, Source};
 use crate::server::pane::CaptureExtra;
 use crate::server::{State, clients, lua_async, lua_host};
 use crate::types::{CaptureBound, CaptureOpts, PaneId};
@@ -133,15 +133,22 @@ fn settle(state: &mut State, w: Waiter, outcome: Outcome) {
     }
 }
 
-/// An agent record of `pane` changed to `new` (`None`: it went).
-pub(crate) fn state_changed(state: &mut State, pane: PaneId, new: Option<AgentState>) {
+/// An agent record of `pane` changed (see [`Change`]): a wait ends when the
+/// state itself changed to one it wants (a report that only brings a message
+/// or a session id does not), or when the record went (`Closed` when the pane
+/// is gone too, else `Left`).
+pub(crate) fn state_changed(state: &mut State, pane: PaneId, change: &Change) {
+    let new = change.new;
+    let moved = change.old != new;
     let done = state.agents.take_waiters(|w| {
-        (w.pane == pane && new.is_none_or(|s| w.until.contains(&s)))
+        (w.pane == pane && new.is_none_or(|s| moved && w.until.contains(&s)))
             || matches!(&w.reply, Reply::Cli(tx) if tx.is_closed())
     });
+    let gone = !state.model.panes.contains_key(&pane);
     for w in done {
         let outcome = match new {
             Some(s) => Outcome::Reached(s),
+            None if gone => Outcome::Closed,
             None => Outcome::Left,
         };
         settle(state, w, outcome);
@@ -334,27 +341,28 @@ pub(crate) fn note_output(state: &mut State, panes: &BTreeSet<PaneId>) {
     if judged.is_empty() {
         return;
     }
-    agents.screen_pending.extend(judged);
+    agents.scan.pending.extend(judged);
     let now = Instant::now();
-    let first = *agents.screen_first.get_or_insert(now);
-    agents.screen_at = Some((now + SETTLE).min(first + SETTLE_MAX));
+    let first = *agents.scan.first.get_or_insert(now);
+    agents.scan.at = Some((now + SETTLE).min(first + SETTLE_MAX));
 }
 
 /// When the pending screens are read.
 pub(crate) fn deadline(state: &State) -> Option<Instant> {
-    state.agents.screen_at
+    state.agents.scan.at
 }
 
 /// Screen detection (A2): reads the screens of the panes with settled
 /// output, and takes the state their last lines show. A record that has had
-/// a report is not judged; a screen that matches nothing changes nothing.
+/// a report is not judged; a screen that matches nothing changes nothing, except that a
+/// `working` or `blocked` state the screen gave falls back to `idle`.
 pub(crate) fn scan_pending(state: &mut State, now: Instant) {
-    if state.agents.screen_at.is_none_or(|at| at > now) {
+    if state.agents.scan.at.is_none_or(|at| at > now) {
         return;
     }
-    state.agents.screen_at = None;
-    state.agents.screen_first = None;
-    for pane in std::mem::take(&mut state.agents.screen_pending) {
+    state.agents.scan.at = None;
+    state.agents.scan.first = None;
+    for pane in std::mem::take(&mut state.agents.scan.pending) {
         let Some(a) = state.agents.get(pane).filter(|a| !a.reported) else {
             continue;
         };
@@ -370,8 +378,12 @@ pub(crate) fn scan_pending(state: &mut State, now: Instant) {
             escapes: false,
         };
         let screen = p.handle.capture_rows(&opts, false, false, false, extra());
-        let Some((new, rule)) = file.detect(&screen) else {
-            continue;
+        let (new, rule) = match file.detect(&screen) {
+            Some(hit) => hit,
+            None if state.agents.screen_lost(pane) => {
+                (AgentState::Idle, "no rule matched".to_string())
+            }
+            None => continue,
         };
         let source = Source::Screen {
             file: file.source.clone(),

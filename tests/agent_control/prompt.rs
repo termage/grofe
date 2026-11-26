@@ -3,7 +3,7 @@
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use crate::common::{CmdOutput, wait_child};
+use crate::common::CmdOutput;
 use crate::helpers::{DETECT, WAIT, lua, opt_r, start};
 
 /// Control characters in text that comes from outside: an escape sequence
@@ -105,13 +105,16 @@ fn wait_exits_2_when_the_pane_closes() {
             "ready",
         ])
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn agent prompt");
     crate::common::quiet_period(Duration::from_millis(800));
     f.srv.cmd(&["kill-pane", "-t", &pane]).expect("kill-pane");
-    let status = wait_child(child, WAIT).expect("agent prompt ends when the pane closes");
-    assert_eq!(status.code(), Some(2));
+    let out = child.wait_with_output().expect("agent prompt ends");
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains(&format!("pane {pane} closed")), "{err}");
+    assert!(!err.contains("left"), "{err}");
 }
 
 #[test]
@@ -378,4 +381,48 @@ fn a_reload_in_the_middle_of_a_wait_never_fires_the_old_callback() {
     f.cue(&pane, "ask");
     crate::common::quiet_period(Duration::from_millis(1800));
     assert_eq!(opt_r(&f.srv), "", "the old callback ran");
+}
+
+#[test]
+fn a_report_that_only_brings_a_message_does_not_end_a_wait() {
+    let f = start(Some(DETECT));
+    let pane = f.agent();
+    f.srv
+        .cmd(&["agent", "report", "blocked", "-t", &pane, "--kind", "fake"])
+        .expect("report blocked");
+    f.wait_state(&pane, "blocked");
+    let child = f
+        .srv
+        .command()
+        .args([
+            "agent",
+            "prompt",
+            &pane,
+            "--wait",
+            "--until",
+            "blocked",
+            "--timeout",
+            "2",
+            "--",
+            "ready",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn agent prompt");
+    crate::common::quiet_period(Duration::from_millis(500));
+    f.srv
+        .cmd(&[
+            "agent",
+            "report",
+            "blocked",
+            "-t",
+            &pane,
+            "--msg",
+            "still asking",
+        ])
+        .expect("report with a message");
+    let out = child.wait_with_output().expect("agent prompt ends");
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("timed out"));
 }

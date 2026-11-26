@@ -137,3 +137,24 @@ fn an_invalid_regex_is_reported_and_not_used() {
     quiet_period(Duration::from_millis(600));
     assert_eq!(f.state(&pane), "idle");
 }
+
+#[test]
+fn a_built_in_kind_goes_idle_when_its_working_screen_goes_plain() {
+    let f = start(None);
+    let pane = f.agent_of("claude");
+    f.cue(&pane, "busy");
+    f.wait_state(&pane, "working");
+    let out = f.srv.run(&[
+        "agent",
+        "prompt",
+        &pane,
+        "--wait",
+        "--timeout",
+        "8",
+        "--",
+        "ready",
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert_eq!(out.stdout.trim(), "idle");
+    f.wait_state(&pane, "idle");
+}

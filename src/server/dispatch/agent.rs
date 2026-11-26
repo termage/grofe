@@ -77,8 +77,14 @@ pub(crate) fn apply_from(state: &mut State, pane: PaneId, r: Report, source: Sou
     }
     let seen = is_seen(state, pane);
     let before = state.agents.get(pane).map(|a| (a.state, a.since));
+    // A report that is not late marks the record reported, so it names the
+    // source even when it changes nothing, if the record was not reported yet.
+    let first = state
+        .agents
+        .get(pane)
+        .is_none_or(|a| !a.reported && r.ts >= a.last_report);
     let change = state.agents.apply(pane, r, seen, now);
-    if change.is_some() || created {
+    if change.is_some() || first {
         state.agents.set_source(pane, source);
     }
     // A record this report made had no state before it.

@@ -19,6 +19,7 @@ echo "READY>"
 while IFS= read -r cue; do
   case "$cue" in
     work) clear; echo "WORKING: thinking"; sleep 1; clear; echo "READY>" ;;
+    busy) clear; echo "esc to interrupt" ;;
     spin) clear; echo "WORKING: thinking" ;;
     ask) clear; echo "APPROVE? [y/n]" ;;
     both) clear; echo "WORKING: thinking"; echo "APPROVE? [y/n]" ;;

@@ -6,6 +6,7 @@ mod history;
 pub(crate) mod kinds;
 pub(crate) mod osc;
 mod rank;
+pub(crate) mod screen;
 mod text;
 pub(crate) mod waiters;
 
@@ -132,11 +133,8 @@ pub struct Agents {
     /// `agent prompt --wait` calls still waiting.
     pub(crate) waiters: Vec<waiters::Waiter>,
     waiter_seq: u64,
-    /// Panes with output since their screens were last read, and when the
-    /// next read is due (see `agent_control::note_output`).
-    pub(crate) screen_pending: std::collections::BTreeSet<PaneId>,
-    pub(crate) screen_at: Option<Instant>,
-    pub(crate) screen_first: Option<Instant>,
+    /// Screen detection's pending reads (see `agent_control::note_output`).
+    pub(crate) scan: screen::Scan,
 }
 
 impl Agents {
@@ -261,7 +259,8 @@ impl Agents {
         if msg.is_some() {
             a.msg = msg;
         }
-        if changed {
+        // A bell is no state: it names the source only when nothing does.
+        if changed && a.source.is_none() {
             a.source = Some(Source::Bell);
         }
         changed
@@ -271,40 +270,6 @@ impl Agents {
         if let Some(a) = self.map.get_mut(&pane) {
             a.source = Some(source);
         }
-    }
-
-    /// The state the screen shows (never for a record that has had a report,
-    /// which is fresher). `None` when nothing changed but the rule.
-    pub(crate) fn screen(
-        &mut self,
-        pane: PaneId,
-        state: AgentState,
-        source: Source,
-        seen: bool,
-        now: Instant,
-    ) -> Option<Change> {
-        let a = self.map.get_mut(&pane).filter(|a| !a.reported)?;
-        a.source = Some(source);
-        if a.state == state {
-            return None;
-        }
-        let old = a.state;
-        a.state = state;
-        a.since = now;
-        a.blocked = None;
-        a.msg = None;
-        match state {
-            AgentState::Working | AgentState::Idle => a.unseen = false,
-            _ if !seen => a.unseen = true,
-            _ => {}
-        }
-        Some(Change {
-            old: Some(old),
-            new: Some(state),
-            kind: a.kind.clone(),
-            session_changed: false,
-            msg: None,
-        })
     }
 
     pub(crate) fn remove(&mut self, pane: PaneId) -> Option<Agent> {
@@ -479,12 +444,27 @@ mod tests {
         assert!(a.unseen);
         assert_eq!(a.msg.as_deref(), Some("hi"));
         assert!(!ag.attention(P, Some("hi".into())));
+        assert_eq!(ag.get(P).unwrap().source, Some(Source::Bell));
         assert!(ag.mark_seen(P));
         assert!(!ag.mark_seen(P));
 
         let (mut ag, _) = with(AgentState::Working, 1);
         assert!(!ag.attention(P, Some("hi".into())));
         assert!(!ag.get(P).unwrap().unseen);
+    }
+
+    #[test]
+    fn a_bell_does_not_overwrite_the_source() {
+        let now = Instant::now();
+        let mut ag = Agents::default();
+        ag.ensure(P, "claude", None, now);
+        let src = Source::Screen {
+            file: "f".into(),
+            rule: "r".into(),
+        };
+        ag.set_source(P, src.clone());
+        assert!(ag.attention(P, Some("hi".into())));
+        assert_eq!(ag.get(P).unwrap().source, Some(src));
     }
 
     #[test]

@@ -509,7 +509,7 @@ pub(crate) fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agent
         msg: change.msg.clone(),
     });
     crate::server::hooks::agent_changed(state, pane);
-    dispatch::agent_control::state_changed(state, pane, change.new);
+    dispatch::agent_control::state_changed(state, pane, change);
 }
 
 #[cfg(test)]
