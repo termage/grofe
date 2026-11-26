@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use crate::cmd;
 use crate::lua::api::{self, Host, Payload};
-use crate::lua::require;
 use crate::lua::runtime::{Limits, LuaError, Runtime};
+use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
 use crate::server::input::{Binding, BindingSource, parse_key};
 use crate::server::lua_async::Async;
@@ -32,7 +32,7 @@ thread_local! {
 
 #[derive(Default)]
 struct Deferred {
-    packs: Vec<(String, PathBuf)>,
+    packs: Vec<(String, PathBuf, serde_json::Value)>,
 }
 
 /// Whether a reload is being collected for after the current call.
@@ -43,8 +43,8 @@ fn deferring() -> bool {
 /// The reload sequence over what a nested reload collected.
 fn run_deferred(state: &mut State, d: Deferred, config_dir: PathBuf) {
     reset_at(state, &config_dir);
-    for (name, dir) in &d.packs {
-        if let Err(e) = load_pack(state, name, dir) {
+    for (name, dir, options) in &d.packs {
+        if let Err(e) = load_pack(state, name, dir, options) {
             log(state, format!("lua: {e}"));
         }
     }
@@ -69,6 +69,11 @@ struct StateHost<'a> {
     state: &'a mut State,
     async_: &'a mut Async,
     ctx: ClientCtx,
+}
+
+/// What a key bound by `grofe.bind` runs for callback `id`.
+fn lua_call(id: u32) -> Vec<Vec<String>> {
+    vec![vec!["lua-call".to_string(), id.to_string()]]
 }
 
 fn client_less_ctx() -> ClientCtx {
@@ -115,8 +120,7 @@ impl Host for StateHost<'_> {
         repeat: bool,
     ) -> Result<(), String> {
         let key = parse_key(key)?;
-        let cmds = vec![vec!["lua-call".to_string(), id.to_string()]];
-        let mut b = Binding::new(cmds, repeat, BindingSource::Plugin(PLUGIN.into()));
+        let mut b = Binding::new(lua_call(id), repeat, BindingSource::Plugin(PLUGIN.into()));
         b.shown = desc.clone();
         b.desc = desc;
         self.state.registry.key_tables.insert(table, key, b);
@@ -152,6 +156,24 @@ impl Host for StateHost<'_> {
 
     fn cancel(&mut self, id: u32) {
         self.async_.cancel(id);
+        unbind_where(self.state, |b| b.cmds == lua_call(id));
+    }
+
+    fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String> {
+        let target = match pane {
+            Some(p) => cmd::target::parse_target(p).map_err(|e| e.to_string())?,
+            None => cmd::target::Target::Current,
+        };
+        let pane = cmd::Resolve::resolve_pane(&self.state.model, &target, &self.ctx)?;
+        let uid = match self.state.model.panes.get(&pane) {
+            Some(p) => p.uid.clone(),
+            None => return Err(format!("no pane {pane}")),
+        };
+        self.state
+            .notify
+            .post(pane, &uid, level, text, std::time::Instant::now());
+        clients::mark_all_dirty(self.state);
+        Ok(())
     }
 
     fn log(&mut self, msg: &str) {
@@ -212,11 +234,16 @@ pub(crate) fn reset(state: &mut State) {
         lua.async_.cancel_all();
     }
     let ours = BindingSource::Plugin(PLUGIN.into());
+    unbind_where(state, |b| b.source == ours);
+}
+
+/// Removes every key binding `drop_it` accepts.
+fn unbind_where(state: &mut State, drop_it: impl Fn(&Binding) -> bool) {
     let tables = &mut state.registry.key_tables;
     let names: Vec<String> = tables.table_names().map(String::from).collect();
     for table in names {
         for key in tables.keys(&table) {
-            if tables.exact(&table, &key).is_some_and(|b| b.source == ours) {
+            if tables.exact(&table, &key).is_some_and(&drop_it) {
                 tables.unbind(&table, &key);
             }
         }
@@ -252,11 +279,18 @@ fn init_file(dir: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-pub(crate) fn load_pack(state: &mut State, name: &str, dir: &Path) -> Result<(), String> {
+/// Loads pack `name` from `dir` with its merged `options`.
+pub(crate) fn load_pack(
+    state: &mut State,
+    name: &str,
+    dir: &Path,
+    options: &serde_json::Value,
+) -> Result<(), String> {
     if deferring() {
         DEFERRED.with(|d| {
             if let Some(d) = d.borrow_mut().as_mut() {
-                d.packs.push((name.to_string(), dir.to_path_buf()));
+                d.packs
+                    .push((name.to_string(), dir.to_path_buf(), options.clone()));
             }
         });
         return Ok(());
@@ -265,7 +299,10 @@ pub(crate) fn load_pack(state: &mut State, name: &str, dir: &Path) -> Result<(),
     let src = std::fs::read_to_string(&file).map_err(|e| format!("{name}: {e}"))?;
     with_host(state, client_less_ctx(), |rt, host| {
         api::enter(rt, host, name, |lua| {
-            let value = lua.load(&src).set_name(name).eval::<mlua::Value>()?;
+            pack::register(lua, name, dir, options)?;
+            let value = api::in_pack(lua, name, || {
+                lua.load(&src).set_name(name).eval::<mlua::Value>()
+            })?;
             api::set_plugin(rt, name, value).map_err(mlua::Error::external)
         })
     })

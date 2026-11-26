@@ -1,5 +1,5 @@
 //! `[[pack]]` (the plugin manager's specs): `src` is required; `name`,
-//! `rev` and `enabled` are optional. Specs from every layer are collected
+//! `rev`, `enabled` and `options` (a table over the pack's defaults) are optional. Specs from every layer are collected
 //! in order, and a later spec of the same name replaces an earlier one.
 
 use toml::de::{DeTable, DeValue};
@@ -29,6 +29,7 @@ impl Loader {
 
     fn pack_spec(&mut self, f: &FileCtx, line: usize, t: &DeTable) {
         let (mut src, mut name, mut rev, mut enabled) = (None, None, None, true);
+        let mut options = serde_json::Map::new();
         let mut src_line = line;
         let mut failed = false;
         for (k, v) in entries(t) {
@@ -49,12 +50,16 @@ impl Loader {
                     enabled = *b;
                     Ok(())
                 }
-                ("src" | "name" | "rev" | "enabled", other) => {
+                ("options", DeValue::Table(o)) => {
+                    options = json_table(o);
+                    Ok(())
+                }
+                ("src" | "name" | "rev" | "enabled" | "options", other) => {
                     Err(format!("wrong type, found {}", other.type_str()))
                 }
                 (other, _) => {
                     let mut msg = "unknown key".to_string();
-                    if let Some(s) = closest(other, ["src", "name", "rev", "enabled"]) {
+                    if let Some(s) = closest(other, ["src", "name", "rev", "enabled", "options"]) {
                         msg.push_str(&format!(", did you mean {s}?"));
                     }
                     Err(msg)
@@ -80,11 +85,36 @@ impl Loader {
             src,
             rev,
             enabled,
+            options,
         };
         match self.pack.iter_mut().find(|s| s.name == spec.name) {
             Some(old) => *old = spec,
             None => self.pack.push(spec),
         }
+    }
+}
+
+fn json_table(t: &DeTable) -> serde_json::Map<String, serde_json::Value> {
+    t.iter()
+        .map(|(k, v)| (k.get_ref().to_string(), json_value(v.get_ref())))
+        .collect()
+}
+
+fn json_value(v: &DeValue) -> serde_json::Value {
+    use serde_json::Value as J;
+    match v {
+        DeValue::String(s) => J::String(s.to_string()),
+        DeValue::Integer(i) => i64::from_str_radix(i.as_str(), i.radix()).map_or(J::Null, J::from),
+        DeValue::Float(f) => f
+            .as_str()
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map_or(J::Null, J::Number),
+        DeValue::Boolean(b) => J::Bool(*b),
+        DeValue::Datetime(d) => J::String(d.to_string()),
+        DeValue::Array(items) => J::Array(items.iter().map(|i| json_value(i.get_ref())).collect()),
+        DeValue::Table(t) => J::Object(json_table(t)),
     }
 }
 
@@ -128,6 +158,20 @@ mod tests {
             (s.name.as_str(), s.rev.as_deref(), s.enabled),
             ("x", Some("v1"), false)
         );
+    }
+
+    #[test]
+    fn test_pack_options_table_parses_nested_values() {
+        let text = "[[pack]]\nsrc = \"github:a/b\"\noptions = { a = 1, s = \"x\", f = 1.5, l = [1, true], t = { n = 2 } }\n";
+        let s = &load(text).unwrap()[0];
+        let want = serde_json::json!({"a": 1, "s": "x", "f": 1.5, "l": [1, true], "t": {"n": 2}});
+        assert_eq!(serde_json::Value::Object(s.options.clone()), want);
+    }
+
+    #[test]
+    fn test_pack_options_must_be_a_table() {
+        let errs = load("[[pack]]\nsrc = \"github:a/b\"\noptions = 3\n").unwrap_err();
+        assert!(errs[0].contains("config.toml:3: pack.options"), "{errs:?}");
     }
 
     #[test]

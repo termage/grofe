@@ -229,11 +229,8 @@ fn config_project_file_wins_and_merges_nested_tables() {
         &config_dir(&srv).join("tool.toml"),
         "name = \"user\"\nkeep = \"u\"\n[opts]\na = 1\nb = 2\n",
     );
-    let repo = repo_with_project_config(
-        &srv,
-        "tool",
-        "name = \"project\"\n[opts]\nb = 20\nc = 30\n",
-    );
+    let repo =
+        repo_with_project_config(&srv, "tool", "name = \"project\"\n[opts]\nb = 20\nc = 30\n");
     let dir = repo.join("sub/deeper");
     let code = format!(
         "local c = grofe.config('tool', '{}') return c.name .. c.keep .. c.opts.a .. '|' .. c.opts.b .. '|' .. c.opts.c",
@@ -373,6 +370,11 @@ fn store_survives_reload_and_server_restart() {
     assert_eq!(lua_ok(&srv, "return grofe.plugin('kv').n"), "1");
     srv.cmd(&["reload"]).expect("reload");
     assert_eq!(lua_ok(&srv, "return grofe.plugin('kv').n"), "2");
+    // `start-server` is not the harness's own child, so `restart` alone would
+    // leave this server running.
+    let _ = srv.cmd(&["kill-server"]);
+    srv.wait_for(|| !srv.is_running(), WAIT)
+        .expect("server stops");
     let srv = srv.restart();
     assert_eq!(lua_ok(&srv, "return grofe.plugin('kv').n"), "3");
     assert_eq!(lua_ok(&srv, "return grofe.plugin('kv').id"), "c1");

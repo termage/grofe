@@ -146,7 +146,7 @@ fn load_pack_stores_the_return_value() {
     let mut state = test_state();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("init.luau"), "return { x = 1 }").unwrap();
-    load_pack(&mut state, "p", dir.path()).unwrap();
+    load_pack(&mut state, "p", dir.path(), &serde_json::json!({})).unwrap();
     let r = run_chunk(&mut state, &test_ctx(), "return grofe.plugin('p').x");
     assert_eq!(r, Ok("1".into()));
 }
@@ -338,27 +338,23 @@ fn require_works_in_a_callback_after_init() {
     assert_eq!(global(&mut state, "@late"), "yes", "{}", messages(&state));
 }
 
-/// A9: one `require` for all Lua code: a pack's callback also loads from
-/// the config folder.
+/// A pack's callback loads modules from the pack's folder, not the config
+/// folder.
 #[test]
-fn a_pack_callback_requires_from_the_config_folder() {
+fn a_pack_callback_requires_from_its_own_folder() {
     let pack = tempfile::tempdir().unwrap();
     std::fs::write(
         pack.path().join("init.luau"),
         "grofe.bind('prefix','p',function() grofe.cmd{'set-option','-g','@pack',require('m')} end)",
     )
     .unwrap();
+    std::fs::write(pack.path().join("m.luau"), "return 'pack'").unwrap();
     let dir = folder("", &[("m.luau", "return 'folder'")]);
     let mut state = test_state();
-    load_pack(&mut state, "p", pack.path()).unwrap();
+    load_pack(&mut state, "p", pack.path(), &serde_json::json!({})).unwrap();
     load_init(&mut state, dir.path());
     call(&mut state, 1, Payload::None);
-    assert_eq!(
-        global(&mut state, "@pack"),
-        "folder",
-        "{}",
-        messages(&state)
-    );
+    assert_eq!(global(&mut state, "@pack"), "pack", "{}", messages(&state));
 }
 
 /// An empty folder (no config folder) sets nothing; `require` is a plain
@@ -381,12 +377,13 @@ fn require_works_without_an_init_file() {
     assert_eq!(require(&mut state, "m"), Ok("m".into()));
 }
 
-/// A pack's top-level `require` loads from the folder: the reload sequence
-/// sets it before packs load, and init shares the pack's module cache.
+/// A pack's top-level `require` loads from its own folder, and `init.luau`
+/// from the config folder, whichever loads first.
 #[test]
-fn a_pack_requires_at_top_level_in_the_reload_order() {
+fn a_pack_and_init_require_from_their_own_folders_in_the_reload_order() {
     let pack = tempfile::tempdir().unwrap();
     std::fs::write(pack.path().join("init.luau"), "return { m = require('m') }").unwrap();
+    std::fs::write(pack.path().join("m.luau"), "return 'pack'").unwrap();
     let dir = folder(
         "grofe.cmd{'set-option','-g','@init',require('m')}",
         &[(
@@ -396,10 +393,10 @@ fn a_pack_requires_at_top_level_in_the_reload_order() {
     );
     let mut state = test_state();
     reset_at(&mut state, dir.path());
-    load_pack(&mut state, "p", pack.path()).unwrap();
+    load_pack(&mut state, "p", pack.path(), &serde_json::json!({})).unwrap();
     load_init(&mut state, dir.path());
     let r = run_chunk(&mut state, &test_ctx(), "return grofe.plugin('p').m");
-    assert_eq!(r, Ok("folder".into()), "{}", messages(&state));
+    assert_eq!(r, Ok("pack".into()), "{}", messages(&state));
     assert_eq!(global(&mut state, "@init"), "folder");
     assert_eq!(global(&mut state, "@runs"), "x");
 }

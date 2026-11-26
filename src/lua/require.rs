@@ -1,6 +1,7 @@
 //! `require` for the user's config folder: a Rust function that replaces
 //! mlua's global `require`, so `init.luau` can split itself into modules.
 
+use super::pack;
 use mlua::{Lua, Table, Value};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
@@ -16,15 +17,23 @@ fn err(e: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(e.to_string())
 }
 
-/// Replaces the global `require`. Call before `sandbox(true)`.
+/// The config folder `set_dir` pointed `require` at.
+pub fn config_dir(lua: &Lua) -> mlua::Result<Option<PathBuf>> {
+    match lua.named_registry_value::<Value>(DIR)? {
+        Value::String(dir) => Ok(Some(PathBuf::from(OsStr::from_bytes(&dir.as_bytes())))),
+        _ => Ok(None),
+    }
+}
+
+/// Replaces the global `require`. Call before `sandbox(true)`. Code a pack
+/// runs loads from the pack's folder, any other from the config folder.
 pub fn install(lua: &Lua) -> mlua::Result<()> {
     let f = lua.create_function(|lua, name: String| {
-        let Value::String(dir) = lua.named_registry_value::<Value>(DIR)? else {
-            return Err(err(format!(
-                "require: no config folder to load '{name}' from"
-            )));
+        let dir = match pack::current_dir(lua)? {
+            Some(dir) => dir,
+            None => config_dir(lua)?
+                .ok_or_else(|| err(format!("require: no config folder to load '{name}' from")))?,
         };
-        let dir = PathBuf::from(OsStr::from_bytes(&dir.as_bytes()));
         require(lua, &dir, &name)
     })?;
     lua.globals().set("require", f)
@@ -81,13 +90,15 @@ fn candidates(dir: &Path, rel: &str) -> [PathBuf; 4] {
 
 fn require(lua: &Lua, dir: &Path, name: &str) -> mlua::Result<Value> {
     let rel = relative(name).map_err(err)?;
+    // One module name in two folders is two modules.
+    let key = dir.join(&rel).to_string_lossy().into_owned();
     let cache: Table = lua.named_registry_value(CACHE)?;
-    let cached: Value = cache.get(rel.as_str())?;
+    let cached: Value = cache.get(key.as_str())?;
     if !cached.is_nil() {
         return Ok(cached);
     }
     let loading: Table = lua.named_registry_value(LOADING)?;
-    if loading.get::<bool>(rel.as_str())? {
+    if loading.get::<bool>(key.as_str())? {
         return Err(err(format!("require: cycle through '{name}'")));
     }
     let tried = candidates(dir, &rel);
@@ -99,14 +110,14 @@ fn require(lua: &Lua, dir: &Path, name: &str) -> mlua::Result<Value> {
         )));
     };
     let src = std::fs::read(file).map_err(|e| err(format!("require: {}: {e}", file.display())))?;
-    loading.set(rel.as_str(), true)?;
+    loading.set(key.as_str(), true)?;
     let result = lua.load(src).set_name(name).eval::<Value>();
-    loading.set(rel.as_str(), Value::Nil)?;
+    loading.set(key.as_str(), Value::Nil)?;
     let value = match result? {
         Value::Nil => Value::Boolean(true),
         v => v,
     };
-    cache.set(rel.as_str(), &value)?;
+    cache.set(key.as_str(), &value)?;
     Ok(value)
 }
 

@@ -6,6 +6,8 @@ pub struct Spec {
     pub src: String,
     pub rev: Option<String>,
     pub enabled: bool,
+    /// The `options` table of the `[[pack]]` entry, over the manifest's defaults.
+    pub options: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Turn a user-written source into a clone URL or path, rejecting anything else.

@@ -1,3 +1,4 @@
+use super::pack;
 use super::runtime::{LuaError, Runtime};
 use mlua::{Function, Lua, Table, Value};
 use std::cell::RefCell;
@@ -23,6 +24,8 @@ pub trait Host {
         id: u32,
     ) -> Result<(), String>;
     fn cancel(&mut self, id: u32);
+    /// Posts a tray entry for `pane` (the active pane when `None`).
+    fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String>;
     fn log(&mut self, msg: &str);
 }
 
@@ -43,6 +46,7 @@ const PLUGINS: &str = "grofe_plugins";
 const NEXT_ID: &str = "grofe_next_id";
 const MIN_EVERY_MS: u64 = 100;
 const DEFAULT_SYSTEM_TIMEOUT_MS: u64 = 10_000;
+const LEVELS: [&str; 3] = ["info", "warn", "error"];
 
 fn err(e: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(e.to_string())
@@ -76,6 +80,7 @@ fn add_callback(
     let id: u32 = lua.named_registry_value(NEXT_ID)?;
     register(id)?;
     lua.named_registry_value::<Table>(CALLBACKS)?.set(id, f)?;
+    pack::claim(lua, id)?;
     lua.set_named_registry_value(NEXT_ID, id + 1)?;
     Ok(id)
 }
@@ -178,12 +183,37 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, msg: String| host_fn(lua, "log")?.call::<()>(msg))?,
     )?;
     g.set(
+        "notify",
+        lua.create_function(|lua, (text, opts): (Value, Option<Table>)| {
+            let Value::String(text) = text else {
+                return Err(err("grofe.notify takes the text as a string"));
+            };
+            let (pane, level) = match opts {
+                Some(o) => (
+                    o.get::<Option<String>>("pane")?,
+                    o.get::<Option<String>>("level")?,
+                ),
+                None => (None, None),
+            };
+            let level = level.unwrap_or_else(|| "info".into());
+            if !LEVELS.contains(&level.as_str()) {
+                return Err(err(format!(
+                    "grofe.notify: level must be one of {LEVELS:?}"
+                )));
+            }
+            host_fn(lua, "notify")?.call::<()>((text.to_str()?.to_string(), pane, level))
+        })?,
+    )?;
+    g.set(
         "plugin",
         lua.create_function(|lua, name: String| {
             lua.named_registry_value::<Table>(PLUGINS)?
                 .get::<Value>(name)
         })?,
     )?;
+    super::json::install(lua, &g)?;
+    super::config::install(lua, &g)?;
+    pack::install(lua, &g)?;
     lua.globals().set("grofe", g)
 }
 
@@ -258,6 +288,16 @@ pub fn enter<R>(
                 })?,
             )?;
             t.set(
+                "notify",
+                scope.create_function_mut(
+                    |_, (text, pane, level): (String, Option<String>, String)| {
+                        host.borrow_mut()
+                            .notify(&text, pane.as_deref(), &level)
+                            .map_err(err)
+                    },
+                )?,
+            )?;
+            t.set(
                 "log",
                 scope.create_function_mut(|_, msg: String| {
                     host.borrow_mut().log(&msg);
@@ -276,52 +316,66 @@ pub fn enter<R>(
 }
 
 pub fn call(rt: &Runtime, host: &mut dyn Host, id: u32, payload: Payload) -> Result<(), LuaError> {
-    let who = format!("callback {id}");
+    let owner = pack::owner(rt.lua(), id).unwrap_or(None);
+    let who = match &owner {
+        Some(pack) => format!("pack {pack} callback {id}"),
+        None => format!("callback {id}"),
+    };
     enter(rt, host, &who, |lua| {
-        let f: Value = lua.named_registry_value::<Table>(CALLBACKS)?.get(id)?;
-        let Value::Function(f) = f else {
-            return Ok(());
-        };
-        match payload {
-            Payload::None => f.call::<()>(()),
-            Payload::Event(v) => f.call::<()>(json_to_lua(lua, &v)?),
-            Payload::System {
-                code,
-                stdout,
-                stderr,
-            } => {
-                let t = lua.create_table()?;
-                t.set("code", code)?;
-                t.set("stdout", stdout)?;
-                t.set("stderr", stderr)?;
-                f.call::<()>(t)
-            }
-        }
+        pack::set_current(lua, owner.as_deref())?;
+        let result = run_callback(lua, id, payload);
+        pack::set_current(lua, None)?;
+        result
     })
 }
 
-fn json_to_lua(lua: &Lua, v: &serde_json::Value) -> mlua::Result<Value> {
-    use serde_json::Value as J;
-    Ok(match v {
-        J::Null => Value::Nil,
-        J::Bool(b) => Value::Boolean(*b),
-        J::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
-        J::String(s) => Value::String(lua.create_string(s)?),
-        J::Array(items) => {
+fn run_callback(lua: &Lua, id: u32, payload: Payload) -> mlua::Result<()> {
+    let f: Value = lua.named_registry_value::<Table>(CALLBACKS)?.get(id)?;
+    let Value::Function(f) = f else {
+        return Ok(());
+    };
+    match payload {
+        Payload::None => f.call::<()>(()),
+        Payload::Event(v) => f.call::<()>(super::json::from_json(lua, &v)?),
+        Payload::System {
+            code,
+            stdout,
+            stderr,
+        } => {
             let t = lua.create_table()?;
-            for (i, item) in items.iter().enumerate() {
-                t.set(i + 1, json_to_lua(lua, item)?)?;
-            }
-            Value::Table(t)
+            t.set("code", code)?;
+            t.set("stdout", stdout)?;
+            t.set("stderr", stderr)?;
+            f.call::<()>(t)
         }
-        J::Object(map) => {
-            let t = lua.create_table()?;
-            for (k, item) in map {
-                t.set(k.as_str(), json_to_lua(lua, item)?)?;
-            }
-            Value::Table(t)
+    }
+}
+
+/// Runs `f` as pack `name`: its callbacks belong to the pack, and if it
+/// fails, everything it registered (keys, timers, subscriptions) goes.
+/// Call inside `enter`.
+pub fn in_pack<R>(lua: &Lua, name: &str, f: impl FnOnce() -> mlua::Result<R>) -> mlua::Result<R> {
+    pack::set_current(lua, Some(name))?;
+    let from: u32 = lua.named_registry_value(NEXT_ID)?;
+    let result = f();
+    pack::set_current(lua, None)?;
+    if result.is_err() {
+        unregister_from(lua, from);
+    }
+    result
+}
+
+/// Cancels and forgets every callback made since id `from`.
+fn unregister_from(lua: &Lua, from: u32) {
+    let until: u32 = lua.named_registry_value(NEXT_ID).unwrap_or(from);
+    for id in from..until {
+        if let Ok(cancel) = host_fn(lua, "cancel") {
+            let _ = cancel.call::<()>(id);
         }
-    })
+        if let Ok(t) = lua.named_registry_value::<Table>(CALLBACKS) {
+            let _ = t.set(id, Value::Nil);
+        }
+    }
 }
 
 pub fn set_plugin(rt: &Runtime, name: &str, value: Value) -> Result<(), LuaError> {
@@ -388,6 +442,9 @@ mod tests {
         }
         fn cancel(&mut self, id: u32) {
             self.cancelled.push(id);
+        }
+        fn notify(&mut self, _: &str, _: Option<&str>, _: &str) -> Result<(), String> {
+            Ok(())
         }
         fn log(&mut self, _: &str) {}
     }
