@@ -10,23 +10,72 @@ pub(crate) enum Kind {
 #[derive(Deserialize)]
 struct Manifest {
     name: String,
-    api: u32,
+    /// The oldest grofe plugin API the pack runs on.
+    min_api: Option<u32>,
+    /// The earlier spelling of `min_api`.
+    api: Option<u32>,
+    #[serde(default = "empty_options")]
+    options: toml::Value,
 }
 
-/// Classify a plugin directory: `grofe-plugin.toml` wins over any `*.tmux` file.
-pub(crate) fn detect(dir: &Path) -> Result<Kind, String> {
-    let path = dir.join("grofe-plugin.toml");
-    if path.is_file() {
-        let text =
-            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-        if m.api != super::PLUGIN_API {
+fn empty_options() -> toml::Value {
+    toml::Value::Table(toml::Table::new())
+}
+
+impl Manifest {
+    fn check_api(&self) -> Result<(), String> {
+        let need = self
+            .min_api
+            .or(self.api)
+            .ok_or_else(|| format!("{}: the manifest needs min_api", self.name))?;
+        if need > super::PLUGIN_API {
             return Err(format!(
-                "{} needs grofe plugin API {}, this grofe has {}",
-                m.name,
-                m.api,
+                "{} needs grofe plugin API {need}, this grofe has {}",
+                self.name,
                 super::PLUGIN_API
             ));
+        }
+        Ok(())
+    }
+}
+
+fn read_manifest(dir: &Path) -> Result<Option<Manifest>, String> {
+    let path = dir.join("grofe-plugin.toml");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    toml::from_str(&text)
+        .map(Some)
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The pack's `[options]` defaults as JSON; `{}` without a manifest.
+pub(crate) fn default_options(dir: &Path) -> Result<serde_json::Value, String> {
+    match read_manifest(dir)? {
+        Some(m) if !m.options.is_table() => Err(format!("{}: options must be a table", m.name)),
+        Some(m) => crate::lua::json::toml_to_json(&m.options)
+            .map_err(|e| format!("{}: options: {e}", m.name)),
+        None => Ok(serde_json::json!({})),
+    }
+}
+
+/// Classify a plugin directory and refuse a Luau pack that needs a newer
+/// API than this grofe has.
+pub(crate) fn detect(dir: &Path) -> Result<Kind, String> {
+    if let Some(m) = read_manifest(dir)? {
+        m.check_api()?;
+    }
+    kind(dir)
+}
+
+/// Classify a plugin directory: `grofe-plugin.toml` wins over any `*.tmux`
+/// file. A pack with `min_api` is not checked, so `pack sync` can fetch one
+/// that only a newer grofe can load; the older `api` still fails here.
+pub(crate) fn kind(dir: &Path) -> Result<Kind, String> {
+    if let Some(m) = read_manifest(dir)? {
+        if m.min_api.is_none() {
+            m.check_api()?;
         }
         if !dir.join("init.luau").is_file() && !dir.join("init.lua").is_file() {
             return Err(format!("{}: no init.luau", m.name));
@@ -79,6 +128,42 @@ mod tests {
         assert_eq!(
             detect(d.path()),
             Err("p needs grofe plugin API 2, this grofe has 1".into())
+        );
+    }
+
+    #[test]
+    fn test_min_api_loads_at_or_below_and_refuses_above() {
+        let ok = dir(&[
+            ("grofe-plugin.toml", "name = \"p\"\nmin_api = 1\n"),
+            ("init.luau", ""),
+        ]);
+        assert_eq!(detect(ok.path()), Ok(Kind::Luau));
+        let new = dir(&[
+            ("grofe-plugin.toml", "name = \"p\"\nmin_api = 9\n"),
+            ("init.luau", ""),
+        ]);
+        assert_eq!(
+            detect(new.path()),
+            Err("p needs grofe plugin API 9, this grofe has 1".into())
+        );
+        assert_eq!(kind(new.path()), Ok(Kind::Luau));
+    }
+
+    #[test]
+    fn test_manifest_without_an_api_is_refused() {
+        let d = dir(&[("grofe-plugin.toml", "name = \"p\"\n"), ("init.luau", "")]);
+        assert!(detect(d.path()).unwrap_err().contains("min_api"));
+    }
+
+    #[test]
+    fn test_default_options_are_json() {
+        let d = dir(&[(
+            "grofe-plugin.toml",
+            "name = \"p\"\nmin_api = 1\n[options]\na = 1\n[options.t]\nb = \"x\"\n",
+        )]);
+        assert_eq!(
+            default_options(d.path()),
+            Ok(serde_json::json!({"a": 1, "t": {"b": "x"}}))
         );
     }
 

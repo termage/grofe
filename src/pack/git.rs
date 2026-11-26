@@ -106,7 +106,7 @@ fn sync_one(spec: &Spec, lock: &mut Lock, root: &Path) -> Result<Status, String>
     if target != before {
         checkout(&dir, &target)?;
     }
-    manifest::detect(&dir)?;
+    manifest::kind(&dir)?;
     let now = head(&dir)?;
     lock.plugins.insert(
         spec.name.clone(),
@@ -294,6 +294,7 @@ mod tests {
             src: bare.to_string_lossy().into(),
             rev: None,
             enabled: true,
+            options: Default::default(),
         }
     }
 

@@ -1,7 +1,8 @@
+use crate::lua::json::merge;
 use crate::pack::lock::Lock;
-use crate::pack::manifest::{Kind, detect};
+use crate::pack::manifest::{Kind, default_options, detect};
 use crate::pack::spec::{Spec, pack_root};
-use crate::server::State;
+use crate::server::{State, clients};
 use std::path::{Path, PathBuf};
 
 /// Loads every enabled, locked and installed pack in name order. A failing
@@ -9,40 +10,53 @@ use std::path::{Path, PathBuf};
 pub(crate) fn load_all(state: &mut State, specs: &[Spec], config_dir: &Path) {
     let lock = match Lock::read(&config_dir.join("pack-lock.toml")) {
         Ok(l) => l,
-        Err(e) => {
-            eprintln!("grofe pack: {e}");
-            return;
-        }
+        Err(e) => return report(state, format!("pack: {e}")),
     };
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
     let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from);
     let root = pack_root(&home, xdg.as_deref());
-    for (name, dir) in selected(specs, &lock, &root) {
-        match detect(&dir) {
-            Ok(Kind::Luau) => {
-                if let Err(e) = crate::server::lua_host::load_pack(state, &name, &dir) {
-                    eprintln!("grofe pack {name}: {e}");
-                }
-            }
+    for (spec, dir) in selected(specs, &lock, &root) {
+        let loaded = match detect(&dir) {
+            Ok(Kind::Luau) => load_luau(state, spec, &dir),
             Ok(Kind::Tmux) => {
                 crate::server::hooks::run_at_load(state, tmux_cmds(&dir));
+                Ok(())
             }
-            Err(e) => eprintln!("grofe pack {name}: {e}"),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = loaded {
+            report(state, format!("pack {}: {e}", spec.name));
         }
     }
 }
 
+/// The manifest's option defaults under the user's `options`.
+fn load_luau(state: &mut State, spec: &Spec, dir: &Path) -> Result<(), String> {
+    let mut options = default_options(dir)?;
+    merge(
+        &mut options,
+        serde_json::Value::Object(spec.options.clone()),
+    );
+    crate::server::lua_host::load_pack(state, &spec.name, dir, &options)
+}
+
+/// A pack that failed goes to the log and to `show-messages`.
+fn report(state: &mut State, line: String) {
+    eprintln!("grofe {line}");
+    clients::log_error(state, "pack", &line);
+}
+
 /// The enabled specs that are locked and cloned under `root`, by name.
-fn selected(specs: &[Spec], lock: &Lock, root: &Path) -> Vec<(String, PathBuf)> {
-    let mut out: Vec<(String, PathBuf)> = specs
+fn selected<'a>(specs: &'a [Spec], lock: &Lock, root: &Path) -> Vec<(&'a Spec, PathBuf)> {
+    let mut out: Vec<(&Spec, PathBuf)> = specs
         .iter()
         .filter(|s| s.enabled && lock.plugins.contains_key(&s.name))
-        .map(|s| (s.name.clone(), root.join(&s.name)))
+        .map(|s| (s, root.join(&s.name)))
         .filter(|(_, dir)| dir.is_dir())
         .collect();
-    out.sort();
+    out.sort_by(|a, b| a.0.name.cmp(&b.0.name));
     out
 }
 
@@ -73,6 +87,7 @@ mod tests {
             src: format!("https://x/{name}"),
             rev: None,
             enabled,
+            options: Default::default(),
         }
     }
 
@@ -95,7 +110,7 @@ mod tests {
         ];
         let got: Vec<String> = selected(&specs, &lock, root.path())
             .into_iter()
-            .map(|(n, _)| n)
+            .map(|(s, _)| s.name.clone())
             .collect();
         assert_eq!(got, ["a", "b"]);
     }

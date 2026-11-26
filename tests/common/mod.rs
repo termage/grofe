@@ -301,6 +301,8 @@ impl TestServer {
             .env("HOME", &self.home)
             .env("XDG_CONFIG_HOME", &self.config_home)
             .env("XDG_STATE_HOME", &self.state_home)
+            // Packs install under here, whatever the host's own says.
+            .env("XDG_DATA_HOME", self.home.join(".local/share"))
             .env("XDG_RUNTIME_DIR", &self.runtime_dir)
             .env("SHELL", "/bin/sh")
             .env("PS1", PROMPT)
