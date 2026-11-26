@@ -13,7 +13,7 @@ use super::keys;
 use super::table::{self, Row};
 use super::target::parse_target;
 use super::{
-    AgentCmd, AgentNew, AgentReport, AttachSession, BindKey, BreakPane, CapturePane, ChooseClient,
+    AgentCmd, AgentReport, AttachSession, BindKey, BreakPane, CapturePane, ChooseClient,
     ChooseOpts, ChooseTree, ClearHistory, Command, CommandPrompt, Condition, ConfirmBefore,
     DetachClient, DisplayMenu, DisplayMessage, DisplayPanes, DisplayPopup, DragPane, FindWindow,
     FloatPane, If, JoinPane, LinkWindow, ListClients, ListKeys, Mark, MenuEntry, MoveWindow,
@@ -27,6 +27,8 @@ use super::{
     UnbindKey, UnfloatPane, UnlinkWindow, WaitFor, WindowMove, WindowStep,
 };
 use crate::types::{CaptureBound, CaptureOpts, Dir, Edge, PaneId, SplitSize, WINDOW_MAXIMUM};
+
+mod agent_new;
 
 /// `ParseError::Other` from any message.
 fn perr(msg: impl Into<String>) -> ParseError {
@@ -774,40 +776,7 @@ pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
                 all,
             }))
         }
-        "new" => {
-            // The kind may come first (`agent new claude -w`), so flags
-            // are read from what follows it.
-            let (lead, flag_argv) = match rest.split_first() {
-                Some((k, tail)) if !k.starts_with('-') => (Some(k.clone()), tail),
-                _ => (None, rest),
-            };
-            let flags = flags_for(flag_argv, "pc:n:wWb:d", "agent new")?;
-            let mut positionals = flags.positionals.clone();
-            if let Some(k) = lead {
-                positionals.insert(0, k);
-            }
-            if positionals.len() > 1 {
-                return Err(too_many("agent new", 1));
-            }
-            let kind = positionals
-                .pop()
-                .ok_or_else(|| perr("agent new: kind required"))?;
-            let worktree = match (flags.on('w'), flags.on('W')) {
-                (true, true) => return Err(perr("agent new: -w and -W conflict")),
-                (true, false) => Some(true),
-                (false, true) => Some(false),
-                (false, false) => None,
-            };
-            Ok(Command::Agent(AgentCmd::New(AgentNew {
-                kind,
-                split: flags.on('p'),
-                cwd: flags.val('c'),
-                name: flags.val('n'),
-                worktree,
-                branch: flags.val('b'),
-                detached: flags.on('d'),
-            })))
-        }
+        "new" => agent_new::parse(rest),
         other => Err(perr(format!("agent: unknown subcommand {other}"))),
     }
 }
@@ -2866,37 +2835,6 @@ mod tests {
             parse(&argv(&["agent", "x"])),
             Err(ParseError::Other("agent: unknown subcommand x".into()))
         );
-    }
-
-    #[test]
-    fn agent_new_example() {
-        assert_eq!(
-            parse(&argv(&["agent", "new", "claude", "-w", "-b", "feat/x"])),
-            Ok(Command::Agent(AgentCmd::New(AgentNew {
-                kind: "claude".into(),
-                split: false,
-                cwd: None,
-                name: None,
-                worktree: Some(true),
-                branch: Some("feat/x".into()),
-                detached: false,
-            })))
-        );
-        let Ok(Command::Agent(AgentCmd::New(n))) = parse(&argv(&[
-            "agent", "new", "pi", "-p", "-d", "-W", "-c", "/r", "-n", "nm",
-        ])) else {
-            panic!("parse")
-        };
-        assert!(n.split && n.detached);
-        assert_eq!(n.worktree, Some(false));
-        assert_eq!(n.cwd.as_deref(), Some("/r"));
-        assert_eq!(n.name.as_deref(), Some("nm"));
-        assert!(parse(&argv(&["agent", "new"])).is_err());
-    }
-
-    #[test]
-    fn w_and_big_w_conflict() {
-        assert!(parse(&argv(&["agent", "new", "claude", "-w", "-W"])).is_err());
     }
 
     #[test]

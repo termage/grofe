@@ -16,6 +16,8 @@ use crate::server::{State, clients, prompt};
 use crate::types::ClientId;
 
 const WORKTREE_TIMEOUT: Duration = Duration::from_secs(30);
+/// What `-P` prints.
+const PANE_ID: &str = "#{pane_id}";
 
 /// Whether a worktree is wanted, from the flags, the kind and the config.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -67,13 +69,16 @@ pub(crate) fn run(state: &mut State, ctx: &ClientCtx, c: AgentNew) -> Result<Str
         .iter()
         .find(|k| k.name == c.kind)
         .ok_or_else(|| format!("unknown agent kind: {}", c.kind))?;
-    let argv: Vec<String> = kind
-        .command
-        .as_deref()
-        .unwrap_or_default()
-        .split_whitespace()
-        .map(String::from)
-        .collect();
+    let argv: Vec<String> = if c.command.is_empty() {
+        kind.command
+            .as_deref()
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(String::from)
+            .collect()
+    } else {
+        c.command.clone()
+    };
     if argv.is_empty() {
         return Err(format!("agent kind {} has no command", c.kind));
     }
@@ -212,6 +217,9 @@ impl Launch {
                 cwd,
                 command,
                 detached: self.c.detached,
+                print: self.c.print,
+                format: self.c.print.then(|| PANE_ID.to_string()),
+                env: self.c.env.clone(),
                 ..SplitWindow::default()
             })
         } else {
@@ -221,10 +229,13 @@ impl Launch {
                 name: self.c.name.clone(),
                 cwd,
                 command,
+                print: self.c.print,
+                format: self.c.print.then(|| PANE_ID.to_string()),
+                env: self.c.env.clone(),
                 ..NewWindow::default()
             })
         };
-        super::route(state, &self.ctx, cmd)?;
+        let printed = super::route(state, &self.ctx, cmd)?;
         if let Some(pane) = state
             .model
             .panes
@@ -236,7 +247,7 @@ impl Launch {
                 .agents
                 .ensure(pane, &self.c.kind, None, std::time::Instant::now());
         }
-        Ok(String::new())
+        Ok(printed)
     }
 }
 
@@ -323,6 +334,9 @@ mod tests {
             worktree: None,
             branch: None,
             detached: true,
+            print: false,
+            env: Vec::new(),
+            command: Vec::new(),
         }
     }
 

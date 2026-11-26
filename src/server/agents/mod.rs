@@ -1,11 +1,13 @@
 //! Agent status: the per-pane store and the report rules (spec §2).
 
+pub(crate) mod headless;
+mod history;
 pub(crate) mod kinds;
 pub(crate) mod osc;
 mod rank;
 mod text;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use crate::server::resume::Binding;
@@ -79,6 +81,8 @@ pub(crate) struct Agent {
     pub reported: bool,
     pub last_report: u64,
     pub binding: Option<Binding>,
+    /// The messages reports carried, oldest first, up to `history::HISTORY_CAP`.
+    pub history: VecDeque<String>,
 }
 
 impl Agent {
@@ -94,6 +98,7 @@ impl Agent {
             reported: false,
             last_report: 0,
             binding,
+            history: VecDeque::new(),
         }
     }
 }
@@ -107,11 +112,15 @@ pub struct Change {
     pub new: Option<AgentState>,
     pub kind: Option<String>,
     pub session_changed: bool,
+    /// The message the report itself carried (sanitised), not the stored one.
+    pub msg: Option<String>,
 }
 
 #[derive(Debug, Default)]
 pub struct Agents {
     map: HashMap<PaneId, Agent>,
+    /// The `system` jobs running that asked to show: not agents.
+    pub(crate) jobs: Vec<headless::Job>,
 }
 
 impl Agents {
@@ -130,6 +139,7 @@ impl Agents {
                     new: None,
                     kind: a.kind,
                     session_changed: false,
+                    msg: None,
                 });
             }
             ReportState::Set(s) => s,
@@ -153,8 +163,9 @@ impl Agents {
         } else {
             None
         };
-        let msg = match r.msg {
-            Some(m) => Some(sanitize(&m)),
+        let reported = r.msg.map(|m| sanitize(&m));
+        let msg = match reported.clone() {
+            Some(m) => Some(m),
             None if state_changed => None,
             None => a.msg.clone(),
         };
@@ -166,6 +177,9 @@ impl Agents {
                 a.session_id = Some(s);
                 changed
             });
+        if let Some(m) = reported.clone() {
+            history::push(&mut a.history, m);
+        }
         let content_changed = blocked != a.blocked || msg != a.msg;
         a.blocked = blocked;
         a.msg = msg;
@@ -184,6 +198,7 @@ impl Agents {
             new: Some(state),
             kind: a.kind.clone(),
             session_changed,
+            msg: reported,
         })
     }
 
@@ -294,7 +309,8 @@ mod tests {
                 old: Some(AgentState::Working),
                 new: Some(AgentState::Done),
                 kind: None,
-                session_changed: false
+                session_changed: false,
+                msg: None
             })
         );
         assert!(ag.get(P).unwrap().unseen);
@@ -337,7 +353,8 @@ mod tests {
                 old: Some(AgentState::Working),
                 new: None,
                 kind: None,
-                session_changed: false
+                session_changed: false,
+                msg: None
             })
         );
         assert!(ag.get(P).is_none());
@@ -420,5 +437,20 @@ mod tests {
         assert_eq!(ag.iter().count(), 1);
         assert!(ag.remove(P).is_some());
         assert!(ag.remove(P).is_none());
+    }
+
+    #[test]
+    fn a_change_carries_the_reports_own_msg() {
+        let (mut ag, now) = with(AgentState::Blocked, 1);
+        let mut r = set(AgentState::Blocked, 2);
+        r.msg = Some("X".into());
+        assert_eq!(ag.apply(P, r, true, now).unwrap().msg.as_deref(), Some("X"));
+        let mut r = set(AgentState::Blocked, 3);
+        r.blocked = Some("permission".into());
+        let c = ag.apply(P, r, true, now).unwrap();
+        assert_eq!(
+            (c.msg, ag.get(P).unwrap().msg.as_deref()),
+            (None, Some("X"))
+        );
     }
 }

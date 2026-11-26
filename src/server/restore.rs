@@ -321,7 +321,7 @@ fn restore_session(
             Ok(window) => windows.push((window, w)),
             Err(e) => {
                 for p in spawned {
-                    state.model.panes.remove(&p);
+                    state.model.take_panes(&[p], Some(id));
                 }
                 return Err(e);
             }

@@ -14,7 +14,10 @@
 //!
 //! **Where each event is emitted.** One site per event: `pane-exited` in
 //! `handle_pane_event` (a process exit) and [`Events::panes_killed`] (a
-//! kill), `pane-output` in `handle_pane_event`, `option-changed` in the
+//! kill), `pane-created` in `dispatch::spawn_pane_delayed` (the one place a
+//! pane enters the model), `pane-closed` in [`Events::panes_closed`] (the
+//! panes `Model::note_closed` was told of: every removal calls it),
+//! `pane-output` in `handle_pane_event`, `option-changed` in the
 //! option and status-source code, `pane-died`, `session-created`,
 //! `session-closed`, `client-session-changed`, `client-resized` and the
 //! alerts in `server::hooks` beside the hook each fires, `pane-resized`,
@@ -53,6 +56,8 @@ pub(crate) const QUEUE: usize = 1024;
 /// notice every subscriber can receive, not a subscription.
 pub(crate) const NAMES: &[&str] = &[
     "pane-exited",
+    "pane-created",
+    "pane-closed",
     "pane-died",
     "pane-output",
     "pane-focus",
@@ -88,6 +93,8 @@ const NAMED_ONLY: &[&str] = &[
     "ports-changed",
     "pane-echo",
     "notify",
+    "pane-created",
+    "pane-closed",
 ];
 
 /// What a `subscribe -t` is limited to.
@@ -118,7 +125,10 @@ impl Scope {
 
     fn alive(self, model: &Model) -> bool {
         match self {
-            Scope::Pane(p) => model.panes.contains_key(&p),
+            // A hidden scratchpad is out of the pane map but alive.
+            Scope::Pane(p) => {
+                model.panes.contains_key(&p) || model.scratch.iter().any(|s| s.pane.id == p)
+            }
             Scope::Window(w) => model.windows.contains_key(&w),
             Scope::Session(s) | Scope::Client { session: s, .. } => model.sessions.contains_key(&s),
         }
@@ -166,6 +176,9 @@ struct Subscriber {
     scope: Option<Scope>,
     /// The scope's target has gone: nothing passes any more.
     gone: bool,
+    /// Owned by Lua (`grofe.on`): dropped, not just muted, once `gone`, so its
+    /// forwarding task ends and the callback is freed.
+    owned: bool,
     tx: mpsc::Sender<Event>,
     /// Events that did not fit since the last `events-dropped` notice.
     dropped: u64,
@@ -263,11 +276,27 @@ impl Events {
                 filters: names,
                 scope,
                 gone: false,
+                owned: false,
                 tx,
                 dropped: 0,
             }),
         }
         self.update_tap();
+        Ok(())
+    }
+
+    /// As [`Events::subscribe`], for a subscriber Lua owns: once its scope's
+    /// target has gone it is dropped (its queue closes).
+    pub(crate) fn subscribe_owned(
+        &mut self,
+        names: Vec<String>,
+        scope: Option<Scope>,
+        tx: mpsc::Sender<Event>,
+    ) -> Result<(), String> {
+        self.subscribe(names, scope, tx.clone())?;
+        if let Some(s) = self.subscribers.iter_mut().find(|s| s.tx.same_channel(&tx)) {
+            s.owned = true;
+        }
         Ok(())
     }
 
@@ -327,8 +356,9 @@ impl Events {
         }
     }
 
-    /// Records `pane-exited` with a null status for panes a kill removed.
-    pub(crate) fn panes_killed(&mut self, removed: Removed) {
+    /// Records `pane-exited` with a null status for panes a kill removed,
+    /// then the `pane-closed` of every pane the model dropped.
+    pub(crate) fn panes_killed(&mut self, model: &mut Model, removed: Removed) {
         for (pane, uid, place) in removed {
             let event = Event::PaneExited {
                 pane,
@@ -336,6 +366,17 @@ impl Events {
                 status: None,
             };
             self.emit_at(event, place);
+        }
+        self.panes_closed(model);
+    }
+
+    /// Records `pane-closed` for each pane that left the model since the
+    /// last call (`Model::take_panes` and the scratchpad history note them),
+    /// where it was. Called right after a removal, and by
+    /// `hooks::run_pending` for the exits no kill command made.
+    pub(crate) fn panes_closed(&mut self, model: &mut Model) {
+        for (pane, place) in std::mem::take(&mut model.closed_panes) {
+            self.emit_at(Event::PaneClosed { pane }, place);
         }
     }
 
@@ -354,7 +395,8 @@ impl Events {
         for s in &mut self.subscribers {
             s.gone |= s.scope.is_some_and(|scope| !scope.alive(model));
         }
-        self.subscribers.retain(|s| !s.tx.is_closed());
+        self.subscribers
+            .retain(|s| !s.tx.is_closed() && !(s.gone && s.owned));
         if self.subscribers.len() != before {
             self.update_tap();
         }
@@ -464,6 +506,7 @@ pub(crate) fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agent
         kind: change.kind.clone(),
         old: change.old.map(|s| s.as_str().to_string()),
         new: change.new.map(|s| s.as_str().to_string()),
+        msg: change.msg.clone(),
     });
     crate::server::hooks::agent_changed(state, pane);
 }

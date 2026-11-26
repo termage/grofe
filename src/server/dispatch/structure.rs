@@ -512,7 +512,7 @@ pub fn move_window(state: &mut State, ctx: &ClientCtx, c: MoveWindow) -> Result<
         model.renumber_alone(src_s);
     }
     let removed = model.close_orphans(&killed);
-    state.events.panes_killed(removed);
+    state.events.panes_killed(&mut state.model, removed);
     Ok(String::new())
 }
 
@@ -619,7 +619,7 @@ pub fn link_window(state: &mut State, ctx: &ClientCtx, c: LinkWindow) -> Result<
         model.select_window_in(dst, window);
     }
     let removed = model.close_orphans(&killed);
-    state.events.panes_killed(removed);
+    state.events.panes_killed(&mut state.model, removed);
     Ok(String::new())
 }
 
@@ -642,7 +642,7 @@ pub(crate) fn unlink_window(
     } else {
         model.kill_window_everywhere(window, false)
     };
-    state.events.panes_killed(removed);
+    state.events.panes_killed(&mut state.model, removed);
     Ok(String::new())
 }
 
@@ -907,7 +907,7 @@ pub(crate) fn respawn_window(
     });
     for pane in rest {
         let removed = state.model.remove_pane(*pane);
-        state.events.panes_killed(removed);
+        state.events.panes_killed(&mut state.model, removed);
     }
     respawn(state, first, c.command, cwd, c.env)
         .map_err(|e| format!("respawn window failed: {e}"))?;

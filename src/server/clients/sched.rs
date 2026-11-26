@@ -201,6 +201,7 @@ pub(super) fn scan_agents_with(
             new: Some(crate::server::agents::AgentState::Idle),
             kind,
             session_changed: false,
+            msg: None,
         };
         crate::server::events::emit_agent_changed(state, id, &change);
         redraw_all(state, now);

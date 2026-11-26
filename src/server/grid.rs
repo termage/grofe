@@ -103,8 +103,8 @@ fn age(since: Instant) -> String {
     }
 }
 
-fn glyph(a: &Agent) -> &'static str {
-    match rank(a) {
+fn glyph(rank: Rank) -> &'static str {
+    match rank {
         Rank::Blocked => "⏸",
         Rank::Error => "✗",
         Rank::Unseen | Rank::Done => "✓",
@@ -113,15 +113,14 @@ fn glyph(a: &Agent) -> &'static str {
     }
 }
 
-fn title(state: &State, pane: PaneId, a: &Agent) -> String {
+fn title(label: &str, rank: Rank, kind: Option<&str>, since: Instant, message: &str) -> String {
     let head = format!(
-        "{} {} {} {}",
-        glyph(a),
-        target_label(state, pane),
-        a.kind.clone().unwrap_or_default(),
-        age(a.since)
+        "{} {label} {} {}",
+        glyph(rank),
+        kind.unwrap_or_default(),
+        age(since)
     );
-    match message(a) {
+    match message {
         "" => head,
         m => format!("{head} {m}"),
     }
@@ -132,29 +131,36 @@ fn message(a: &Agent) -> &str {
     a.blocked.as_deref().or(a.msg.as_deref()).unwrap_or("")
 }
 
-/// The agent panes in display order that match `query`, with their titles.
-fn view(state: &State, query: &str) -> Vec<(PaneId, String)> {
-    let all: Vec<(PaneId, String)> = state
+/// The agent panes in display order that match `query`, with their titles,
+/// then the running jobs (no pane), as `working` tiles.
+fn view(state: &State, query: &str) -> Vec<(Option<PaneId>, String)> {
+    let panes = state
         .agents
         .by_urgency()
         .into_iter()
         .filter(|p| state.model.panes.contains_key(p))
-        .filter_map(|p| state.agents.get(p).map(|a| (p, title(state, p, a))))
-        .collect();
+        .filter_map(|p| state.agents.get(p).map(|a| (p, a)))
+        .map(|(p, a)| {
+            let label = target_label(state, p);
+            let t = title(&label, rank(a), a.kind.as_deref(), a.since, message(a));
+            (Some(p), t, rank(a))
+        });
+    let jobs = state.agents.jobs.iter().map(|j| {
+        let t = title(&j.label, Rank::Working, Some(&j.kind), j.started, "");
+        (None, t, Rank::Working)
+    });
+    let all: Vec<_> = panes.chain(jobs).collect();
     let texts: Vec<String> = all
         .iter()
-        .map(|(p, t)| {
-            let state_word = state.agents.get(*p).map_or("", |a| rank(a).as_str());
-            format!("{t} {state_word}")
-        })
+        .map(|(_, t, r)| format!("{t} {}", r.as_str()))
         .collect();
     filter(&texts, query)
         .into_iter()
-        .map(|i| all[i].clone())
+        .map(|i| (all[i].0, all[i].1.clone()))
         .collect()
 }
 
-type Tiles = (Vec<(PaneId, String)>, Layout, ListState);
+type Tiles = (Vec<(Option<PaneId>, String)>, Layout, ListState);
 
 fn tiles_of(state: &State, client: ClientId) -> Option<Tiles> {
     let st = state.grids.open.get(&client)?;
@@ -171,7 +177,7 @@ pub fn visible_panes(state: &State, client: ClientId) -> Vec<PaneId> {
         .iter()
         .skip(st.top * lay.cols)
         .take(lay.rows * lay.cols)
-        .map(|(p, _)| *p)
+        .filter_map(|(p, _)| *p)
         .collect()
 }
 
@@ -249,7 +255,7 @@ impl InputHook for GridHook {
 /// The pane under the selection, if the grid is open and shows any.
 pub fn selected_pane(state: &State, client: ClientId) -> Option<PaneId> {
     let (tiles, _, st) = tiles_of(state, client)?;
-    tiles.get(st.selected).map(|(p, _)| *p)
+    tiles.get(st.selected).and_then(|(p, _)| *p)
 }
 
 fn close(state: &mut State, client: ClientId) -> Routed {
@@ -334,15 +340,11 @@ impl Overlay for GridOverlay {
             .into_iter()
             .enumerate()
             .map(|(i, (pane, label))| {
-                let shown = (first..first + lay.rows * lay.cols).contains(&i);
+                let shown = pane.filter(|_| (first..first + lay.rows * lay.cols).contains(&i));
                 Tile {
                     label,
-                    index: if shown { pane_index(state, pane) } else { 0 },
-                    body: if shown {
-                        body(state, pane, lines)
-                    } else {
-                        Vec::new()
-                    },
+                    index: shown.map_or(0, |p| pane_index(state, p)),
+                    body: shown.map_or_else(Vec::new, |p| body(state, p, lines)),
                 }
             })
             .collect();
@@ -549,7 +551,10 @@ mod tests {
         open(&mut state, client).expect("open");
         let lay = layout(&state, (130, 40));
         let s = draw_screen(&state, client, (130, 40));
-        let order: Vec<PaneId> = view(&state, "").into_iter().map(|(p, _)| p).collect();
+        let order: Vec<PaneId> = view(&state, "")
+            .into_iter()
+            .filter_map(|(p, _)| p)
+            .collect();
         assert_eq!(order, vec![panes[0], second]);
         for (slot, want) in [(0, '3'), (1, '4')] {
             let (x, y, w, h) = lay.rect(slot);
@@ -686,7 +691,7 @@ mod tests {
         let lay = layout(&state, (130, 40));
         let (first, label) = view(&state, "").remove(0);
         let (_, _, w, _) = lay.rect(0);
-        assert!(first == panes[0] && label.chars().count() > w);
+        assert!(first == Some(panes[0]) && label.chars().count() > w);
         let text = screen_text(&state, client, (130, 40));
         let row: Vec<char> = text.lines().nth(1).expect("title row").chars().collect();
         let head: String = label.chars().take(3).collect();
@@ -731,7 +736,7 @@ mod tests {
         state.agents.apply(panes[1], r, true, Instant::now());
         let hit = view(&state, "zebra");
         assert_eq!(hit.len(), 1);
-        assert_eq!(hit[0].0, panes[1]);
+        assert_eq!(hit[0].0, Some(panes[1]));
         assert!(hit[0].1.ends_with("refactoring zebra"));
     }
 }

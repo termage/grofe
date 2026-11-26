@@ -186,10 +186,38 @@ else `agents.new.worktree` decides (`never` by default, or `always`, or `ask`,
 which prompts for a branch; an empty answer means no worktree). A worktree
 needs a branch: from the shell, pass `-b`.
 
+Scripts can also pass `-P` (print the new pane's id, like `new-window -P`),
+`-e K=V` (a variable for the agent's environment, repeatable; a word without
+`=` is an error) and a command after `--`, which runs instead of the kind's
+own:
+
+```sh
+id=$(grofe agent new claude -P -c ~/work/api -e ISSUE=42 -- claude --model opus)
+```
+
 Worktrees go to `<repo>/../worktrees/<branch>`, with any `/` in the branch
 turned into `-`. Set `agents.new.worktree-command` to use another tool (for
 example worktrunk); when its last line of output is an existing directory,
 that directory is used.
+
+## Jobs shown as working rows
+
+A Lua script can make a background job show up next to your agents:
+`grofe.system(argv, fn, { agent = { kind = "triage", label = "issue 7" } })`
+(see Running processes in the Lua scripting chapter). `kind` and `label` are
+required. A job is not an agent: it has no pane and no record in the agent
+store, so no `agent-changed` event, hook, `agent next` or attention count
+involves it, and `agent list` leaves it out. While it runs it is one `working`
+row in the sidebar and the grid; Enter on the row does nothing. Two jobs with
+the same label are two rows.
+
+The row lives only while that job runs. When the process exits (0 is `done`,
+anything else `error`), times out, is cancelled with `grofe.cancel`, or the
+config is reloaded, the row goes. On exit or timeout the tray gets a `done` or
+`error` entry under the job's label. Only `notifications.enabled` gates it:
+`on` and `done-min-work` are about an agent's states and do not apply, and with
+no pane there is no seen check, rate limit or desktop message. An `error` entry
+says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
 
 ## How grofe learns an agent's state
 

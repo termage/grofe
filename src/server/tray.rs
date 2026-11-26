@@ -17,7 +17,7 @@ use super::listview::{ListAction, ListState};
 use super::notify::Notification;
 use super::render::{Overlay, OverlayCtx, Screen};
 use crate::cmd::expand;
-use crate::types::{ClientId, PaneId, Rect};
+use crate::types::{ClientId, Rect};
 
 /// Width and height of the tray, percent of the client.
 const WIDTH_PCT: u16 = 80;
@@ -49,7 +49,10 @@ pub fn client_gone(state: &mut State, id: ClientId) {
     state.trays.open.remove(&id);
 }
 
-fn target_label(state: &State, pane: PaneId) -> String {
+fn target_label(state: &State, n: &Notification) -> String {
+    let Some(pane) = n.pane else {
+        return n.label.clone().unwrap_or_default();
+    };
     if !state.model.panes.contains_key(&pane) {
         return pane.to_string();
     }
@@ -82,7 +85,7 @@ fn rows(state: &State) -> Rows {
             vec![
                 if n.read { " " } else { "●" }.to_string(),
                 age(n.at),
-                target_label(state, n.pane),
+                target_label(state, n),
                 n.kind.clone().unwrap_or_default(),
                 n.state.clone(),
                 n.msg.clone().unwrap_or_default(),
@@ -206,13 +209,18 @@ fn click(state: &mut State, size: (u16, u16), st: &mut ListState, m: &Mouse) {
 
 /// Jumps to the notification's pane and marks it read.
 fn enter(state: &mut State, client: ClientId, n: &Notification) {
+    // A job's notification has no pane to jump to: it is only read.
+    let Some(pane) = n.pane else {
+        state.notify.read(n.id);
+        return;
+    };
     let ctx = state.clients.get(&client).map(|c| c.ctx.clone());
     if let Some(ctx) = ctx
-        && let Err(e) = agent::jump(state, &ctx, n.pane)
+        && let Err(e) = agent::jump(state, &ctx, pane)
     {
         clients::show_message(state, client, &e);
     }
-    state.notify.seen(n.pane);
+    state.notify.seen(pane);
 }
 
 pub struct TrayOverlay;
@@ -244,6 +252,7 @@ mod tests {
     use crate::server::clients::AttachRequest;
     use crate::server::input::{Mods, parse_key};
     use crate::server::{dispatch, test_ctx, test_state};
+    use crate::types::PaneId;
     use std::time::Duration;
 
     // The Notifier (T1) is real code here; the clock is the only seam and
@@ -338,8 +347,8 @@ mod tests {
         let window = state.model.panes[&p1].window;
         assert_eq!(state.model.windows[&window].active, p1);
         let items = state.notify.items();
-        assert!(items.iter().find(|n| n.pane == p1).expect("p1").read);
-        assert!(!items.iter().find(|n| n.pane == p2).expect("p2").read);
+        assert!(items.iter().find(|n| n.pane == Some(p1)).expect("p1").read);
+        assert!(!items.iter().find(|n| n.pane == Some(p2)).expect("p2").read);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -349,7 +358,7 @@ mod tests {
         press(&mut state, client, "C-x");
         let items = state.notify.items();
         assert_eq!(items.len(), 1);
-        assert!(items.iter().all(|n| n.pane != p2));
+        assert!(items.iter().all(|n| n.pane != Some(p2)));
         assert!(state.trays.is_open(client));
     }
 
@@ -389,7 +398,7 @@ mod tests {
         TrayHook.on_input(&mut state, client, &click(col), Instant::now());
         let items = state.notify.items();
         assert_eq!(items.len(), 1);
-        assert!(items.iter().all(|n| n.pane != p2));
+        assert!(items.iter().all(|n| n.pane != Some(p2)));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -414,5 +423,24 @@ mod tests {
         state.clients.remove(&client);
         assert!(press(&mut state, client, "Down").is_none());
         assert!(!state.trays.is_open(client));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn enter_on_a_job_entry_marks_it_read() {
+        let (mut state, client, _p1, _p2) = setup();
+        let now = Instant::now();
+        state
+            .notify
+            .on_job_end("triage", "issue 7", "error", Some("exit 3"), now);
+        let unread = |state: &mut State| {
+            let argv = ["display-message", "-p", "#{notifications_unread}"];
+            let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+            dispatch::run(state, &test_ctx(), &argv).expect("display-message")
+        };
+        assert_eq!(unread(&mut state).trim(), "3");
+        open(&mut state, client).expect("open");
+        // Newest first: the first row is the job's.
+        press(&mut state, client, "Enter");
+        assert_eq!(unread(&mut state).trim(), "2");
     }
 }

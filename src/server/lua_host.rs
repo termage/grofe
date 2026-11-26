@@ -2,19 +2,20 @@
 //! `state.lua` is taken out of `State` for every call and put back after,
 //! so the host can hold `&mut State`; a call that finds it taken is nested.
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-
 use crate::cmd;
-use crate::lua::api::{self, Host, Payload};
+use crate::lua::api::{self, Host, Payload, SystemJob};
 use crate::lua::runtime::{Limits, LuaError, Runtime};
 use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
+use crate::server::agents::{headless, valid_kind};
+use crate::server::events::Scope;
 use crate::server::input::{Binding, BindingSource, Key, parse_key};
 use crate::server::lua_async::Async;
 use crate::server::{State, clients, dispatch, prompt};
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const PLUGIN: &str = "lua";
 
@@ -24,6 +25,10 @@ pub struct LuaHost {
     /// Per bind id, the key it took and what held that key before.
     replaced: HashMap<u32, Replaced>,
 }
+
+/// The generation the next runtime gets. Callback ids restart at 1 with each
+/// runtime, so a job queued by an earlier one must be told apart by this.
+static GENERATION: AtomicU64 = AtomicU64::new(1);
 
 struct Replaced {
     table: String,
@@ -155,9 +160,20 @@ impl Host for StateHost<'_> {
         Ok(())
     }
 
-    fn subscribe(&mut self, event: &str, id: u32) -> Result<(), String> {
+    fn subscribe(&mut self, event: &str, id: u32, pane: Option<&str>) -> Result<(), String> {
+        let scope = match pane {
+            Some(p) => {
+                let target = cmd::target::parse_target(p).map_err(|e| e.to_string())?;
+                if !matches!(target, cmd::Target::Pane(_)) {
+                    return Err(format!("grofe.on: pane = {p:?} is not a pane target"));
+                }
+                Some(Scope::resolve(&self.state.model, &self.ctx, &target)?)
+            }
+            None => None,
+        };
         self.async_
-            .subscribe(&mut self.state.events, &self.state.jobs, event, id)
+            .subscribe(&mut self.state.events, &self.state.jobs, event, scope, id)?;
+        Ok(())
     }
 
     fn every(&mut self, ms: u64, id: u32) -> Result<(), String> {
@@ -165,25 +181,29 @@ impl Host for StateHost<'_> {
         Ok(())
     }
 
-    fn system(
-        &mut self,
-        argv: Vec<String>,
-        cwd: Option<String>,
-        timeout_ms: u64,
-        id: u32,
-    ) -> Result<(), String> {
-        self.async_.system(
-            &self.state.jobs,
-            argv,
-            cwd.map(PathBuf::from),
-            Duration::from_millis(timeout_ms),
-            id,
-        );
+    fn system(&mut self, job: SystemJob, id: u32) -> Result<(), String> {
+        if let Some(a) = &job.agent {
+            if !valid_kind(&a.kind) {
+                return Err(format!(
+                    "grofe.system: agent kind {:?} is not a name",
+                    a.kind
+                ));
+            }
+            headless::start(self.state, self.async_.generation(), id, &a.kind, &a.label);
+        }
+        self.async_.system(&self.state.jobs, job, id);
         Ok(())
+    }
+
+    fn agent_history(&mut self, pane: &str, n: usize) -> Result<Vec<String>, String> {
+        let target = cmd::target::parse_target(pane).map_err(|e| e.to_string())?;
+        let id = cmd::Resolve::resolve_pane(&self.state.model, &target, &self.ctx)?;
+        Ok(self.state.agents.history(id, n))
     }
 
     fn cancel(&mut self, id: u32) {
         self.async_.cancel(id);
+        headless::cancel(self.state, self.async_.generation(), id);
         let Some(r) = self.replaced.remove(&id) else {
             return;
         };
@@ -247,7 +267,7 @@ fn with_host<R>(
             api::install(&rt)?;
             LuaHost {
                 rt,
-                async_: Async::default(),
+                async_: Async::new(GENERATION.fetch_add(1, Ordering::Relaxed)),
                 replaced: HashMap::new(),
             }
         }
@@ -326,6 +346,7 @@ pub(crate) fn reset(state: &mut State) {
     if let Some(mut lua) = state.lua.take() {
         lua.async_.cancel_all();
     }
+    headless::clear(state);
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
 }
@@ -479,6 +500,25 @@ pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
     });
     if let Err(e) = r {
         log_error(state, &e);
+    }
+}
+
+/// Whether runtime generation `generation` is the one running: a job queued by an
+/// earlier runtime names callbacks that are not this one's.
+pub(crate) fn is_current(state: &State, generation: u64) -> bool {
+    state
+        .lua
+        .as_ref()
+        .is_some_and(|l| l.async_.generation() == generation)
+}
+
+/// The subscription behind callback `id` ended on the server's side (its
+/// pane, window or session closed): its callback is freed.
+pub(crate) fn forget_subscription(state: &mut State, id: u32) {
+    if let Some(lua) = state.lua.as_mut()
+        && lua.async_.forget(id)
+    {
+        api::release(&lua.rt, id);
     }
 }
 

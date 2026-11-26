@@ -20,6 +20,7 @@ fn pane_output_only_when_named() {
         filters: vec![],
         scope: None,
         gone: false,
+        owned: false,
         tx: tx.clone(),
         dropped: 0,
     };
@@ -27,6 +28,7 @@ fn pane_output_only_when_named() {
         filters: names(&["*"]),
         scope: None,
         gone: false,
+        owned: false,
         tx: tx.clone(),
         dropped: 0,
     };
@@ -34,6 +36,7 @@ fn pane_output_only_when_named() {
         filters: names(&["pane-output"]),
         scope: None,
         gone: false,
+        owned: false,
         tx,
         dropped: 0,
     };
@@ -390,6 +393,7 @@ async fn emit_agent_changed_names_the_pane_and_states() {
         new: Some(AgentState::Idle),
         kind: None,
         session_changed: false,
+        msg: None,
     };
     emit_agent_changed(&mut state, pane, &change);
     state.events.flush(&state.model);
@@ -445,4 +449,117 @@ async fn seen_marks_read() {
     state.clients.get_mut(&accepted.id).expect("client").focused = true;
     mark_agents_seen(&mut state);
     assert!(state.notify.items()[0].read);
+}
+
+/// `pane-created` comes where the pane enters the model, so before the
+/// `window-created` of the command that made it; `pane-closed` follows the
+/// `pane-exited` of the kill that removed it. Both fire for a pane made and
+/// killed before any flush.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pane_created_and_closed_follow_the_model_in_order() {
+    use crate::server::{dispatch, test_ctx, test_state};
+    let mut state = test_state();
+    let ctx = test_ctx();
+    let run = |state: &mut State, words: &[&str]| {
+        let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        dispatch::run(state, &ctx, &argv).expect("command")
+    };
+    run(&mut state, &["new-session", "-d", "-s", "a", "sleep 600"]);
+    let (tx, mut rx) = mpsc::channel(16);
+    let all = names(&[
+        "pane-created",
+        "pane-closed",
+        "pane-exited",
+        "window-created",
+    ]);
+    state.events.subscribe(all, None, tx).expect("subscribe");
+    let made = run(
+        &mut state,
+        &[
+            "new-window",
+            "-d",
+            "-t",
+            "a",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            "sleep 600",
+        ],
+    );
+    let pane = made.trim().to_string();
+    run(&mut state, &["kill-pane", "-t", &pane]);
+    crate::server::hooks::run_pending(&mut state);
+    state.events.flush(&state.model);
+    let mut got = Vec::new();
+    while let Ok(e) = rx.try_recv() {
+        got.push(e.name());
+    }
+    assert_eq!(
+        got,
+        [
+            "pane-created",
+            "window-created",
+            "pane-exited",
+            "pane-closed"
+        ]
+    );
+}
+
+/// A pane spawned and then rolled back (the `split-window` and popup
+/// failure paths, which a command cannot reach) is closed exactly once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rolled_back_pane_is_closed_once() {
+    use crate::server::{dispatch, test_ctx, test_state};
+    let mut state = test_state();
+    let ctx = test_ctx();
+    let argv: Vec<String> = ["new-session", "-d", "-s", "a", "sleep 600"]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    dispatch::run(&mut state, &ctx, &argv).expect("new-session");
+    let (session, window) = {
+        let w = state.model.windows.values().next().expect("window");
+        (w.session, w.id)
+    };
+    let (tx, mut rx) = mpsc::channel(16);
+    state
+        .events
+        .subscribe(names(&["pane-closed"]), None, tx)
+        .expect("subscribe");
+    let size = (80, 24);
+    let cwd = std::env::temp_dir();
+    let new = dispatch::spawn_pane(&mut state, (session, window), vec![], None, cwd, size, None)
+        .expect("spawn");
+    state.model.take_panes(&[new], Some(session));
+    crate::server::hooks::run_pending(&mut state);
+    crate::server::hooks::run_pending(&mut state);
+    state.events.flush(&state.model);
+    assert_eq!(rx.try_recv().ok(), Some(Event::PaneClosed { pane: new }));
+    assert!(rx.try_recv().is_err());
+}
+
+/// A pane hidden into the scratchpad history is alive for a pane scope; once
+/// the history drops it, the scope is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hidden_scratchpad_is_in_scope() {
+    use crate::server::{dispatch, test_ctx, test_state};
+    let mut state = test_state();
+    let ctx = test_ctx();
+    for words in [
+        &["new-session", "-d", "-s", "a", "sleep 600"][..],
+        &["new-scratchpad", "sleep 600"],
+    ] {
+        let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        dispatch::run(&mut state, &ctx, &argv).expect("command");
+    }
+    let pad = *state.model.panes.keys().last().expect("pad");
+    let scope = Scope::Pane(pad);
+    assert!(scope.alive(&state.model));
+    state.model.stash_pane(pad).expect("hide");
+    assert!(!state.model.panes.contains_key(&pad));
+    assert!(scope.alive(&state.model));
+    state
+        .model
+        .drop_stashed(pad, state.model.scratch[0].pane.handle.generation());
+    assert!(!scope.alive(&state.model));
 }

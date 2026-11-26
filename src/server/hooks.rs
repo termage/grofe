@@ -1210,17 +1210,17 @@ pub(crate) fn pane_exited(state: &mut State, pane: PaneId, window: WindowId) {
     notify(state, f);
 }
 
-/// Runs what is pending after a command sequence (before its reply) or a
-/// pane event: `session-closed` for each session the model removed (the
-/// current pane as context), and hooks a full job queue refused. At the
-/// end of a CLI request (not inside a hook, nor at the end of a command
-/// the request runs inside another, as `if-shell -F` runs its branch), a
-/// request queue still waiting on a shell holds the reply
-/// ([`take_reply_hold`]). A nested command's hook is on the request's one
-/// queue, so the reply waits for every hook the request fired.
+/// Runs what is pending after a command sequence (before its reply) or a pane event: the
+/// `pane-closed` of each pane the model dropped, `session-closed` for each session it removed (the
+/// current pane as context), and hooks a full job queue refused. At the end of a CLI request (not
+/// inside a hook, nor at the end of a command the request runs inside another, as `if-shell -F`
+/// runs its branch), a request queue still waiting on a shell holds the reply
+/// ([`take_reply_hold`]). A nested command's hook is on the request's one queue, so the reply
+/// waits for every hook the request fired.
 pub(crate) fn run_pending(state: &mut State) {
     prune(state);
     crate::server::alerts::drain(state);
+    state.events.panes_closed(&mut state.model);
     for (session, name) in std::mem::take(&mut state.model.closed_sessions) {
         crate::server::remote::session_closed(state, session);
         let closed = Event::SessionClosed {

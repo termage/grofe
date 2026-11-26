@@ -9,6 +9,7 @@
 //! ponytail: right side only; a left side needs a `window_left` at every
 //! `window_top` site.
 
+mod jobs;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -115,10 +116,10 @@ pub(crate) fn client_gone(state: &mut State, client: ClientId) {
     state.sidebars.clients.remove(&client);
 }
 
-/// One agent entry: its pane and the window it is labelled with, after
-/// the session's name when that is not the client's own.
+/// One agent entry: its pane (none for a job) and the window it is labelled
+/// with, after the session's name when that is not the client's own.
 struct Row {
-    pane: PaneId,
+    pane: Option<PaneId>,
     label: String,
 }
 
@@ -128,7 +129,7 @@ fn field(state: &State, pane: PaneId, format: &str) -> String {
 }
 
 /// Agents grouped by session, the client's own session first, then by the
-/// most urgent agent in each; urgency order inside a group.
+/// most urgent agent in each; urgency order inside a group; jobs last.
 fn rows(state: &State, client: ClientId) -> Vec<Row> {
     let own = state
         .clients
@@ -159,10 +160,11 @@ fn rows(state: &State, client: ClientId) -> Vec<Row> {
                 format!("{session}:")
             };
             panes.into_iter().map(move |pane| Row {
-                pane,
+                pane: Some(pane),
                 label: format!("{prefix}{}", field(state, pane, "#{window_name}")),
             })
         })
+        .chain(jobs::rows(state))
         .collect()
 }
 
@@ -277,8 +279,8 @@ fn strip(state: &State, client: ClientId, cols: u16, rows: u16) -> Option<Strip>
 
 /// The state glyph at the head of an entry: one-cell marks that read as
 /// a column, so the names line up.
-fn glyph(a: &Agent) -> &'static str {
-    match rank(a) {
+fn glyph(rank: Rank) -> &'static str {
+    match rank {
         Rank::Blocked => "‖",
         Rank::Error => "✗",
         Rank::Unseen | Rank::Done => "✓",
@@ -304,9 +306,9 @@ fn detail(a: &Agent) -> String {
 /// frame's (`agent-blocked-border-style`).
 // ponytail: the other states take fixed named colours, as message pills
 // do, so the terminal's theme picks the shades; no option per state yet.
-fn state_style(a: &Agent, blocked: Style, dim: Style) -> Style {
+fn state_style(rank: Rank, blocked: Style, dim: Style) -> Style {
     let named = status::parse_style;
-    match rank(a) {
+    match rank {
         Rank::Blocked => blocked,
         Rank::Error => named("fg=red"),
         Rank::Unseen | Rank::Done => named("fg=green"),
@@ -390,11 +392,11 @@ fn store(state: &mut State, client: ClientId, list: ListState, focused: bool) {
     clients::mark_dirty(state, client);
 }
 
-fn jump(state: &mut State, client: ClientId, pane: PaneId) {
+fn jump(state: &mut State, client: ClientId, pane: Option<PaneId>) {
     let Some(ctx) = state.clients.get(&client).map(|c| c.ctx.clone()) else {
         return;
     };
-    if let Err(e) = agent::jump(state, &ctx, pane) {
+    if let Err(e) = pane.map_or(Ok(()), |p| agent::jump(state, &ctx, p)) {
         clients::show_message(state, client, &e);
     }
 }
@@ -495,9 +497,8 @@ impl Overlay for SidebarOverlay {
             if y + 2 > inside.y1 {
                 break;
             }
-            let Some(a) = state.agents.get(row.pane) else {
-                continue;
-            };
+            let a = row.pane.and_then(|p| state.agents.get(p));
+            let (r, label, text) = jobs::entry(a, row);
             let selected = focused && k == list.selected;
             let base = if selected { look.mode } else { plain };
             if selected {
@@ -510,17 +511,15 @@ impl Overlay for SidebarOverlay {
             let glyph_style = if selected {
                 base
             } else {
-                state_style(a, look.blocked, dim)
+                state_style(r, look.blocked, dim)
             };
             let mut name = base;
             name.attrs |= CellFlags::BOLD;
             let mut muted = base;
             muted.attrs |= CellFlags::DIM;
-            let kind = a.kind.as_deref().unwrap_or("agent");
-            let at = put_text(screen, tx, y, end, glyph(a), &glyph_style);
-            let label = format!(" {kind} · {}", row.label);
+            let at = put_text(screen, tx, y, end, glyph(r), &glyph_style);
             put_fit(screen, at, y, end, &label, &name);
-            put_fit(screen, tx + 2, y + 1, end, &detail(a), &muted);
+            put_fit(screen, tx + 2, y + 1, end, &text, &muted);
         }
     }
 }
@@ -621,7 +620,7 @@ mod tests {
 
     /// Sessions `a` (panes p1, p2 in two windows) and `b` (p3), a client of
     /// `cols` columns on `b`. p1 blocked, p2 idle, p3 working.
-    fn setup(
+    pub(super) fn setup(
         cols: u16,
     ) -> (
         State,
@@ -708,7 +707,7 @@ mod tests {
         screen
     }
 
-    fn lines(state: &State, client: ClientId, cols: u16) -> Vec<String> {
+    pub(super) fn lines(state: &State, client: ClientId, cols: u16) -> Vec<String> {
         screen(state, client, cols)
             .cells
             .chunks(usize::from(cols))

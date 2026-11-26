@@ -156,7 +156,7 @@ pub(crate) fn check_unattached(state: &mut State) {
         };
         if destroy {
             let removed = state.model.remove_session(id);
-            state.events.panes_killed(removed);
+            state.events.panes_killed(&mut state.model, removed);
         }
     }
     if state.model.closed() {

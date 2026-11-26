@@ -443,9 +443,7 @@ fn handle_pane_event(state: &mut State, event: PaneEvent) {
         kind,
     } = event;
     let Some(p) = state.model.panes.get(&pane) else {
-        if matches!(kind, PaneEventKind::Exited(..)) {
-            state.model.drop_stashed(pane, generation);
-        }
+        model::stash::hidden_exited(state, pane, generation, &kind);
         return;
     };
     if p.handle.generation() != generation {

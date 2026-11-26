@@ -235,3 +235,25 @@ fn bad_flag_missing_arg_and_too_many_are_pinned() {
     }
     assert_eq!(got.lines().count(), want.lines().count());
 }
+
+/// Words before `--` are the kind (one only); the words after it are the
+/// command, whatever they look like.
+#[test]
+fn agent_new_splits_at_the_dashdash() {
+    use crate::cmd::{AgentCmd, Command};
+    let argv = |w: &[&str]| w.iter().map(|w| (*w).to_string()).collect::<Vec<_>>();
+    let Ok(Command::Agent(AgentCmd::New(n))) =
+        parse(&argv(&["agent", "new", "claude", "--", "sh", "-c", "x"]))
+    else {
+        panic!("parse")
+    };
+    assert_eq!(
+        (n.kind.as_str(), n.command),
+        ("claude", argv(&["sh", "-c", "x"]))
+    );
+    let stray = run(&["agent", "new", "claude", "stray", "--", "sh"]);
+    assert!(
+        stray.starts_with("err ") && stray.contains("too many"),
+        "{stray}"
+    );
+}

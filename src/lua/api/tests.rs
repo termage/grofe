@@ -10,6 +10,8 @@ struct FakeHost {
     binds: Vec<(String, String, u32, Option<String>, bool)>,
     everys: Vec<(u64, u32)>,
     cancelled: Vec<u32>,
+    subs: Vec<(u32, Option<String>)>,
+    jobs: Vec<SystemJob>,
 }
 
 impl Host for FakeHost {
@@ -35,15 +37,20 @@ impl Host for FakeHost {
             .push((table.into(), key.into(), id, desc, repeat));
         Ok(())
     }
-    fn subscribe(&mut self, _: &str, _: u32) -> Result<(), String> {
+    fn subscribe(&mut self, _: &str, id: u32, pane: Option<&str>) -> Result<(), String> {
+        self.subs.push((id, pane.map(String::from)));
         Ok(())
     }
     fn every(&mut self, ms: u64, id: u32) -> Result<(), String> {
         self.everys.push((ms, id));
         Ok(())
     }
-    fn system(&mut self, _: Vec<String>, _: Option<String>, _: u64, _: u32) -> Result<(), String> {
+    fn system(&mut self, job: SystemJob, _: u32) -> Result<(), String> {
+        self.jobs.push(job);
         Ok(())
+    }
+    fn agent_history(&mut self, pane: &str, n: usize) -> Result<Vec<String>, String> {
+        Ok(vec![format!("{pane}:{n}")])
     }
     fn cancel(&mut self, id: u32) {
         self.cancelled.push(id);
@@ -232,4 +239,75 @@ fn test_callback_over_budget_errors() {
         "{e}"
     );
     assert!(t.elapsed() < Duration::from_millis(150));
+}
+
+#[test]
+fn test_system_options_reach_the_host() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let _: () = eval(
+        &rt,
+        &mut h,
+        "grofe.system({'cat'}, function() end, {env = {A = 'b'}, stdin = 'in', \
+         on_line = function() end, timeout_ms = 3600000, \
+         agent = {kind = 'triage', label = 'x'}})",
+    )
+    .unwrap();
+    let job = &h.jobs[0];
+    assert_eq!(job.env, [("A".to_string(), "b".to_string())]);
+    assert_eq!(job.stdin.as_deref(), Some("in"));
+    assert_eq!(job.timeout_ms, 3_600_000);
+    assert!(job.on_line.is_some());
+    let agent = job.agent.as_ref().unwrap();
+    assert_eq!((&*agent.kind, &*agent.label), ("triage", "x"));
+}
+
+#[test]
+fn test_system_option_errors_raise() {
+    let rt = rt();
+    for (opts, want) in [
+        ("{timeout_ms = 3600001}", "timeout_ms"),
+        ("{agent = {label = 'x'}}", "agent.kind"),
+        ("{agent = {kind = 'k'}}", "agent.label"),
+        ("{agent = {kind = 'k', label = 'x', color = 1}}", "color"),
+    ] {
+        let mut h = FakeHost::default();
+        let e = eval::<()>(
+            &rt,
+            &mut h,
+            &format!("grofe.system({{'true'}}, function() end, {opts})"),
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains(want), "{opts}: {e}");
+        assert!(h.jobs.is_empty());
+    }
+}
+
+#[test]
+fn test_on_takes_a_pane_scope_and_history_passes_through() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let out: String = eval(
+        &rt,
+        &mut h,
+        "grofe.on('agent-changed', function() end, {pane = '%4'}) \
+         return grofe.agent.history('%4', 2)[1]",
+    )
+    .unwrap();
+    assert_eq!(out, "%4:2");
+    assert_eq!(h.subs[0].1.as_deref(), Some("%4"));
+}
+
+#[test]
+fn test_on_rejects_an_unknown_option_key() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let e = eval::<()>(
+        &rt,
+        &mut h,
+        "grofe.on('pane-closed', function() end, {pane = '%1', scope = 'x'})",
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("unknown option scope"), "{e}");
+    assert!(h.subs.is_empty());
 }

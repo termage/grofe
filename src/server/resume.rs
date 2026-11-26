@@ -318,6 +318,7 @@ fn sweep_agents(state: &mut State) {
             new: None,
             kind: old.kind,
             session_changed: false,
+            msg: None,
         };
         crate::server::events::emit_agent_changed(state, pane, &change);
         crate::server::clients::redraw_all(state, std::time::Instant::now());
