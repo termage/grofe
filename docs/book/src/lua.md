@@ -116,14 +116,14 @@ window raises an error, as does any other option key. The subscription ends when
 - `env`: a table of variables added to the environment.
 - `stdin`: text fed to the process, which is then closed.
 - `on_line`: called with each line of stdout as it arrives (the last one even without a
-  newline). The result still holds all of stdout.
+  newline), with one trailing `\r` removed. The result still holds all of stdout.
 - `timeout_ms`: at most 3600000 (one hour), default 10000. At the timeout grofe kills the process
   and everything it started (its whole process group) and reports `code = -1`.
 - `agent`: `{ kind, label }` shows the job as a `working` row while it runs; see
   [Jobs shown as working rows](agents.md#jobs-shown-as-working-rows). `kind` and `label` are
   required.
 
-A bad option, or a key that is not one of these, raises an error naming it when `system` is called. Output that is not valid UTF-8 is
+A bad option value, or a key that is not one of these, raises an error naming it when `system` is called. Output that is not valid UTF-8 is
 converted with replacement characters.
 
 `grofe.agent.history(pane, n)` returns the last `n` messages the pane's agent reported, oldest

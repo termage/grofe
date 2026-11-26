@@ -1,9 +1,17 @@
 //! A2a bullet 5: `pane-created`, `pane-closed`, pane-scoped `grofe.on`.
 
 use crate::helpers::{new_pane, opt, server, stays_empty, wait_opt};
-use crate::support::lua_ok;
+use crate::support::{lua, lua_ok};
 
 const APPEND: &str = "grofe.cmd{'set-option','-g','-a','@r', p.pane .. ','}";
+
+#[test]
+fn empty_pane_scope_is_rejected() {
+    let srv = server();
+    let err = lua(&srv, "grofe.on('pane-closed', function() end, {pane = ''})")
+        .expect_err("an empty target is not a pane");
+    assert!(err.contains("is not a pane target"), "{err}");
+}
 
 #[test]
 fn pane_created_event_carries_the_pane() {

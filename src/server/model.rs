@@ -1352,7 +1352,7 @@ impl Resolve for Model {
     }
 }
 
-mod stash;
+pub(crate) mod stash;
 mod tokens;
 
 #[cfg(test)]

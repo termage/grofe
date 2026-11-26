@@ -85,9 +85,9 @@ pub fn read(argv: Vec<String>, opts: Option<Table>) -> mlua::Result<(SystemJob, 
             }
         }
     }
-    job.cwd = o.get("cwd")?;
-    job.stdin = o.get("stdin")?;
-    if let Some(ms) = o.get::<Option<u64>>("timeout_ms")? {
+    job.cwd = opt_get(&o, "cwd")?;
+    job.stdin = opt_get(&o, "stdin")?;
+    if let Some(ms) = opt_get::<Option<u64>>(&o, "timeout_ms")? {
         if ms > MAX_TIMEOUT_MS {
             return Err(err(format!(
                 "grofe.system: timeout_ms is at most {MAX_TIMEOUT_MS} (one hour)"
@@ -95,15 +95,22 @@ pub fn read(argv: Vec<String>, opts: Option<Table>) -> mlua::Result<(SystemJob, 
         }
         job.timeout_ms = ms;
     }
-    if let Some(env) = o.get::<Option<Table>>("env")? {
+    if let Some(env) = opt_get::<Option<Table>>(&o, "env")? {
         for pair in env.pairs::<String, String>() {
-            job.env.push(pair?);
+            let (k, v) = pair.map_err(|e| err(format!("grofe.system: env: {e}")))?;
+            job.env.push((k, v));
         }
     }
-    if let Some(agent) = o.get::<Option<Table>>("agent")? {
+    if let Some(agent) = opt_get::<Option<Table>>(&o, "agent")? {
         job.agent = Some(agent_of(agent)?);
     }
-    Ok((job, o.get("on_line")?))
+    Ok((job, opt_get(&o, "on_line")?))
+}
+
+/// An option's value, a wrong type erroring as `grofe.system: <key>: ...`.
+fn opt_get<T: mlua::FromLua>(o: &Table, key: &str) -> mlua::Result<T> {
+    o.get(key)
+        .map_err(|e| err(format!("grofe.system: {key}: {e}")))
 }
 
 impl SystemJob {

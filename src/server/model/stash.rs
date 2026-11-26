@@ -138,3 +138,18 @@ impl Model {
         true
     }
 }
+
+/// A hidden scratchpad's exit: its `pane-closed` goes out now.
+pub(crate) fn hidden_exited(
+    state: &mut crate::server::State,
+    pane: PaneId,
+    generation: u64,
+    kind: &crate::server::pane::PaneEventKind,
+) {
+    if matches!(kind, crate::server::pane::PaneEventKind::Exited(..))
+        && state.model.drop_stashed(pane, generation)
+    {
+        crate::server::hooks::run_pending(state);
+        state.events.flush(&state.model);
+    }
+}

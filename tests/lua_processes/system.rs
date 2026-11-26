@@ -58,6 +58,32 @@ fn on_line_delivers_the_last_line_without_newline() {
 }
 
 #[test]
+fn on_line_strips_one_trailing_cr() {
+    let srv = server();
+    assert_eq!(lines_via(&srv, r"a\r\nb\r\r\nc\r"), "a|b\r|c#0");
+}
+
+#[test]
+fn wrongly_typed_option_names_its_key() {
+    let srv = server();
+    for (opts, key) in [
+        ("{timeout_ms = 'x'}", "timeout_ms"),
+        ("{timeout_ms = -5}", "timeout_ms"),
+        ("{env = {A = true}}", "env"),
+    ] {
+        let err = lua(
+            &srv,
+            &format!("grofe.system({{'true'}}, function() end, {opts})"),
+        )
+        .expect_err("a wrong type must be rejected");
+        assert!(
+            err.contains(&format!("grofe.system: {key}:")),
+            "{opts}: {err}"
+        );
+    }
+}
+
+#[test]
 fn non_utf8_output_still_completes() {
     let srv = server();
     let code = format!(

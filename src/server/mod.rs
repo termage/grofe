@@ -443,11 +443,7 @@ fn handle_pane_event(state: &mut State, event: PaneEvent) {
         kind,
     } = event;
     let Some(p) = state.model.panes.get(&pane) else {
-        // A hidden scratchpad's exit: its `pane-closed` goes out now.
-        if matches!(kind, PaneEventKind::Exited(..)) && state.model.drop_stashed(pane, generation) {
-            hooks::run_pending(state);
-            state.events.flush(&state.model);
-        }
+        model::stash::hidden_exited(state, pane, generation, &kind);
         return;
     };
     if p.handle.generation() != generation {

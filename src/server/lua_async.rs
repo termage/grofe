@@ -80,7 +80,7 @@ fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
                     && let Some(nl) = all[scanned..].iter().position(|b| *b == b'\n')
                 {
                     let end = scanned + nl;
-                    let line = String::from_utf8_lossy(&all[start..end]).into_owned();
+                    let line = line_text(&all[start..end]);
                     start = end + 1;
                     scanned = start;
                     if jobs
@@ -96,12 +96,18 @@ fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
             if let Some((jobs, generation, id)) = &lines
                 && start < all.len()
             {
-                let line = String::from_utf8_lossy(&all[start..]).into_owned();
+                let line = line_text(&all[start..]);
                 let _ = jobs.send(post(*generation, *id, Payload::Line(line))).await;
             }
         }
         String::from_utf8_lossy(&all).into_owned()
     })
+}
+
+/// A line's text, without one trailing `\r` (CRLF output).
+fn line_text(bytes: &[u8]) -> String {
+    let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// Kills the child's process group when dropped (a cancelled job), unless
