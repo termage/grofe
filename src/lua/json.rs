@@ -30,20 +30,28 @@ pub fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
 /// A Luau value as JSON: a table holding 1..n is an array, any other table
 /// an object with string keys. Functions, userdata and NaN are errors.
 pub fn to_json(v: &Value) -> mlua::Result<J> {
-    to_json_at(v, 0)
+    let mut budget = MAX_NODES;
+    to_json_at(v, 0, &mut budget)
 }
 
-fn to_json_at(v: &Value, depth: usize) -> mlua::Result<J> {
+/// A table shared many times is walked once per reference, so the walk is
+/// capped by the values it visits, not just by depth.
+const MAX_NODES: usize = 100_000;
+
+fn to_json_at(v: &Value, depth: usize, budget: &mut usize) -> mlua::Result<J> {
     if depth > MAX_DEPTH {
         return Err(err("table is nested too deep (or loops)"));
     }
+    *budget = budget
+        .checked_sub(1)
+        .ok_or_else(|| err("table is too big to be JSON"))?;
     Ok(match v {
         Value::Nil => J::Null,
         Value::Boolean(b) => J::Bool(*b),
         Value::Integer(i) => J::from(*i),
         Value::Number(n) => number(*n)?,
         Value::String(s) => J::String(s.to_str()?.to_string()),
-        Value::Table(t) => table_to_json(t, depth)?,
+        Value::Table(t) => table_to_json(t, depth, budget)?,
         other => return Err(err(format!("a {} cannot be JSON", other.type_name()))),
     })
 }
@@ -62,12 +70,12 @@ const MAX_ARRAY: usize = 100_000;
 
 /// A table whose keys are all positive integers is an array (holes are
 /// null), one with string keys an object; an empty table is `{}`.
-fn table_to_json(t: &Table, depth: usize) -> mlua::Result<J> {
+fn table_to_json(t: &Table, depth: usize, budget: &mut usize) -> mlua::Result<J> {
     let mut items: Vec<(usize, J)> = Vec::new();
     let mut map = serde_json::Map::new();
     for pair in t.pairs::<Value, Value>() {
         let (k, v) = pair?;
-        let v = to_json_at(&v, depth + 1)?;
+        let v = to_json_at(&v, depth + 1, budget)?;
         match k {
             Value::String(k) => {
                 map.insert(k.to_str()?.to_string(), v);
@@ -202,6 +210,18 @@ mod tests {
         assert!(de_to_json(&toml::de::DeValue::Table(de.into_inner())).is_err());
         let de = toml::de::DeTable::parse("x = 0xFFFFFFFFFFFFFFFFF\n").unwrap();
         assert!(de_to_json(&toml::de::DeValue::Table(de.into_inner())).is_err());
+    }
+
+    #[test]
+    fn test_a_table_shared_many_times_is_refused_quickly() {
+        let lua = Lua::new();
+        let t: Value = lua
+            .load("local t = {} for i = 1, 40 do t = {t, t} end return t")
+            .eval()
+            .unwrap();
+        let start = std::time::Instant::now();
+        assert!(to_json(&t).is_err());
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

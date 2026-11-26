@@ -191,6 +191,7 @@ fn read_store(path: &Path) -> mlua::Result<StoreMap> {
     }
 }
 
+// ponytail: whole-file rewrite per call; fine for small session and comment-id maps
 /// Applies `change` to the store under an exclusive file lock, so servers
 /// sharing the state directory do not lose each other's writes.
 pub(crate) fn update_store(path: &Path, change: impl FnOnce(&mut StoreMap)) -> mlua::Result<()> {
@@ -222,12 +223,18 @@ fn write_durably(path: &Path, text: &str) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("{}.{nanos}.tmp", std::process::id()));
     let mut file = std::fs::File::create(&tmp)?;
     file.write_all(text.as_bytes())?;
-    file.sync_all()?;
+    sync(&file)?;
     std::fs::rename(&tmp, path)?;
     match path.parent() {
-        Some(dir) => std::fs::File::open(dir)?.sync_all(),
+        Some(dir) => sync(&std::fs::File::open(dir)?),
         None => Ok(()),
     }
+}
+
+/// `fsync(2)`. Not `File::sync_all`, which on macOS flushes the drive's
+/// cache too and can take most of a call's 50 ms budget.
+fn sync(file: &std::fs::File) -> std::io::Result<()> {
+    nix::unistd::fsync(file).map_err(std::io::Error::from)
 }
 
 #[cfg(test)]

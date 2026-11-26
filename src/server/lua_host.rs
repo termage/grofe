@@ -177,8 +177,21 @@ impl Host for StateHost<'_> {
 
     fn cancel(&mut self, id: u32) {
         self.async_.cancel(id);
-        if let Some(r) = self.replaced.remove(&id) {
-            restore_key(self.state, id, r);
+        let Some(r) = self.replaced.remove(&id) else {
+            return;
+        };
+        if restore_key(self.state, id, &r) {
+            return;
+        }
+        // A later bind took the key over this one: it gets what this one
+        // had replaced, for when it is cancelled in turn.
+        let next = self.replaced.values_mut().find(|n| {
+            n.table == r.table
+                && n.key == r.key
+                && n.previous.as_ref().is_some_and(|p| p.cmds == lua_call(id))
+        });
+        if let Some(next) = next {
+            next.previous = r.previous;
         }
     }
 
@@ -264,18 +277,20 @@ pub(crate) fn reset(state: &mut State) {
 }
 
 /// Takes bind `id` off its key, if it still holds it, and puts back what
-/// the key had before.
-fn restore_key(state: &mut State, id: u32, r: Replaced) {
+/// the key had before; whether it held the key.
+fn restore_key(state: &mut State, id: u32, r: &Replaced) -> bool {
     let tables = &mut state.registry.key_tables;
     if tables
         .exact(&r.table, &r.key)
         .is_some_and(|b| b.cmds == lua_call(id))
     {
         tables.unbind(&r.table, &r.key);
-        if let Some(previous) = r.previous {
+        if let Some(previous) = r.previous.clone() {
             tables.insert(&r.table, r.key, previous);
         }
+        return true;
     }
+    false
 }
 
 /// Removes every key binding `drop_it` accepts.

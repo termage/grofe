@@ -1,267 +1,9 @@
-//! Spec 2026-11-26-issue-agents, Part A, item A1: the runtime API a pack
-//! needs (`grofe.notify`, `grofe.json`, `grofe.config`, pack-relative
-//! `require`, `grofe.store`, error attribution, manifest `min_api` and
-//! `[options]`). One positive and one error test per item, each on a
-//! private socket and private dirs (`tests/common`).
+//! Packs: require, store, options, manifest, errors and keys.
 
-mod common;
-
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 use std::time::Duration;
 
-use common::TestServer;
-
-const WAIT: Duration = Duration::from_secs(10);
-
-fn write(path: &Path, text: &str) {
-    fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-    fs::write(path, text).expect("write");
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        // Temp repos get no hooks from the user's template directory.
-        .env("GIT_TEMPLATE_DIR", "")
-        .output()
-        .expect("run git");
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-fn lua(srv: &TestServer, code: &str) -> Result<String, String> {
-    srv.cmd(&["lua", code]).map(|s| s.trim().to_string())
-}
-
-fn lua_ok(srv: &TestServer, code: &str) -> String {
-    lua(srv, code).unwrap_or_else(|e| panic!("lua {code:?}: {e}\nlog:\n{}", srv.log()))
-}
-
-fn config_dir(srv: &TestServer) -> PathBuf {
-    srv.config_home.join("grofe")
-}
-
-/// A started server whose config folder holds `init`.
-fn with_init(init: &str) -> TestServer {
-    let srv = TestServer::builder().unstarted();
-    write(&config_dir(&srv).join("init.luau"), init);
-    srv.cmd(&["start-server"]).expect("start-server");
-    srv
-}
-
-/// One pack: its name and files (the manifest is `grofe-plugin.toml`).
-struct Pack<'a> {
-    name: &'a str,
-    files: &'a [(&'a str, &'a str)],
-    /// Extra lines of the user's `[[pack]]` entry.
-    entry: &'a str,
-}
-
-/// A server with `packs` installed through `pack sync` from local bare
-/// repos and loaded at start. `user_init` is the config folder's init.luau.
-fn with_packs(packs: &[Pack], user_init: Option<&str>) -> TestServer {
-    let srv = TestServer::builder().unstarted();
-    let root = srv.home.join("repos");
-    let mut config = String::new();
-    for p in packs {
-        let work = root.join(p.name);
-        for (f, c) in p.files {
-            write(&work.join(f), c);
-        }
-        git(&work, &["init", "-q", "-b", "main"]);
-        git(&work, &["add", "."]);
-        git(&work, &["commit", "-q", "-m", "test: pack"]);
-        let bare = format!("{}.git", p.name);
-        git(&root, &["clone", "-q", "--bare", p.name, &bare]);
-        config.push_str(&format!(
-            "[[pack]]\nsrc = \"file://{}\"\n{}\n",
-            root.join(&bare).display(),
-            p.entry
-        ));
-    }
-    write(&config_dir(&srv).join("config.toml"), &config);
-    if let Some(init) = user_init {
-        write(&config_dir(&srv).join("init.luau"), init);
-    }
-    let mut cmd = srv.command();
-    cmd.args(["pack", "sync"])
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    let out = common::run_bounded(cmd, common::CMD_TIMEOUT);
-    assert!(out.status.success(), "pack sync: {out:?}");
-    srv.cmd(&["start-server"]).expect("start-server");
-    srv
-}
-
-fn manifest(name: &str, extra: &str) -> String {
-    format!("name = \"{name}\"\nmin_api = 1\n{extra}")
-}
-
-fn messages(srv: &TestServer) -> String {
-    srv.cmd(&["show-messages"]).unwrap_or_default()
-}
-
-// grofe.notify
-
-#[test]
-fn notify_posts_a_tray_entry() {
-    let srv = with_init("");
-    srv.cmd(&["new-session", "-d", "-s", "main", "cat"])
-        .expect("new-session");
-    lua_ok(&srv, "grofe.notify('build finished', {level = 'warn'})");
-    let list = srv.cmd(&["notify", "list"]).expect("notify list");
-    assert!(list.contains("build finished"), "{list}");
-    let pane = srv
-        .cmd(&["display-message", "-p", "#{pane_id}"])
-        .expect("pane id");
-    lua_ok(
-        &srv,
-        &format!("grofe.notify('for a pane', {{pane = '{}'}})", pane.trim()),
-    );
-    let list = srv.cmd(&["notify", "list"]).expect("notify list");
-    assert!(list.contains("for a pane"), "{list}");
-}
-
-#[test]
-fn notify_rejects_bad_arguments() {
-    let srv = TestServer::start();
-    let e = lua(&srv, "grofe.notify({})").expect_err("a table is not text");
-    assert!(!e.contains("nil value"), "grofe.notify must exist: {e}");
-    let e = lua(&srv, "grofe.notify('x', {pane = '%999999'})").expect_err("no such pane");
-    assert!(e.contains("pane") || e.contains("999999"), "{e}");
-    assert_eq!(srv.cmd(&["notify", "list"]).expect("list").trim(), "");
-}
-
-// grofe.json
-
-#[test]
-fn json_round_trips_unicode_nested_tables_and_arrays() {
-    let srv = TestServer::start();
-    let code = "local v = grofe.json.decode(grofe.json.encode({\
-        title = 'Grüße 日本語 \\u{1F600}', n = 3, flag = true,\
-        list = {10, 20, 30}, nested = {a = {b = {c = 'deep'}}}}))\
-        return v.title .. '|' .. v.n .. '|' .. tostring(v.flag) .. '|' .. #v.list .. '|' .. v.list[3] .. '|' .. v.nested.a.b.c";
-    assert_eq!(
-        lua_ok(&srv, code),
-        "Grüße 日本語 \u{1F600}|3|true|3|30|deep"
-    );
-}
-
-#[test]
-fn json_distinguishes_arrays_from_objects() {
-    let srv = TestServer::start();
-    assert_eq!(
-        lua_ok(&srv, "return grofe.json.encode({1, 2, 3})"),
-        "[1,2,3]"
-    );
-    assert_eq!(
-        lua_ok(&srv, "return grofe.json.encode({a = 1})"),
-        "{\"a\":1}"
-    );
-    assert_eq!(
-        lua_ok(
-            &srv,
-            "local v = grofe.json.decode('[1,[2],{\"k\":[]}]') return #v .. '|' .. v[2][1] .. '|' .. #v[3].k"
-        ),
-        "3|2|0"
-    );
-}
-
-#[test]
-fn json_decode_of_invalid_text_raises() {
-    let srv = TestServer::start();
-    let e = lua(&srv, "return grofe.json.decode('{\"a\": ')").expect_err("must raise");
-    assert!(!e.contains("nil value"), "grofe.json must exist: {e}");
-    let ok = lua_ok(
-        &srv,
-        "local ok, err = pcall(grofe.json.decode, 'not json') return tostring(ok)",
-    );
-    assert_eq!(ok, "false");
-}
-
-// grofe.config
-
-fn repo_with_project_config(srv: &TestServer, name: &str, text: &str) -> PathBuf {
-    let repo = srv.home.join("proj");
-    fs::create_dir_all(repo.join("sub/deeper")).expect("mkdir");
-    git(&repo, &["init", "-q", "-b", "main"]);
-    write(&repo.join(".grofe").join(format!("{name}.toml")), text);
-    repo
-}
-
-#[test]
-fn config_reads_the_user_file_and_missing_files_are_empty() {
-    let srv = TestServer::start();
-    write(
-        &config_dir(&srv).join("tool.toml"),
-        "name = \"user\"\n[opts]\na = 1\n",
-    );
-    assert_eq!(
-        lua_ok(
-            &srv,
-            "local c = grofe.config('tool') return c.name .. c.opts.a"
-        ),
-        "user1"
-    );
-    assert_eq!(
-        lua_ok(
-            &srv,
-            "local n = 0 for _ in pairs(grofe.config('absent')) do n += 1 end return n"
-        ),
-        "0"
-    );
-}
-
-#[test]
-fn config_project_file_wins_and_merges_nested_tables() {
-    let srv = TestServer::start();
-    write(
-        &config_dir(&srv).join("tool.toml"),
-        "name = \"user\"\nkeep = \"u\"\n[opts]\na = 1\nb = 2\n",
-    );
-    let repo =
-        repo_with_project_config(&srv, "tool", "name = \"project\"\n[opts]\nb = 20\nc = 30\n");
-    let dir = repo.join("sub/deeper");
-    let code = format!(
-        "local c = grofe.config('tool', '{}') return c.name .. c.keep .. c.opts.a .. '|' .. c.opts.b .. '|' .. c.opts.c",
-        dir.display()
-    );
-    assert_eq!(lua_ok(&srv, &code), "projectu1|20|30");
-    // Outside any repo only the user file applies.
-    let code = format!("return grofe.config('tool', '{}').name", srv.home.display());
-    assert_eq!(lua_ok(&srv, &code), "user");
-}
-
-#[test]
-fn config_parse_error_names_file_and_line() {
-    let srv = TestServer::start();
-    write(
-        &config_dir(&srv).join("tool.toml"),
-        "ok = 1\n\nbroken = = 2\n",
-    );
-    let e = lua(&srv, "return grofe.config('tool')").expect_err("must raise");
-    assert!(e.contains("tool.toml"), "{e}");
-    assert!(e.contains('3'), "names line 3: {e}");
-
-    write(&config_dir(&srv).join("tool.toml"), "ok = 1\n");
-    let repo = repo_with_project_config(&srv, "tool", "a = 1\nb = \n");
-    let code = format!("return grofe.config('tool', '{}')", repo.display());
-    let e = lua(&srv, &code).expect_err("must raise");
-    assert!(e.contains(".grofe") && e.contains("tool.toml"), "{e}");
-    assert!(e.contains('2'), "names line 2: {e}");
-}
-
-// Pack-relative require and pack_dir
+use crate::support::*;
 
 #[test]
 fn pack_init_requires_a_module_from_its_own_folder() {
@@ -651,25 +393,6 @@ fn pack_only_functions_raise_outside_a_pack() {
 }
 
 #[test]
-fn notify_rejects_an_unknown_level_and_a_missing_pane() {
-    let srv = TestServer::start();
-    let e = lua(&srv, "grofe.notify('x', {level = 'loud'})").expect_err("bad level");
-    assert!(e.contains("level"), "{e}");
-    let e = lua(&srv, "grofe.notify('x')").expect_err("no pane at all");
-    assert!(e.contains("pane"), "{e}");
-    assert_eq!(srv.cmd(&["notify", "list"]).expect("list").trim(), "");
-}
-
-#[test]
-fn config_refuses_odd_and_reserved_names() {
-    let srv = TestServer::start();
-    for name in ["../x", "a/b", "config", "pack-lock", ""] {
-        let e = lua(&srv, &format!("return grofe.config('{name}')")).expect_err(name);
-        assert!(!e.contains("nil value"), "{name}: {e}");
-    }
-}
-
-#[test]
 fn options_from_the_entry_merge_into_a_nested_manifest_table_key_by_key() {
     let srv = with_packs(
         &[Pack {
@@ -692,22 +415,6 @@ fn options_from_the_entry_merge_into_a_nested_manifest_table_key_by_key() {
 }
 
 #[test]
-fn json_holes_become_null_and_round_trip() {
-    let srv = TestServer::start();
-    assert_eq!(
-        lua_ok(&srv, "return grofe.json.encode({1, nil, 3})"),
-        "[1,null,3]"
-    );
-    assert_eq!(
-        lua_ok(
-            &srv,
-            "return grofe.json.encode(grofe.json.decode('[1,null,3]'))"
-        ),
-        "[1,null,3]"
-    );
-}
-
-#[test]
 fn a_failed_pack_gives_back_the_key_it_replaced() {
     let init =
         "grofe.bind('prefix', 'c', function() end, {desc = 'stolen-key'})\nerror('after-bind')\n";
@@ -724,6 +431,25 @@ fn a_failed_pack_gives_back_the_key_it_replaced() {
     );
     let keys = srv.cmd(&["list-keys", "-T", "prefix"]).expect("list-keys");
     assert!(!keys.contains("stolen-key"), "{keys}");
+    assert!(
+        keys.lines()
+            .any(|l| l.split_whitespace().any(|w| w == "c") && l.contains("new-window")),
+        "the default c binding is back:\n{keys}"
+    );
+}
+
+#[test]
+fn cancelling_two_binds_out_of_order_ends_at_the_default_key() {
+    let srv = TestServer::start();
+    lua_ok(
+        &srv,
+        "local a = grofe.bind('prefix', 'c', function() end, {desc = 'first'})\n\
+         local b = grofe.bind('prefix', 'c', function() end, {desc = 'second'})\n\
+         grofe.cancel(a)\n\
+         grofe.cancel(b)",
+    );
+    let keys = srv.cmd(&["list-keys", "-T", "prefix"]).expect("list-keys");
+    assert!(!keys.contains("lua-call"), "{keys}");
     assert!(
         keys.lines()
             .any(|l| l.split_whitespace().any(|w| w == "c") && l.contains("new-window")),
