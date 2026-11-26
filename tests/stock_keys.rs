@@ -21,8 +21,8 @@ const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 /// The rename prompt, named after its template's command.
 const RENAME_PROMPT: &str = "(select-pane)";
 /// A name the prompt's answer must keep as typed: no quote, backslash,
-/// `$` or `;` in it is read as syntax.
-const AWKWARD: &str = r#"a\b "q" it's $HOME ;x"#;
+/// `~`, `$`, `;` or `%` in it is read as syntax.
+const AWKWARD: &str = r#"~a\b "q" it's $HOME ;x %1 %%"#;
 
 fn ok(srv: &TestServer, args: &[&str]) -> String {
     srv.cmd(args).unwrap_or_else(|e| panic!("{args:?}: {e}"))
@@ -49,7 +49,8 @@ fn wait_title(srv: &TestServer, pane: &str, want: &str) {
 }
 
 /// A grofe-identity server with frames on and session `main` of two
-/// panes titled `old `, `%1` active, and a client attached to it.
+/// panes titled `zero ` and `one `, `%1` active, and a client attached to
+/// it.
 fn server() -> (TestServer, Harness) {
     let srv = TestServer::builder().frames(true).start();
     ok(
@@ -67,8 +68,8 @@ fn server() -> (TestServer, Harness) {
         ],
     );
     ok(&srv, &["split-window", "-h", "-t", "%0", "cat"]);
-    for pane in ["%0", "%1"] {
-        ok(&srv, &["select-pane", "-t", pane, "-T", "old "]);
+    for (pane, name) in [("%0", "zero "), ("%1", "one ")] {
+        ok(&srv, &["select-pane", "-t", pane, "-T", name]);
     }
     let mut client = Harness::spawn_attach_with_env(srv.command(), "main", &[], 80, 24);
     client.wait_for_output(MOUSE_ON, 0);
@@ -96,10 +97,10 @@ fn prefix_e_renames_the_active_pane_and_its_frame_shows_it() {
     client.send(format!("{PREFIX}e"));
     // The prompt starts with the title.
     answer(&mut client, "build");
-    wait_title(&srv, "%1", "old build");
-    assert_eq!(title(&srv, "%0"), "old ");
+    wait_title(&srv, "%1", "one build");
+    assert_eq!(title(&srv, "%0"), "zero ");
     client.wait_until("the title in the frame", WAIT, |s| {
-        s.lines().any(|l| l.contains("( 2 ) \"old build\""))
+        s.lines().any(|l| l.contains("( 2 ) \"one build\""))
     });
 }
 
@@ -108,7 +109,8 @@ fn prefix_e_keeps_the_name_as_typed() {
     let (srv, mut client) = server();
     client.send(format!("{PREFIX}e"));
     answer(&mut client, AWKWARD);
-    wait_title(&srv, "%1", &format!("old {AWKWARD}"));
+    wait_title(&srv, "%1", &format!("one {AWKWARD}"));
+    assert_eq!(title(&srv, "%0"), "zero ");
 }
 
 #[test]
@@ -116,7 +118,8 @@ fn prefix_greater_than_renames_through_the_pane_menu() {
     let (srv, mut client) = server();
     menu_rename(&mut client);
     answer(&mut client, "logs");
-    wait_title(&srv, "%1", "old logs");
+    wait_title(&srv, "%1", "one logs");
+    assert_eq!(title(&srv, "%0"), "zero ");
 }
 
 #[test]
@@ -124,7 +127,8 @@ fn the_pane_menu_keeps_the_name_as_typed() {
     let (srv, mut client) = server();
     menu_rename(&mut client);
     answer(&mut client, AWKWARD);
-    wait_title(&srv, "%1", &format!("old {AWKWARD}"));
+    wait_title(&srv, "%1", &format!("one {AWKWARD}"));
+    assert_eq!(title(&srv, "%0"), "zero ");
 }
 
 /// A right click's Rename renames the pane clicked, not the active one.
@@ -137,8 +141,8 @@ fn the_right_click_menu_renames_the_pane_clicked() {
     client.wait_until("the pane menu", WAIT, |s| s.contains("Rename"));
     client.send("n");
     answer(&mut client, "left");
-    wait_title(&srv, "%0", "old left");
-    assert_eq!(title(&srv, "%1"), "old ");
+    wait_title(&srv, "%0", "zero left");
+    assert_eq!(title(&srv, "%1"), "one ");
 }
 
 #[test]

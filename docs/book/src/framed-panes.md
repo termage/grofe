@@ -23,7 +23,8 @@ with `$HOME` as `~`. A frame too narrow for the path shows only its start.
 To name a pane yourself, press `prefix e`, or choose Rename in the pane's
 menu (a right-click on it, or `prefix >` for the active pane). The prompt
 starts with the current title; the frame shows the new one. Both run
-`select-pane -T`.
+`select-pane -T`, which expands `#` sequences in the name as formats, as
+tmux does, so type `##` for a literal `#`.
 
 Under grofe identity the default `pane-border-format` labels untitled panes
 this way everywhere, so `pane-border-status` lines on unframed panes show the
