@@ -37,6 +37,8 @@ pub(crate) struct Waiter {
 
 impl Agents {
     /// Adds a wait, after dropping those whose CLI is gone.
+    // ponytail: a wait whose CLI hung up is dropped here or at the next change
+    // of its pane's agent, else when its timeout runs out (one hour by default).
     pub(crate) fn add_waiter(&mut self, pane: PaneId, until: Vec<AgentState>, reply: Reply) -> u64 {
         self.waiter_seq += 1;
         let token = self.waiter_seq;

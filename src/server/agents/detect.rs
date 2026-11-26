@@ -28,7 +28,12 @@ pub(crate) enum Source {
     Report,
     Osc,
     Bell,
-    Screen { file: String, rule: String },
+    /// `agent prompt` marked the agent working.
+    Prompt,
+    Screen {
+        file: String,
+        rule: String,
+    },
 }
 
 #[derive(Deserialize)]

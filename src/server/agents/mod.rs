@@ -145,6 +145,7 @@ impl Agents {
         {
             return None;
         }
+        self.scan.prompted.remove(&pane);
         let state = match r.state {
             ReportState::Clear => {
                 let a = self.map.remove(&pane)?;
@@ -236,6 +237,7 @@ impl Agents {
         }
         let mut a = Agent::new(AgentState::Idle, now, binding);
         a.kind = valid_kind(kind).then(|| kind.to_string());
+        self.scan.prompted.remove(&pane);
         self.map.insert(pane, a);
         true
     }
@@ -254,7 +256,7 @@ impl Agents {
         a.unseen = false;
         a.blocked = None;
         a.msg = None;
-        a.source = Some(Source::Report);
+        a.source = Some(Source::Prompt);
         Some(Change {
             old: Some(old),
             new: Some(AgentState::Working),
@@ -297,6 +299,7 @@ impl Agents {
     }
 
     pub(crate) fn remove(&mut self, pane: PaneId) -> Option<Agent> {
+        self.scan.prompted.remove(&pane);
         self.map.remove(&pane)
     }
 

@@ -79,6 +79,81 @@ fn an_answer_before_the_first_read_still_ends_the_wait() {
     assert!(t.elapsed() < Duration::from_secs(2), "{:?}", t.elapsed());
 }
 
+/// Only working and blocked rules, as the built-in files have.
+const NO_IDLE_RULE: &str = "working = \"WORKING:\"\nblocked = \"APPROVE\\\\?\"\n";
+
+#[test]
+fn a_fast_answer_with_no_idle_rule_ends_as_idle_after_a_second_of_quiet() {
+    let f = start(Some(NO_IDLE_RULE));
+    let pane = f.agent_of("fake");
+    let t = Instant::now();
+    let out = f.srv.run(&[
+        "agent",
+        "prompt",
+        &pane,
+        "--wait",
+        "--timeout",
+        "8",
+        "--",
+        "blip",
+    ]);
+    assert_eq!(code(&out), Some(0), "{out:?}");
+    assert_eq!(out.stdout.trim(), "idle");
+    assert!(
+        t.elapsed() >= Duration::from_millis(900),
+        "{:?}",
+        t.elapsed()
+    );
+    assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
+    let why = f.explain(&pane).expect("explain");
+    assert!(why.contains("source: screen"), "{why}");
+}
+
+#[test]
+fn a_prompt_to_a_pane_that_cannot_be_judged_waits_for_a_report() {
+    let f = start(None);
+    let pane = f.agent();
+    let child = f
+        .srv
+        .command()
+        .args([
+            "agent",
+            "prompt",
+            &pane,
+            "--wait",
+            "--timeout",
+            "30",
+            "--",
+            "blip",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn agent prompt");
+    crate::common::quiet_period(Duration::from_millis(2500));
+    assert_eq!(f.state(&pane), "working");
+    let why = f.explain(&pane).expect("explain");
+    assert!(why.contains("source: prompt"), "{why}");
+    f.srv
+        .cmd(&["agent", "report", "idle", "-t", &pane, "--kind", "fake"])
+        .expect("report");
+    let out = child.wait_with_output().expect("agent prompt ends");
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "idle");
+}
+
+#[test]
+fn explain_after_a_prompt_names_the_prompt_as_the_source() {
+    let f = start(Some(DETECT));
+    let pane = f.agent();
+    f.srv
+        .cmd(&["agent", "prompt", &pane, "--", "busy"])
+        .expect("agent prompt");
+    let why = f.explain(&pane).expect("explain");
+    assert!(why.contains("state: working"), "{why}");
+    assert!(why.contains("source: prompt"), "{why}");
+}
+
 #[test]
 fn wait_exits_1_on_timeout() {
     let f = start(Some(DETECT));

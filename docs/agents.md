@@ -253,7 +253,7 @@ says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
   `lines` lines of the screen once its output rests, and matches them against
   the kind's detection file, `working` first, then `blocked`, then `idle`. A
   screen that matches nothing changes nothing, except that a `working` or
-  `blocked` state the screen gave falls back to `idle`. Files for `claude`, `codex`,
+  `blocked` state the screen (or `agent prompt`) gave falls back to `idle`. Files for `claude`, `codex`,
   `gemini`, `opencode` and `aider` are built in and only match obvious prompts.
   `<config dir>/agents/<kind>.toml` replaces the built-in file for that kind:
 
@@ -269,7 +269,8 @@ says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
   always beats the screen.
 
 `grofe agent explain <pane>` prints the kind, the state and where it came from
-(`report`, `osc`, `screen` with the file and the rule that matched, or `bell`).
+(`report`, `osc`, `screen` with the file and the rule that matched, `prompt` for the
+`working` that `agent prompt` set, or `bell`).
 
 ## Prompting and reading agents
 
@@ -278,7 +279,12 @@ says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
   is untrusted, so control characters other than newline and tab are removed.
   A pane with bracketed paste on gets the text as one paste; otherwise newlines
   and tabs become spaces. Once the text is typed the agent is `working`
-  (`agent-changed` fires). With `--wait` it waits for the
+  (`agent-changed` fires; `agent explain` says `source: prompt`). For a pane
+  whose kind has a detection file and that has had no report, that `working`
+  ends as `idle` once the pane has printed output since the prompt and then
+  been quiet for one second with no `working` or `blocked` rule matching (a
+  matching rule sets the state as usual). A pane grofe cannot read this way
+  stays `working` until it reports. With `--wait` it waits for the
   agent's next change to one of the `--until` states (default
   `idle,blocked,done`; any of `idle`, `working`, `blocked`, `done`, `error`) and
   prints it. Exit 1 is a timeout (default one hour), exit 2 a pane that

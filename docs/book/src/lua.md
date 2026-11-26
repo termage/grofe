@@ -134,7 +134,9 @@ first. Grofe keeps the last 50 per agent.
 types `text` and Enter into an agent pane and returns at once; `fn(state)` runs when the agent
 reaches a state in `opts["until"]` (a name, a comma list or a table; default `idle`, `blocked`,
 `done`), or `fn()` after `opts.timeout_ms` (default one hour), when the pane closes or when the agent
-leaves it. A pane that is not an agent or takes no input, or an unknown state, raises an error. The
+leaves it. The agent is `working` once the text is typed, and for a pane grofe reads from the screen
+that ends as `idle` after output has rested for a second with no `working` or `blocked` rule matching;
+a pane it cannot read stays `working` until it reports. A pane that is not an agent or takes no input, or an unknown state, raises an error. The
 text loses its control characters but newline and tab. See
 [Prompting and reading agents](agents.md#prompting-and-reading-agents).
 
