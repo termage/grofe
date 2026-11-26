@@ -94,3 +94,14 @@ fn bad_arguments_are_errors() {
     let e = lua(&srv, "grofe.input('p', 'nope')").expect_err("fn not a function");
     assert!(e.contains("input"), "{e}");
 }
+
+#[test]
+fn a_reload_closes_an_open_input_prompt() {
+    let srv = server();
+    bind_input(&srv);
+    let mut a = attach(&srv, 100, 30);
+    press(&mut a, "k");
+    a.wait_for("Your name:");
+    srv.cmd(&["reload"]).expect("reload");
+    a.wait_until("prompt closed", WAIT, |t| !t.contains("Your name:"));
+}

@@ -36,7 +36,10 @@ struct Repo {
     head: PathBuf,
 }
 
-// ponytail: the repo of a cwd is looked up once and kept for the server's
+// ponytail: process-wide, shared by every server in the process (tests run
+// several), so a cwd is resolved once per process; a poisoned lock is
+// recovered, the map holds no invariant a panic could break.
+// The repo of a cwd is looked up once and kept for the server's
 // life (only the branch is read again, so a checkout shows at once); a
 // directory that becomes a repo, or a repo that moves, is seen after a
 // restart. It is a cache so a render reads no more than one small file per
@@ -67,7 +70,7 @@ fn resolve(cwd: &Path) -> Option<Repo> {
     let common = common.canonicalize().ok()?;
     let named = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
     let repo = match named(&common).as_deref() {
-        Some(".git") => common.parent().and_then(named),
+        Some(n) if n.starts_with('.') => common.parent().and_then(named),
         Some(n) => Some(n.strip_suffix(".git").unwrap_or(n).to_string()),
         None => named(dir),
     }?;
@@ -90,7 +93,7 @@ fn branch_of(head: &Path) -> Option<String> {
 
 /// Where `cwd` sits in a git repository, if it does.
 pub(crate) fn of_cwd(cwd: &Path) -> Option<Info> {
-    let mut cache = CACHE.lock().ok()?;
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let repo = cache
         .entry(cwd.to_path_buf())
         .or_insert_with(|| resolve(cwd));
@@ -190,6 +193,19 @@ mod tests {
         let m = of_cwd(&main).unwrap();
         assert_eq!((m.branch.as_str(), m.linked), ("main", false));
         assert_eq!(w.common, m.common);
+    }
+
+    #[test]
+    fn a_dot_named_common_dir_names_the_repo_after_its_parent() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().canonicalize().unwrap();
+        let (bare, wt) = (base.join("proj/.bare"), base.join("proj/main"));
+        write(&bare.join("HEAD"), "ref: refs/heads/main\n");
+        let admin = bare.join("worktrees/main");
+        write(&admin.join("HEAD"), "ref: refs/heads/main\n");
+        write(&admin.join("commondir"), "../..\n");
+        write(&wt.join(".git"), &format!("gitdir: {}\n", admin.display()));
+        assert_eq!(of_cwd(&wt).unwrap().repo, "proj");
     }
 
     #[test]

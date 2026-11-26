@@ -169,3 +169,21 @@ fn enter_on_a_reply_entry_of_a_closed_pane_says_so_and_asks_nothing() {
     quiet_period(std::time::Duration::from_millis(300));
     assert!(!a.text().contains("Reply to"), "a prompt opened");
 }
+
+/// A pane that exists but holds no agent has nobody to answer either.
+#[test]
+fn enter_on_a_reply_entry_of_a_non_agent_pane_says_so_and_asks_nothing() {
+    let srv = server();
+    let pane = crate::helpers::new_pane(&srv, "cat");
+    lua_ok(
+        &srv,
+        &format!("grofe.notify('Need answer', {{pane = '{pane}', reply = true}})"),
+    );
+    let mut a = attach(&srv, 100, 30);
+    open_tray(&mut a);
+    a.wait_for("Need answer");
+    a.send("\r");
+    a.wait_for(&format!("pane {pane} is not an agent pane"));
+    quiet_period(std::time::Duration::from_millis(300));
+    assert!(!a.text().contains("Reply to"), "a prompt opened");
+}

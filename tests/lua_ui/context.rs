@@ -139,3 +139,24 @@ fn cli_lua_call_has_nil_fields() {
     srv.cmd(&["lua-call", &id]).expect("lua-call");
     assert_eq!(wait_r(&srv), "nil|nil|nil");
 }
+
+/// A key bound straight to the `lua` command is a key press too: it sees
+/// the client, pane and cwd.
+#[test]
+fn key_bound_lua_command_sees_the_context() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cwd = dir.path().canonicalize().expect("canonicalize");
+    let srv = server_in(&cwd);
+    assert_api(&srv, "context");
+    let src = format!("{SHOW_LOCAL} {}", set_r("s"));
+    srv.cmd(&["bind-key", "h", "lua", &src]).expect("bind-key");
+    let mut a = attach(&srv, 100, 30);
+    let pane = srv
+        .cmd(&["display-message", "-p", "#{pane_id}"])
+        .expect("pane")
+        .trim()
+        .to_string();
+    press(&mut a, "h");
+    let want = format!("{}|{pane}|{}", client_name(&srv), cwd.display());
+    assert_eq!(wait_r(&srv), want);
+}

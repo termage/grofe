@@ -173,7 +173,7 @@ call waits: the script goes on, and the callback runs later.
 
 `grofe.context()` returns `{ client, pane, cwd }`: the client's name, the pane id and the pane's
 directory for the key press that runs the callback, and for a chooser or input callback that press
-opened. Outside one (a pack loading, a timer, an event, the `lua` command, `lua-call` from the shell) the fields are `nil`. A
+opened. A key bound to the `lua` command is a key press too. Outside one (a pack loading, a timer, an event, `lua` or `lua-call` from the shell) the fields are `nil`. A
 chooser or prompt opened from a callback with no key press shows on the most recently active
 client.
 

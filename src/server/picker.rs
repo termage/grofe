@@ -29,6 +29,8 @@ pub struct Pickers {
     at: Option<Instant>,
     /// The choosers scripts open (`grofe.choose`).
     choosers: chooser::Choosers,
+    /// The prompts `grofe.input` opens.
+    pub(crate) inputs: super::lua_host::Inputs,
 }
 
 impl Pickers {
@@ -170,6 +172,38 @@ fn home_short(state: &State, pane: PaneId) -> String {
     super::dispatch::options::home_tilde(&cwd)
 }
 
+/// Sessions in worktrees of one repo gather under a header row with the
+/// repo's name; every row under it leads with its branch, then the row label.
+fn regroup(
+    state: &State,
+    found: &[PaneId],
+    found_cols: Vec<Vec<String>>,
+) -> (Vec<Option<PaneId>>, Vec<Vec<String>>) {
+    let infos: Vec<_> = found.iter().map(|p| worktree::of_pane(state, *p)).collect();
+    let (mut panes, mut cols) = (Vec::new(), Vec::new());
+    for block in worktree::arrange(&infos) {
+        let (repo, members) = match block {
+            Block::One(n) => (None, vec![n]),
+            Block::Repo { repo, members } => (Some(repo), members),
+        };
+        let grouped = repo.is_some();
+        if let Some(repo) = repo {
+            panes.push(None);
+            cols.push(vec![String::new(), String::new(), repo]);
+        }
+        for n in members {
+            let mut row = found_cols[n].clone();
+            if let (true, Some(i)) = (grouped, infos[n].as_ref()) {
+                let label = agent::pane_format(state, found[n], "agent-sidebar-format");
+                row[2] = format!("{} · {label}", i.branch);
+            }
+            panes.push(Some(found[n]));
+            cols.push(row);
+        }
+    }
+    (panes, cols)
+}
+
 fn view(state: &State, query: &str) -> View {
     let mut found = Vec::new();
     let mut found_cols = Vec::new();
@@ -202,29 +236,7 @@ fn view(state: &State, query: &str) -> View {
             visible: vec![0],
         };
     }
-    // Sessions in worktrees of one repo gather under a header row with the
-    // repo's name; their rows lead with the branch, then the row label.
-    let infos: Vec<_> = found.iter().map(|p| worktree::of_pane(state, *p)).collect();
-    let (mut panes, mut cols) = (Vec::new(), Vec::new());
-    for block in worktree::arrange(&infos) {
-        let (repo, members) = match block {
-            Block::One(n) => (None, vec![n]),
-            Block::Repo { repo, members } => (Some(repo), members),
-        };
-        if let Some(repo) = repo {
-            panes.push(None);
-            cols.push(vec![String::new(), String::new(), repo]);
-        }
-        for n in members {
-            let mut row = found_cols[n].clone();
-            if let Some(i) = infos[n].as_ref().filter(|i| i.linked) {
-                let label = agent::pane_format(state, found[n], "agent-sidebar-format");
-                row[2] = format!("{} · {label}", i.branch);
-            }
-            panes.push(Some(found[n]));
-            cols.push(row);
-        }
-    }
+    let (panes, cols) = regroup(state, &found, found_cols);
     // A header has no text, so a query matches none.
     let texts: Vec<String> = cols
         .iter()

@@ -181,7 +181,7 @@ fn a_session_in_the_main_checkout_joins_its_worktrees() {
         t.contains("feat-a") && t.contains("feat-b")
     });
     let text = a.text();
-    let (repo, main_row) = (line_of(&text, "bifurcrepo"), line_of(&text, "ee-main"));
+    let (repo, main_row) = (line_of(&text, "bifurcrepo"), line_of(&text, "main · "));
     let (a_row, b_row) = (line_of(&text, "feat-a"), line_of(&text, "feat-b"));
     let hi = a_row.max(b_row).max(main_row);
     assert!(
@@ -253,4 +253,38 @@ fn the_picker_row_is_the_branch_then_the_formatted_label() {
     a.wait_until("rows", WAIT, |t| {
         t.contains("feat-a · ENG-1") && t.contains("feat-b · ENG-2")
     });
+}
+
+/// The main checkout's row leads with its branch too, like the worktrees'.
+#[test]
+fn the_main_checkout_row_leads_with_its_branch() {
+    let r = repos();
+    let srv = server();
+    sessions(&srv, &r);
+    tag_and_format(&srv);
+    srv.cmd(&[
+        "new-session",
+        "-d",
+        "-s",
+        "ee-main",
+        "-x",
+        "80",
+        "-y",
+        "24",
+        "-c",
+        r.main.to_str().expect("utf8"),
+        "cat",
+    ])
+    .expect("new-session");
+    agent_pane_in(&srv, "ee-main");
+    let pane = srv
+        .cmd(&["display-message", "-p", "-t", "ee-main", "#{pane_id}"])
+        .expect("pane")
+        .trim()
+        .to_string();
+    srv.cmd(&["set-option", "-p", "-t", &pane, "@issue", "ENG-9"])
+        .expect("tag pane");
+    let mut a = attach(&srv, 160, 40);
+    press(&mut a, "b");
+    a.wait_until("rows", WAIT, |t| t.contains("main · ENG-9"));
 }

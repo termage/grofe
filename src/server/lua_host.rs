@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 mod ui;
+pub(crate) use ui::Inputs;
 
 const PLUGIN: &str = "lua";
 
@@ -425,6 +426,7 @@ pub(crate) fn reset(state: &mut State) {
     headless::clear(state);
     dispatch::agent_control::clear_lua(state);
     crate::server::picker::chooser::clear(state);
+    ui::clear(state);
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
 }
@@ -561,8 +563,20 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result<String, String> {
-    with_host(state, ctx.clone(), false, |rt, host| {
+    run_chunk_for(state, ctx, None, src)
+}
+
+/// Runs `src` as a chunk; `grofe.context()` reports key press `press` (a
+/// binding's; none for a CLI call).
+pub(crate) fn run_chunk_for(
+    state: &mut State,
+    ctx: &ClientCtx,
+    press: Option<&ClientCtx>,
+    src: &str,
+) -> Result<String, String> {
+    with_press(state, ctx.clone(), false, press.cloned(), |rt, host| {
         api::enter(rt, host, "lua", |lua| {
             let values = lua.load(src).set_name("lua").eval::<mlua::MultiValue>()?;
             let parts: Result<Vec<String>, _> = values.iter().map(|v| v.to_string()).collect();

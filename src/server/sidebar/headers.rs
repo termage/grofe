@@ -133,10 +133,7 @@ pub(super) fn rows(state: &State, client: ClientId) -> Vec<Row> {
                     .flat_map(|n| sessions[*n].panes.iter().copied());
                 rows.push(header(state, repo, all));
                 for n in members {
-                    let branch = infos[n]
-                        .as_ref()
-                        .filter(|i| i.linked)
-                        .map(|i| i.branch.as_str());
+                    let branch = infos[n].as_ref().map(|i| i.branch.as_str());
                     rows.extend(entries(state, &sessions[n], own.as_ref(), branch));
                 }
             }

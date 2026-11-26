@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Default)]
 struct FakeHost {
+    context: Option<Context>,
     runs: Vec<Vec<String>>,
     reply: String,
     fail: Option<String>,
@@ -71,11 +72,11 @@ impl Host for FakeHost {
         Ok(())
     }
     fn context(&mut self) -> Context {
-        Context {
+        self.context.clone().unwrap_or_else(|| Context {
             client: Some("client-1".into()),
             pane: None,
             cwd: Some("/w".into()),
-        }
+        })
     }
     fn choose(&mut self, req: ChooseJob, id: u32) -> Result<(), String> {
         self.chooses.push((req, id));
@@ -340,7 +341,7 @@ fn test_on_rejects_an_unknown_option_key() {
 }
 
 #[test]
-fn test_context_fields_are_nil_when_the_host_has_none() {
+fn test_context_passes_host_fields_through() {
     let rt = rt();
     let mut h = FakeHost::default();
     let out: String = eval(
@@ -350,6 +351,22 @@ fn test_context_fields_are_nil_when_the_host_has_none() {
     )
     .unwrap();
     assert_eq!(out, "client-1nil/w");
+}
+
+#[test]
+fn test_context_fields_are_nil_when_the_host_has_none() {
+    let rt = rt();
+    let mut h = FakeHost {
+        context: Some(Context::default()),
+        ..FakeHost::default()
+    };
+    let out: String = eval(
+        &rt,
+        &mut h,
+        "local c = grofe.context() return tostring(c.client) .. tostring(c.pane) .. tostring(c.cwd)",
+    )
+    .unwrap();
+    assert_eq!(out, "nilnilnil");
 }
 
 #[test]

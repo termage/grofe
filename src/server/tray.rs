@@ -220,6 +220,13 @@ fn enter(state: &mut State, client: ClientId, n: &Notification) {
         if !state.model.panes.contains_key(&pane) {
             return clients::show_message(state, client, &format!("pane {pane} closed"));
         }
+        if state.agents.get(pane).is_none() {
+            return clients::show_message(
+                state,
+                client,
+                &format!("pane {pane} is not an agent pane"),
+            );
+        }
         return ask_reply(state, client, pane, &target_label(state, n));
     }
     let ctx = state.clients.get(&client).map(|c| c.ctx.clone());

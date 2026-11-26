@@ -175,7 +175,7 @@ pub(super) fn draw(state: &State, client: ClientId, screen: &mut Screen) -> bool
     draw_list(screen, list, title, &rows, &shown, &c.list, true);
     screen.cursor = None;
     if let (Some(area), Some(text)) = (
-        preview,
+        preview.filter(|a| a.cols >= 3),
         shown
             .get(c.list.selected)
             .and_then(|&i| c.job.previews.get(i)),

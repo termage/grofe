@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 /// Runs callback `id` for no key press.
 fn call(state: &mut State, id: u32, payload: Payload) {
-    call_for(state, Some(&client_less_ctx()), id, payload);
+    call_for(state, None, id, payload);
 }
 
 fn messages(state: &State) -> String {
