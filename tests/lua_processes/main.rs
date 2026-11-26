@@ -5,6 +5,9 @@
 #[path = "../common/mod.rs"]
 mod common;
 mod events;
+#[allow(dead_code, clippy::duplicate_mod)]
+#[path = "../acceptance/harness.rs"]
+mod harness;
 mod headless;
 mod helpers;
 mod history;

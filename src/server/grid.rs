@@ -87,6 +87,9 @@ fn layout(state: &State, size: (u16, u16)) -> Layout {
 }
 
 fn target_label(state: &State, pane: PaneId) -> String {
+    if let Some(label) = state.agents.get(pane).and_then(|a| a.label.clone()) {
+        return label;
+    }
     let vars = FormatCtx::new(&state.model, pane);
     expand(
         "#{session_name}:#{window_index}.#{pane_index}",
@@ -138,7 +141,7 @@ fn view(state: &State, query: &str) -> Vec<(PaneId, String)> {
         .agents
         .by_urgency()
         .into_iter()
-        .filter(|p| state.model.panes.contains_key(p))
+        .filter(|p| state.model.panes.contains_key(p) || state.agents.is_headless(*p))
         .filter_map(|p| state.agents.get(p).map(|a| (p, title(state, p, a))))
         .collect();
     let texts: Vec<String> = all

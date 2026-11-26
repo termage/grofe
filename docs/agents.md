@@ -186,10 +186,33 @@ else `agents.new.worktree` decides (`never` by default, or `always`, or `ask`,
 which prompts for a branch; an empty answer means no worktree). A worktree
 needs a branch: from the shell, pass `-b`.
 
+Scripts can also pass `-P` (print the new pane's id, like `new-window -P`),
+`-e K=V` (a variable for the agent's environment, repeatable; a word without
+`=` is an error) and a command after `--`, which runs instead of the kind's
+own:
+
+```sh
+id=$(grofe agent new claude -P -c ~/work/api -e ISSUE=42 -- claude --model opus)
+```
+
 Worktrees go to `<repo>/../worktrees/<branch>`, with any `/` in the branch
 turned into `-`. Set `agents.new.worktree-command` to use another tool (for
 example worktrunk); when its last line of output is an existing directory,
 that directory is used.
+
+## Headless agents
+
+A Lua script can make a background job show as an agent, with no pane behind
+it: `grofe.system(argv, fn, { agent = { kind = "triage", label = "issue 7" } })`
+(see Running processes in the Lua scripting chapter). `kind` and `label` are
+required; `state` is the state while it runs (`working` by default). The job
+appears in `agent list`, the sidebar, the grid and the tray like any agent. It
+goes `done` when the process exits with 0 and `error` otherwise, and the tray
+entry says so.
+
+A finished record stays until its tray entry is dismissed or the same label
+runs again. A headless record has no pane, so jumping to it does nothing.
+Cancelling the job with `grofe.cancel` removes it.
 
 ## How grofe learns an agent's state
 
@@ -291,6 +314,7 @@ For your own status line or scripts:
 | Variable | Value |
 |---|---|
 | `agent_kind`, `agent_state`, `agent_msg`, `agent_blocked_kind` | the pane's agent; empty when none |
+| `agent_label` | a headless agent's label; empty for a pane's agent |
 | `agent_since` | seconds in the current state |
 | `agent_unseen`, `agent_attention` | `1` or `0` |
 | `window_agent_state`, `session_agent_state` | the most urgent state in the window or session |

@@ -53,7 +53,7 @@ fn list(state: &State, format: &str) -> String {
         .agents
         .by_urgency()
         .into_iter()
-        .filter(|p| state.model.panes.contains_key(p))
+        .filter(|p| state.model.panes.contains_key(p) || state.agents.is_headless(*p))
         .map(|p| {
             let vars = FormatCtx::new(&state.model, p);
             format!("{}\n", expand(format, &ServerVars::fresh(state, p, &vars)))

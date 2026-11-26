@@ -82,9 +82,11 @@ local s = grofe.fmt("#{session_name}", "%1") -- expand a format, target optional
 local id = grofe.bind("prefix", "g", function() grofe.cmd("display-message hi") end,
   { desc = "Say hi", ["repeat"] = false })   -- bind a key, returns an id
 grofe.on("window-created", function(e) grofe.log("new window") end)
+grofe.on("pane-closed", function(e) grofe.log(e.pane) end, { pane = "%3" }) -- one pane only
 grofe.every(2000, function() end)            -- timer, at least 100 ms
 grofe.system({ "git", "status" }, function(r) grofe.log(r.stdout) end,
   { cwd = "/tmp", timeout_ms = 5000 })       -- r has code, stdout, stderr
+local last = grofe.agent.history("%3", 5)    -- the agent's last 5 messages, oldest first
 grofe.cancel(id)                             -- stop a timer, binding, event or process
 grofe.log("text")                            -- write to the server log
 local cfg = grofe.plugin("my-plugin")        -- what that plugin's init.luau returned
@@ -94,10 +96,33 @@ local value = grofe.json.decode(text)             -- back to a table
 local conf = grofe.config("tool", "/path/in/a/repo") -- settings files, merged
 ```
 
-`grofe.every` and `grofe.system` are the only way to run things over time. `system` kills the
-process at `timeout_ms` (default 10000) and reports `code = -1`. Event names are the ones
+`grofe.every` and `grofe.system` are the only way to run things over time. Event names are the ones
 `grofe control` can subscribe to (see [protocol v1](https://github.com/termage/grofe/blob/main/docs/protocol-v1.md)); the callback receives the
-event as a table.
+event as a table. `pane-created` and `pane-closed` carry the pane id as `pane`, and
+`agent-changed` carries the report's text as `msg`. Pass `{ pane = "%3" }` to `grofe.on` to hear
+only events of that pane; an unknown pane raises an error, and the subscription ends when the
+pane closes.
+
+### Running processes
+
+`grofe.system(argv, fn, opts)` runs `argv` off the server and calls `fn` with
+`{ code, stdout, stderr }` when it ends. The options:
+
+- `cwd`: the working directory.
+- `env`: a table of variables added to the environment.
+- `stdin`: text fed to the process, which is then closed.
+- `on_line`: called with each line of stdout as it arrives (the last one even without a
+  newline). The result still holds all of stdout.
+- `timeout_ms`: at most 3600000 (one hour), default 10000. At the timeout grofe kills the process
+  and everything it started (its whole process group) and reports `code = -1`.
+- `agent`: `{ kind, label, state? }` shows the job as an agent while it runs; see
+  [Headless agents](agents.md#headless-agents). `kind` and `label` are required.
+
+A bad option raises an error when `system` is called. Output that is not valid UTF-8 is
+converted with replacement characters.
+
+`grofe.agent.history(pane, n)` returns the last `n` messages the pane's agent reported, oldest
+first. Grofe keeps the last 50 per agent.
 
 ### Notifications
 

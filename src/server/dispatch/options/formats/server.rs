@@ -154,6 +154,7 @@ impl FormatVars for ServerVars<'_> {
             "pane_unseen_changes" => Some(crate::server::unseen::format_var(self.state, self.pane)),
             "config_files" => Some(super::config_files_list()),
             "agent_kind"
+            | "agent_label"
             | "agent_state"
             | "agent_msg"
             | "agent_blocked_kind"
@@ -335,6 +336,7 @@ impl<'a> ServerVars<'a> {
         };
         match name {
             "agent_kind" => a.kind.clone().unwrap_or_default(),
+            "agent_label" => a.label.clone().unwrap_or_default(),
             "agent_state" => a.state.as_str().to_string(),
             "agent_msg" => a.msg.clone().unwrap_or_default(),
             "agent_blocked_kind" => a.blocked.clone().unwrap_or_default(),

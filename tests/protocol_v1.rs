@@ -255,6 +255,7 @@ fn event_samples() -> Vec<Event> {
             kind: Some("claude".into()),
             old: Some("working".into()),
             new: Some("blocked".into()),
+            msg: None,
         },
         Event::OpenUrl {
             url: "https://example.com/a".into(),
@@ -276,6 +277,12 @@ fn event_samples() -> Vec<Event> {
             msg: Some("Bash ls".into()),
         },
         Event::EventsDropped { count: 3 },
+        Event::PaneCreated {
+            pane: p,
+            window: w,
+            session: s,
+        },
+        Event::PaneClosed { pane: p },
     ]
 }
 
@@ -305,6 +312,8 @@ fn index(event: &Event) -> usize {
         Event::PaneEcho { .. } => 19,
         Event::Notify { .. } => 20,
         Event::EventsDropped { .. } => 21,
+        Event::PaneCreated { .. } => 22,
+        Event::PaneClosed { .. } => 23,
     }
 }
 
@@ -317,6 +326,17 @@ fn event_extras() -> Vec<(&'static str, Event)> {
                 pane: PaneId(4),
                 uid: "01JABCDEFGHJKMNPQRSTVWXYZ0".into(),
                 status: None,
+            },
+        ),
+        (
+            "event-agent-changed-msg",
+            Event::AgentChanged {
+                pane: PaneId(4),
+                uid: "01JABCDEFGHJKMNPQRSTVWXYZ0".into(),
+                kind: None,
+                old: None,
+                new: Some("blocked".into()),
+                msg: Some("needs you".into()),
             },
         ),
         (

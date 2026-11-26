@@ -11,6 +11,8 @@ use mlua::{Function, Lua, Table, Value};
 pub enum Payload {
     None,
     Event(serde_json::Value),
+    /// One line of a child's output, for `on_line`.
+    Line(String),
     System {
         code: i32,
         stdout: String,
@@ -51,6 +53,7 @@ fn run_callback(lua: &Lua, id: u32, payload: Payload) -> mlua::Result<()> {
     };
     match payload {
         Payload::None => f.call::<()>(()),
+        Payload::Line(l) => f.call::<()>(l),
         Payload::Event(v) => f.call::<()>(super::json::from_json(lua, &v)?),
         Payload::System {
             code,

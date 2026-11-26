@@ -150,7 +150,9 @@ shapes.
 | `alert-activity` | `window`, `session`, `pane` | output in a monitored window |
 | `alert-silence` | `window`, `session`, `pane` | silence in a monitored window |
 | `option-changed` | `scope` (`global`, `$N`, `@N` or `%N`), `name`, `value` (nullable: null once unset) | an option's value changed |
-| `agent-changed` | `pane`, `uid`, `kind` (nullable), `old` (nullable: null for a new record), `new` (nullable: null once the record is gone) | a pane's agent state changed |
+| `agent-changed` | `pane`, `uid`, `kind` (nullable), `old` (nullable: null for a new record), `new` (nullable: null once the record is gone), `msg` (nullable: what the report said) | a pane's agent state changed |
+| `pane-created` | `pane`, `window`, `session` | a pane came into the server, however it was made; only for a subscription naming it |
+| `pane-closed` | `pane` | a pane left the server, however it went; only for a subscription naming it |
 | `open-url` | `url`, `pane` (nullable: null when the caller was not in a pane) | `open-url <url>` (`grofe open`, `$BROWSER`) was run with an `http`, `https` or `file` URL; only for a subscription naming it |
 | `ports-changed` | `pane`, `ports` (sorted list of TCP port numbers the pane's process tree listens on, now) | that list changed; polled at most every 2 s while a subscription naming it exists; a new subscription naming it gets a snapshot (one event per pane that listens on any port) on the next poll, which existing subscribers receive too; only for a subscription naming it |
 | `pane-echo` | `pane`, `echo` (the pty's ECHO flag, false while a program reads a password) | the flag changed (a new pane counts as echo on); polled with `ports-changed`; a new subscription naming it gets a snapshot (one event per pane) on the next poll, which existing subscribers receive too; only for a subscription naming it |

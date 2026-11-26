@@ -1,6 +1,7 @@
 //! A2a bullet 3: a `system` job registers as a headless agent record.
 //! Assumed shape (open question): `opts.agent = {kind, label, state?}`.
 
+use crate::harness;
 use crate::helpers::{server, wait_opt};
 use crate::support::{lua, lua_ok};
 
@@ -39,4 +40,26 @@ fn agent_record_without_kind_is_an_error() {
     .expect_err("kind is required");
     assert!(err.contains("kind"), "{err}");
     assert_eq!(list(&srv).trim(), "");
+}
+
+#[test]
+fn headless_record_shows_in_the_sidebar_until_replaced() {
+    let srv = server();
+    let mut a = harness::Harness::spawn_attach_with_env(srv.command(), "main", &[], 160, 30);
+    a.wait_for_output(b"\x1b[2J", 0);
+    lua_ok(
+        &srv,
+        "grofe.system({'sleep','3'}, function() end, \
+         {agent = {kind = 'triage', label = 'zebrafish-7'}})",
+    );
+    a.send("\x02");
+    a.send("b");
+    a.wait_for("zebrafish-7");
+    // The same label again replaces the record: still one.
+    lua_ok(
+        &srv,
+        "grofe.system({'sleep','3'}, function() end, \
+         {agent = {kind = 'triage', label = 'zebrafish-7'}})",
+    );
+    assert_eq!(list(&srv).lines().count(), 1, "{:?}", list(&srv));
 }

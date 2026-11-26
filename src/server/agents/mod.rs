@@ -1,11 +1,12 @@
 //! Agent status: the per-pane store and the report rules (spec §2).
 
+pub(crate) mod headless;
 pub(crate) mod kinds;
 pub(crate) mod osc;
 mod rank;
 mod text;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use crate::server::resume::Binding;
@@ -79,7 +80,17 @@ pub(crate) struct Agent {
     pub reported: bool,
     pub last_report: u64,
     pub binding: Option<Binding>,
+    /// Set for a headless record (a `system` job, no pane): what it shows
+    /// in place of a window name.
+    pub label: Option<String>,
+    /// The messages reports carried, oldest first, up to [`HISTORY_CAP`].
+    pub history: VecDeque<String>,
 }
+
+/// Messages kept per agent for `grofe.agent.history`.
+// ponytail: 50 messages per agent, oldest dropped; no option, and a record
+// that is removed takes its history with it.
+const HISTORY_CAP: usize = 50;
 
 impl Agent {
     fn new(state: AgentState, now: Instant, binding: Option<Binding>) -> Agent {
@@ -94,6 +105,8 @@ impl Agent {
             reported: false,
             last_report: 0,
             binding,
+            label: None,
+            history: VecDeque::new(),
         }
     }
 }
@@ -112,6 +125,9 @@ pub struct Change {
 #[derive(Debug, Default)]
 pub struct Agents {
     map: HashMap<PaneId, Agent>,
+    /// How many headless records were made: each gets the next id down from
+    /// the top, never one a record had before.
+    headless_made: u32,
 }
 
 impl Agents {
@@ -166,6 +182,12 @@ impl Agents {
                 a.session_id = Some(s);
                 changed
             });
+        if let Some(m) = msg.as_ref().filter(|m| a.history.back() != Some(*m)) {
+            if a.history.len() == HISTORY_CAP {
+                a.history.pop_front();
+            }
+            a.history.push_back(m.clone());
+        }
         let content_changed = blocked != a.blocked || msg != a.msg;
         a.blocked = blocked;
         a.msg = msg;
@@ -231,6 +253,43 @@ impl Agents {
             a.msg = msg;
         }
         changed
+    }
+
+    /// A headless record of `kind` called `label`, under a pane id no pane
+    /// has (ids count down from the top of the space).
+    pub(crate) fn insert_headless(&mut self, kind: &str, label: &str, now: Instant) -> PaneId {
+        let pane = PaneId(u32::MAX - self.headless_made);
+        self.headless_made = self.headless_made.wrapping_add(1);
+        let mut a = Agent::new(AgentState::Idle, now, None);
+        a.kind = Some(kind.to_string());
+        a.label = Some(label.to_string());
+        self.map.insert(pane, a);
+        pane
+    }
+
+    pub(crate) fn is_headless(&self, pane: PaneId) -> bool {
+        self.map.get(&pane).is_some_and(|a| a.label.is_some())
+    }
+
+    /// The headless records called `label`.
+    pub(crate) fn headless_labelled(&self, label: &str) -> Vec<PaneId> {
+        self.map
+            .iter()
+            .filter(|(_, a)| a.label.as_deref() == Some(label))
+            .map(|(p, _)| *p)
+            .collect()
+    }
+
+    /// The last `n` messages of `pane`, oldest first.
+    pub(crate) fn history(&self, pane: PaneId, n: usize) -> Vec<String> {
+        let Some(a) = self.map.get(&pane) else {
+            return Vec::new();
+        };
+        a.history
+            .iter()
+            .skip(a.history.len().saturating_sub(n))
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn remove(&mut self, pane: PaneId) -> Option<Agent> {
@@ -420,5 +479,32 @@ mod tests {
         assert_eq!(ag.iter().count(), 1);
         assert!(ag.remove(P).is_some());
         assert!(ag.remove(P).is_none());
+    }
+
+    #[test]
+    fn history_keeps_the_last_messages_up_to_the_cap() {
+        let mut ag = Agents::default();
+        let now = Instant::now();
+        for i in 1..=(HISTORY_CAP as u64 + 5) {
+            let mut r = set(AgentState::Working, i);
+            r.msg = Some(format!("m{i}"));
+            ag.apply(P, r, true, now);
+        }
+        assert_eq!(ag.history(P, 2), ["m54", "m55"]);
+        assert_eq!(ag.history(P, 999).len(), HISTORY_CAP);
+        assert_eq!(ag.history(P, 999)[0], "m6");
+        assert!(ag.history(PaneId(9), 3).is_empty());
+    }
+
+    #[test]
+    fn headless_records_get_fresh_ids_and_are_found_by_label() {
+        let mut ag = Agents::default();
+        let now = Instant::now();
+        let a = ag.insert_headless("triage", "x", now);
+        ag.remove(a);
+        let b = ag.insert_headless("triage", "x", now);
+        assert_ne!(a, b);
+        assert!(ag.is_headless(b) && !ag.is_headless(P));
+        assert_eq!(ag.headless_labelled("x"), [b]);
     }
 }

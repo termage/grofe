@@ -2,18 +2,20 @@
 //! runs off the actor and posts a `Job` that calls `lua_host::call_job`.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncReadExt};
+use nix::sys::signal::Signal;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::{AbortHandle, JoinHandle};
 
-use crate::lua::api::Payload;
-use crate::server::events::QUEUE;
+use crate::lua::api::{Payload, SystemJob};
+use crate::server::agents::headless;
+use crate::server::events::{QUEUE, Scope};
 use crate::server::{Job, events::Events, lua_host};
+use crate::types::PaneId;
 
 #[derive(Default)]
 pub(crate) struct Async {
@@ -24,48 +26,130 @@ fn post(id: u32, payload: Payload) -> Job {
     Box::new(move |state| lua_host::call_job(state, id, payload))
 }
 
-fn read_all<R: AsyncRead + Unpin + Send + 'static>(pipe: Option<R>) -> JoinHandle<String> {
-    tokio::spawn(async move {
-        let mut buf = Vec::new();
-        if let Some(mut p) = pipe {
-            let _ = p.read_to_end(&mut buf).await;
+/// The job that ends a `system` run: its headless record is finished and
+/// forgotten, then the callback runs.
+fn finished(id: u32, payload: Payload, headless: Option<PaneId>) -> Job {
+    Box::new(move |state| {
+        if let Some(pane) = headless {
+            if let Payload::System { code, .. } = &payload {
+                headless::finish(state, pane, *code);
+            }
+            lua_host::forget_headless(state, id);
         }
-        String::from_utf8_lossy(&buf).into_owned()
+        lua_host::call_job(state, id, payload)
     })
 }
 
-async fn run_system(argv: Vec<String>, cwd: Option<PathBuf>, timeout: Duration) -> Payload {
+fn read_all<R: AsyncRead + Unpin + Send + 'static>(pipe: Option<R>) -> JoinHandle<String> {
+    read_lines(pipe, None)
+}
+
+/// Reads `pipe` to its end; each line goes to `lines`' callback as it
+/// arrives, the last one even without a newline.
+fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
+    pipe: Option<R>,
+    lines: Option<(mpsc::Sender<Job>, u32)>,
+) -> JoinHandle<String> {
+    tokio::spawn(async move {
+        let mut all = Vec::new();
+        if let Some(mut p) = pipe {
+            let mut chunk = [0u8; 8192];
+            // Where the line being read starts in `all`.
+            let mut start = 0;
+            loop {
+                let n = match p.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                all.extend_from_slice(&chunk[..n]);
+                while let Some((jobs, id)) = &lines
+                    && let Some(nl) = all[start..].iter().position(|b| *b == b'\n')
+                {
+                    let line = String::from_utf8_lossy(&all[start..start + nl]).into_owned();
+                    start += nl + 1;
+                    if jobs.send(post(*id, Payload::Line(line))).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            if let Some((jobs, id)) = &lines
+                && start < all.len()
+            {
+                let line = String::from_utf8_lossy(&all[start..]).into_owned();
+                let _ = jobs.send(post(*id, Payload::Line(line))).await;
+            }
+        }
+        String::from_utf8_lossy(&all).into_owned()
+    })
+}
+
+/// Kills the child's process group when dropped (a cancelled job), unless
+/// the job ended on its own.
+struct Group(Option<i32>);
+
+impl Group {
+    fn kill(&mut self) {
+        if let Some(pgid) = self.0.take() {
+            let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pgid), Signal::SIGKILL);
+        }
+    }
+}
+
+impl Drop for Group {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
+async fn run_system(job: SystemJob, jobs: mpsc::Sender<Job>) -> Payload {
     let failed = |msg: String| Payload::System {
         code: -1,
         stdout: String::new(),
         stderr: msg,
     };
-    let Some((prog, args)) = argv.split_first() else {
+    let Some((prog, args)) = job.argv.split_first() else {
         return failed("empty argv".into());
     };
     let mut cmd = Command::new(prog);
     cmd.args(args)
-        .stdin(Stdio::null())
+        .envs(job.env.iter().map(|(k, v)| (k, v)))
+        .stdin(if job.stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .kill_on_drop(true);
-    if let Some(cwd) = cwd {
+    if let Some(cwd) = &job.cwd {
         cmd.current_dir(cwd);
     }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return failed(format!("{prog}: {e}")),
     };
-    let out_task = read_all(child.stdout.take());
+    let mut group = Group(child.id().and_then(|p| i32::try_from(p).ok()));
+    if let (Some(text), Some(mut pipe)) = (job.stdin, child.stdin.take()) {
+        // Off this task: input bigger than the pipe waits for the child to read.
+        tokio::spawn(async move {
+            let _ = pipe.write_all(text.as_bytes()).await;
+        });
+    }
+    let out_task = read_lines(child.stdout.take(), job.on_line.map(|id| (jobs, id)));
     let err_task = read_all(child.stderr.take());
+    let timeout = Duration::from_millis(job.timeout_ms);
     let code = match tokio::time::timeout(timeout, child.wait()).await {
         Ok(Ok(status)) => status.code().unwrap_or(-1),
         Ok(Err(_)) => -1,
         Err(_) => {
-            let _ = child.kill().await;
+            group.kill();
+            let _ = child.wait().await;
             -1
         }
     };
+    // It ended by itself: what it left running is its own business.
+    group.0 = None;
     let stdout = out_task.await.unwrap_or_default();
     let stderr = err_task.await.unwrap_or_default();
     Payload::System {
@@ -103,10 +187,11 @@ impl Async {
         events: &mut Events,
         jobs: &mpsc::Sender<Job>,
         name: &str,
+        scope: Option<Scope>,
         id: u32,
     ) -> Result<(), String> {
         let (tx, mut rx) = mpsc::channel(QUEUE);
-        events.subscribe(vec![name.to_string()], None, tx)?;
+        events.subscribe(vec![name.to_string()], scope, tx)?;
         let jobs = jobs.clone();
         let task = tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
@@ -120,18 +205,19 @@ impl Async {
         Ok(())
     }
 
+    /// Runs `job`; `headless` is the agent record that follows it, finished
+    /// when the job ends, just before its callback runs.
     pub(crate) fn system(
         &mut self,
         jobs: &mpsc::Sender<Job>,
-        argv: Vec<String>,
-        cwd: Option<PathBuf>,
-        timeout: Duration,
+        job: SystemJob,
+        headless: Option<PaneId>,
         id: u32,
     ) {
         let jobs = jobs.clone();
         let task = tokio::spawn(async move {
-            let payload = run_system(argv, cwd, timeout).await;
-            let _ = jobs.send(post(id, payload)).await;
+            let payload = run_system(job, jobs.clone()).await;
+            let _ = jobs.send(finished(id, payload, headless)).await;
         });
         self.track(id, task.abort_handle());
     }
@@ -152,6 +238,23 @@ impl Async {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn job(argv: Vec<String>, timeout: Duration) -> SystemJob {
+        SystemJob {
+            argv,
+            cwd: None,
+            timeout_ms: timeout.as_millis() as u64,
+            env: Vec::new(),
+            stdin: None,
+            on_line: None,
+            agent: None,
+        }
+    }
+
+    async fn run(job: SystemJob) -> Payload {
+        let (tx, _rx) = mpsc::channel::<Job>(16);
+        run_system(job, tx).await
+    }
 
     #[tokio::test]
     async fn test_cancel_stops_timer() {
@@ -187,11 +290,10 @@ mod tests {
         let pidfile = dir.join("pid");
         let script = format!("echo $$ > {}; exec sleep 5", pidfile.display());
         let t = std::time::Instant::now();
-        let p = run_system(
+        let p = run(job(
             vec!["sh".into(), "-c".into(), script],
-            None,
             Duration::from_millis(200),
-        )
+        ))
         .await;
         assert!(t.elapsed() < Duration::from_secs(3));
         assert!(matches!(p, Payload::System { code: -1, .. }));
@@ -208,15 +310,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_system_captures_output_and_posts_a_job() {
-        let p = run_system(
+        let p = run(job(
             vec![
                 "sh".into(),
                 "-c".into(),
                 "echo hi; echo e >&2; exit 3".into(),
             ],
-            None,
             Duration::from_secs(5),
-        )
+        ))
         .await;
         match p {
             Payload::System {
@@ -227,7 +328,12 @@ mod tests {
             _ => panic!("not a system payload"),
         }
         let (tx, mut rx) = mpsc::channel::<Job>(1);
-        Async::default().system(&tx, vec!["true".into()], None, Duration::from_secs(5), 7);
+        Async::default().system(
+            &tx,
+            job(vec!["true".into()], Duration::from_secs(5)),
+            None,
+            7,
+        );
         assert!(rx.recv().await.is_some());
     }
 
@@ -236,11 +342,11 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<Job>(1);
         let mut events = Events::default();
         let e = Async::default()
-            .subscribe(&mut events, &tx, "no-such-event", 1)
+            .subscribe(&mut events, &tx, "no-such-event", None, 1)
             .unwrap_err();
         assert!(e.contains("no-such-event"), "{e}");
         Async::default()
-            .subscribe(&mut events, &tx, "pane-exited", 2)
+            .subscribe(&mut events, &tx, "pane-exited", None, 2)
             .unwrap();
     }
 }

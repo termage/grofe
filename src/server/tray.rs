@@ -50,6 +50,9 @@ pub fn client_gone(state: &mut State, id: ClientId) {
 }
 
 fn target_label(state: &State, pane: PaneId) -> String {
+    if let Some(label) = state.agents.get(pane).and_then(|a| a.label.clone()) {
+        return label;
+    }
     if !state.model.panes.contains_key(&pane) {
         return pane.to_string();
     }
@@ -166,7 +169,7 @@ impl InputHook for TrayHook {
                 }
                 ListAction::Ctrl('x') => {
                     if let Some(id) = state.notify.items().get(st.selected).map(|n| n.id) {
-                        state.notify.dismiss(id);
+                        crate::server::agents::headless::dismiss(state, id);
                     }
                     Routed::Consumed
                 }
@@ -200,7 +203,7 @@ fn click(state: &mut State, size: (u16, u16), st: &mut ListState, m: &Mouse) {
     };
     st.selected = at;
     if usize::from(m.col) == x_column(&rows(state), a) {
-        state.notify.dismiss(id);
+        crate::server::agents::headless::dismiss(state, id);
     }
 }
 

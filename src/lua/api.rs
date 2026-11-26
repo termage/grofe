@@ -2,6 +2,8 @@ use super::callbacks::{CALLBACKS, NEXT_ID, add_callback};
 pub use super::callbacks::{Payload, call, in_pack};
 use super::pack;
 use super::runtime::{LuaError, Runtime};
+use super::system;
+pub use super::system::SystemJob;
 use mlua::{Function, Lua, Table, Value};
 use std::cell::RefCell;
 
@@ -16,15 +18,12 @@ pub trait Host {
         desc: Option<String>,
         repeat: bool,
     ) -> Result<(), String>;
-    fn subscribe(&mut self, event: &str, id: u32) -> Result<(), String>;
+    /// Calls `id` for `event`, only for `pane` when it is given.
+    fn subscribe(&mut self, event: &str, id: u32, pane: Option<&str>) -> Result<(), String>;
     fn every(&mut self, ms: u64, id: u32) -> Result<(), String>;
-    fn system(
-        &mut self,
-        argv: Vec<String>,
-        cwd: Option<String>,
-        timeout_ms: u64,
-        id: u32,
-    ) -> Result<(), String>;
+    fn system(&mut self, job: SystemJob, id: u32) -> Result<(), String>;
+    /// The last `n` messages of `pane`'s agent, oldest first.
+    fn agent_history(&mut self, pane: &str, n: usize) -> Result<Vec<String>, String>;
     fn cancel(&mut self, id: u32);
     /// Posts a tray entry for `pane` (the active pane when `None`).
     fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String>;
@@ -34,7 +33,6 @@ pub trait Host {
 const SLOT: &str = "grofe_host";
 const PLUGINS: &str = "grofe_plugins";
 const MIN_EVERY_MS: u64 = 100;
-const DEFAULT_SYSTEM_TIMEOUT_MS: u64 = 10_000;
 const LEVELS: [&str; 3] = ["info", "warn", "error"];
 
 fn err(e: impl std::fmt::Display) -> mlua::Error {
@@ -116,9 +114,13 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     )?;
     g.set(
         "on",
-        lua.create_function(|lua, (event, f): (String, Function)| {
+        lua.create_function(|lua, (event, f, opts): (String, Function, Option<Table>)| {
             let host = host_fn(lua, "on")?;
-            add_callback(lua, f, |id| host.call((event, id)))
+            let pane = match opts {
+                Some(o) => o.get::<Option<String>>("pane")?,
+                None => None,
+            };
+            add_callback(lua, f, |id| host.call((event, id, pane)))
         })?,
     )?;
     g.set(
@@ -133,18 +135,28 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
         "system",
         lua.create_function(|lua, (argv, f, opts): (Table, Function, Option<Table>)| {
             let host = host_fn(lua, "system")?;
-            let argv = strings(argv)?;
-            let (cwd, timeout) = match opts {
-                Some(o) => (
-                    o.get::<Option<String>>("cwd")?,
-                    o.get::<Option<u64>>("timeout_ms")?
-                        .unwrap_or(DEFAULT_SYSTEM_TIMEOUT_MS),
-                ),
-                None => (None, DEFAULT_SYSTEM_TIMEOUT_MS),
-            };
-            add_callback(lua, f, |id| host.call((argv, cwd, timeout, id)))
+            let (mut job, on_line) = system::read(strings(argv)?, opts)?;
+            let line_id = on_line
+                .map(|line| add_callback(lua, line, |_| Ok(())))
+                .transpose()?;
+            job.on_line = line_id;
+            let id = add_callback(lua, f, |id| host.call((job.to_table(lua)?, id)));
+            if let (Err(_), Some(line)) = (&id, line_id) {
+                lua.named_registry_value::<Table>(CALLBACKS)?
+                    .set(line, Value::Nil)?;
+            }
+            id
         })?,
     )?;
+    let agent = lua.create_table()?;
+    agent.set(
+        "history",
+        lua.create_function(|lua, (pane, n): (String, f64)| {
+            let n = n.max(0.0) as usize;
+            host_fn(lua, "agent_history")?.call::<Vec<String>>((pane, n))
+        })?,
+    )?;
+    g.set("agent", agent)?;
     g.set(
         "cancel",
         lua.create_function(|lua, id: u32| {
@@ -235,9 +247,13 @@ pub fn enter<R>(
             )?;
             t.set(
                 "on",
-                scope.create_function_mut(|_, (event, id): (String, u32)| {
-                    host.borrow_mut().subscribe(&event, id).map_err(err)
-                })?,
+                scope.create_function_mut(
+                    |_, (event, id, pane): (String, u32, Option<String>)| {
+                        host.borrow_mut()
+                            .subscribe(&event, id, pane.as_deref())
+                            .map_err(err)
+                    },
+                )?,
             )?;
             t.set(
                 "every",
@@ -247,13 +263,16 @@ pub fn enter<R>(
             )?;
             t.set(
                 "system",
-                scope.create_function_mut(
-                    |_, (argv, cwd, timeout, id): (Vec<String>, Option<String>, u64, u32)| {
-                        host.borrow_mut()
-                            .system(argv, cwd, timeout, id)
-                            .map_err(err)
-                    },
-                )?,
+                scope.create_function_mut(|_, (job, id): (Table, u32)| {
+                    let job = SystemJob::from_table(&job)?;
+                    host.borrow_mut().system(job, id).map_err(err)
+                })?,
+            )?;
+            t.set(
+                "agent_history",
+                scope.create_function_mut(|_, (pane, n): (String, usize)| {
+                    host.borrow_mut().agent_history(&pane, n).map_err(err)
+                })?,
             )?;
             t.set(
                 "cancel",

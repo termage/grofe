@@ -29,7 +29,7 @@
 //! scope. A scope whose target has gone passes nothing more once the batch
 //! that removed it is delivered.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use tokio::sync::mpsc;
 
@@ -53,6 +53,8 @@ pub(crate) const QUEUE: usize = 1024;
 /// notice every subscriber can receive, not a subscription.
 pub(crate) const NAMES: &[&str] = &[
     "pane-exited",
+    "pane-created",
+    "pane-closed",
     "pane-died",
     "pane-output",
     "pane-focus",
@@ -73,6 +75,8 @@ pub(crate) const NAMES: &[&str] = &[
     "ports-changed",
     "pane-echo",
     "notify",
+    "pane-created",
+    "pane-closed",
 ];
 
 /// `pane-output` is sent only to subscribers that name it: a bare
@@ -88,6 +92,8 @@ const NAMED_ONLY: &[&str] = &[
     "ports-changed",
     "pane-echo",
     "notify",
+    "pane-created",
+    "pane-closed",
 ];
 
 /// What a `subscribe -t` is limited to.
@@ -234,6 +240,9 @@ pub struct Events {
     pending: Vec<(Event, Place)>,
     /// Each attached client's view as `pane-focus` last saw it.
     seen: BTreeMap<ClientId, Seen>,
+    /// The panes the model had when `pane-created` and `pane-closed` last
+    /// looked, while someone names them.
+    panes: Option<BTreeSet<PaneId>>,
 }
 
 impl Events {
@@ -343,6 +352,7 @@ impl Events {
     /// order, and forgets subscribers whose connection is gone. `model` is
     /// what `subscribe -t` limits are measured against.
     pub(crate) fn flush(&mut self, model: &Model) {
+        self.track_panes(model);
         let pending = std::mem::take(&mut self.pending);
         let before = self.subscribers.len();
         for (event, place) in &pending {
@@ -358,6 +368,42 @@ impl Events {
         if self.subscribers.len() != before {
             self.update_tap();
         }
+    }
+
+    /// `pane-created` and `pane-closed`, the one emission site for both: what
+    /// differs in the model since the last look, whichever command, process
+    /// exit or restore made it. Nothing is kept while nobody names them, so a
+    /// subscription reports from its first flush on.
+    fn track_panes(&mut self, model: &Model) {
+        let wanted = self
+            .subscribers
+            .iter()
+            .any(|s| s.wants("pane-created") || s.wants("pane-closed"));
+        if !wanted {
+            self.panes = None;
+            return;
+        }
+        let now: BTreeSet<PaneId> = model.panes.keys().copied().collect();
+        if let Some(before) = self.panes.take() {
+            for pane in now.difference(&before) {
+                let Some(window) = model.panes.get(pane).map(|p| p.window) else {
+                    continue;
+                };
+                let Some(session) = model.windows.get(&window).map(|w| w.session) else {
+                    continue;
+                };
+                let event = Event::PaneCreated {
+                    pane: *pane,
+                    window,
+                    session,
+                };
+                self.emit(event);
+            }
+            for pane in before.difference(&now) {
+                self.emit(Event::PaneClosed { pane: *pane });
+            }
+        }
+        self.panes = Some(now);
     }
 
     /// Pane readers copy their output to the actor only while someone
@@ -464,6 +510,7 @@ pub(crate) fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agent
         kind: change.kind.clone(),
         old: change.old.map(|s| s.as_str().to_string()),
         new: change.new.map(|s| s.as_str().to_string()),
+        msg: state.agents.get(pane).and_then(|a| a.msg.clone()),
     });
     crate::server::hooks::agent_changed(state, pane);
 }

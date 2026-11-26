@@ -137,10 +137,16 @@ fn rows(state: &State, client: ClientId) -> Vec<Row> {
         .map(|s| s.name.clone());
     let mut groups: Vec<(String, Vec<PaneId>)> = Vec::new();
     for pane in state.agents.by_urgency() {
-        if !state.model.panes.contains_key(&pane) {
+        let headless = state.agents.is_headless(pane);
+        if !headless && !state.model.panes.contains_key(&pane) {
             continue;
         }
-        let session = field(state, pane, "#{session_name}");
+        // A headless record has no session: it is grouped with none.
+        let session = if headless {
+            String::new()
+        } else {
+            field(state, pane, "#{session_name}")
+        };
         match groups.iter_mut().find(|(s, _)| *s == session) {
             Some((_, panes)) => panes.push(pane),
             None => groups.push((session, vec![pane])),
@@ -153,14 +159,17 @@ fn rows(state: &State, client: ClientId) -> Vec<Row> {
     groups
         .into_iter()
         .flat_map(|(session, panes)| {
-            let prefix = if Some(&session) == own.as_ref() {
+            let prefix = if Some(&session) == own.as_ref() || session.is_empty() {
                 String::new()
             } else {
                 format!("{session}:")
             };
             panes.into_iter().map(move |pane| Row {
                 pane,
-                label: format!("{prefix}{}", field(state, pane, "#{window_name}")),
+                label: match state.agents.get(pane).and_then(|a| a.label.clone()) {
+                    Some(label) => label,
+                    None => format!("{prefix}{}", field(state, pane, "#{window_name}")),
+                },
             })
         })
         .collect()

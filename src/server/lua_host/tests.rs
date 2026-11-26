@@ -1,6 +1,6 @@
 use super::*;
 use crate::server::{test_ctx, test_state};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn messages(state: &State) -> String {
     clients::messages(state)

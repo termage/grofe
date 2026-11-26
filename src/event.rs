@@ -16,6 +16,17 @@ pub enum Event {
         uid: String,
         status: Option<i32>,
     },
+    /// A pane came into the model (only for a subscription naming it).
+    PaneCreated {
+        pane: PaneId,
+        window: WindowId,
+        session: SessionId,
+    },
+    /// A pane left the model, however it went (only for a subscription
+    /// naming it).
+    PaneClosed {
+        pane: PaneId,
+    },
     /// A pane's process exited and `remain-on-exit` kept the pane.
     PaneDied {
         pane: PaneId,
@@ -102,6 +113,9 @@ pub enum Event {
         kind: Option<String>,
         old: Option<String>,
         new: Option<String>,
+        /// What the report said, if anything.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        msg: Option<String>,
     },
     /// A program in a pane asked to open a URL (`grofe open`, `$BROWSER`);
     /// only for a subscription naming it, so a remote client can open it
@@ -145,6 +159,8 @@ impl Event {
     pub fn name(&self) -> &'static str {
         match self {
             Event::PaneExited { .. } => "pane-exited",
+            Event::PaneCreated { .. } => "pane-created",
+            Event::PaneClosed { .. } => "pane-closed",
             Event::PaneDied { .. } => "pane-died",
             Event::PaneOutput { .. } => "pane-output",
             Event::PaneFocus { .. } => "pane-focus",
@@ -177,6 +193,7 @@ impl Event {
         let mut s = Subject::default();
         match self {
             Event::PaneExited { pane, .. }
+            | Event::PaneClosed { pane }
             | Event::PaneOutput { pane, .. }
             | Event::AgentChanged { pane, .. }
             | Event::PortsChanged { pane, .. }
@@ -197,6 +214,11 @@ impl Event {
                 ..
             }
             | Event::WindowFocused {
+                window,
+                session,
+                pane,
+            }
+            | Event::PaneCreated {
                 window,
                 session,
                 pane,

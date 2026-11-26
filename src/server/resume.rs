@@ -305,7 +305,8 @@ fn sweep_agents(state: &mut State) {
         .agents
         .iter()
         .filter(|(pane, a)| {
-            !state.model.panes.contains_key(pane) || a.binding.is_some_and(|b| !b.alive())
+            (!state.model.panes.contains_key(pane) && a.label.is_none())
+                || a.binding.is_some_and(|b| !b.alive())
         })
         .map(|(pane, _)| pane)
         .collect();

@@ -781,11 +781,24 @@ pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
                 Some((k, tail)) if !k.starts_with('-') => (Some(k.clone()), tail),
                 _ => (None, rest),
             };
-            let flags = flags_for(flag_argv, "pc:n:wWb:d", "agent new")?;
+            let flags = flags_for(flag_argv, "pc:n:wWb:dPe:", "agent new")?;
+            if flags
+                .repeated
+                .iter()
+                .any(|(c, v)| *c == 'e' && !v.contains('='))
+            {
+                return Err(perr("agent new: -e takes K=V"));
+            }
             let mut positionals = flags.positionals.clone();
             if let Some(k) = lead {
                 positionals.insert(0, k);
             }
+            // Words after `--` are the command, in place of the kind's.
+            let command = if flag_argv.iter().any(|a| a == "--") && positionals.len() > 1 {
+                positionals.split_off(1)
+            } else {
+                Vec::new()
+            };
             if positionals.len() > 1 {
                 return Err(too_many("agent new", 1));
             }
@@ -806,6 +819,9 @@ pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
                 worktree,
                 branch: flags.val('b'),
                 detached: flags.on('d'),
+                print: flags.on('P'),
+                env: env_values(&flags),
+                command,
             })))
         }
         other => Err(perr(format!("agent: unknown subcommand {other}"))),
@@ -2880,6 +2896,9 @@ mod tests {
                 worktree: Some(true),
                 branch: Some("feat/x".into()),
                 detached: false,
+                print: false,
+                env: Vec::new(),
+                command: Vec::new(),
             })))
         );
         let Ok(Command::Agent(AgentCmd::New(n))) = parse(&argv(&[

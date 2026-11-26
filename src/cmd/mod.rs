@@ -723,7 +723,8 @@ pub enum AgentCmd {
     New(AgentNew),
 }
 
-/// `agent new <kind> [-p] [-c dir] [-n name] [-w|-W] [-b branch] [-d]`.
+/// `agent new <kind> [-pPdwW] [-c dir] [-n name] [-b branch] [-e K=V]
+/// [-- command...]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentNew {
     pub kind: String,
@@ -734,6 +735,12 @@ pub struct AgentNew {
     pub worktree: Option<bool>,
     pub branch: Option<String>,
     pub detached: bool,
+    /// `-P`: print the new pane's id.
+    pub print: bool,
+    /// `-e`: variables for the new pane's environment.
+    pub env: Vec<(String, String)>,
+    /// The words after `--`: run instead of the kind's command.
+    pub command: Vec<String>,
 }
 
 /// `agent-sidebar on|off|toggle|focus`.

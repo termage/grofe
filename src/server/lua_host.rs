@@ -2,19 +2,20 @@
 //! `state.lua` is taken out of `State` for every call and put back after,
 //! so the host can hold `&mut State`; a call that finds it taken is nested.
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-
 use crate::cmd;
-use crate::lua::api::{self, Host, Payload};
+use crate::lua::api::{self, Host, Payload, SystemJob};
 use crate::lua::runtime::{Limits, LuaError, Runtime};
 use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
+use crate::server::agents::headless;
+use crate::server::events::Scope;
 use crate::server::input::{Binding, BindingSource, Key, parse_key};
 use crate::server::lua_async::Async;
 use crate::server::{State, clients, dispatch, prompt};
+use crate::types::PaneId;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 const PLUGIN: &str = "lua";
 
@@ -23,6 +24,8 @@ pub struct LuaHost {
     async_: Async,
     /// Per bind id, the key it took and what held that key before.
     replaced: HashMap<u32, Replaced>,
+    /// Per `system` callback id, the headless record its job shows as.
+    headless: HashMap<u32, PaneId>,
 }
 
 struct Replaced {
@@ -78,6 +81,7 @@ struct StateHost<'a> {
     state: &'a mut State,
     async_: &'a mut Async,
     replaced: &'a mut HashMap<u32, Replaced>,
+    headless: &'a mut HashMap<u32, PaneId>,
     ctx: ClientCtx,
     /// No request owns this call: see [`with_client_less_host`].
     client_less: bool,
@@ -155,9 +159,16 @@ impl Host for StateHost<'_> {
         Ok(())
     }
 
-    fn subscribe(&mut self, event: &str, id: u32) -> Result<(), String> {
+    fn subscribe(&mut self, event: &str, id: u32, pane: Option<&str>) -> Result<(), String> {
+        let scope = match pane {
+            Some(p) => {
+                let target = cmd::target::parse_target(p).map_err(|e| e.to_string())?;
+                Some(Scope::resolve(&self.state.model, &self.ctx, &target)?)
+            }
+            None => None,
+        };
         self.async_
-            .subscribe(&mut self.state.events, &self.state.jobs, event, id)
+            .subscribe(&mut self.state.events, &self.state.jobs, event, scope, id)
     }
 
     fn every(&mut self, ms: u64, id: u32) -> Result<(), String> {
@@ -165,25 +176,35 @@ impl Host for StateHost<'_> {
         Ok(())
     }
 
-    fn system(
-        &mut self,
-        argv: Vec<String>,
-        cwd: Option<String>,
-        timeout_ms: u64,
-        id: u32,
-    ) -> Result<(), String> {
-        self.async_.system(
-            &self.state.jobs,
-            argv,
-            cwd.map(PathBuf::from),
-            Duration::from_millis(timeout_ms),
-            id,
-        );
+    fn system(&mut self, job: SystemJob, id: u32) -> Result<(), String> {
+        let pane = match &job.agent {
+            Some(a) => {
+                let running = headless::check(&a.kind, a.state.as_deref())?;
+                Some(headless::start(self.state, &a.kind, &a.label, running))
+            }
+            None => None,
+        };
+        if let Some(pane) = pane {
+            self.headless.insert(id, pane);
+        }
+        self.async_.system(&self.state.jobs, job, pane, id);
         Ok(())
+    }
+
+    fn agent_history(&mut self, pane: &str, n: usize) -> Result<Vec<String>, String> {
+        let id = pane
+            .strip_prefix('%')
+            .and_then(|n| n.parse().ok())
+            .map(PaneId)
+            .ok_or_else(|| format!("not a pane id: {pane}"))?;
+        Ok(self.state.agents.history(id, n))
     }
 
     fn cancel(&mut self, id: u32) {
         self.async_.cancel(id);
+        if let Some(pane) = self.headless.remove(&id) {
+            headless::remove(self.state, pane);
+        }
         let Some(r) = self.replaced.remove(&id) else {
             return;
         };
@@ -249,6 +270,7 @@ fn with_host<R>(
                 rt,
                 async_: Async::default(),
                 replaced: HashMap::new(),
+                headless: HashMap::new(),
             }
         }
     };
@@ -258,6 +280,7 @@ fn with_host<R>(
             state,
             async_: &mut lua.async_,
             replaced: &mut lua.replaced,
+            headless: &mut lua.headless,
             ctx,
             client_less,
         },
@@ -325,6 +348,9 @@ pub(crate) fn reset(state: &mut State) {
     }
     if let Some(mut lua) = state.lua.take() {
         lua.async_.cancel_all();
+        for pane in lua.headless.into_values() {
+            headless::remove(state, pane);
+        }
     }
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
@@ -479,6 +505,14 @@ pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
     });
     if let Err(e) = r {
         log_error(state, &e);
+    }
+}
+
+/// The job behind `system` callback `id` ended: its record is not Lua's to
+/// cancel any more.
+pub(crate) fn forget_headless(state: &mut State, id: u32) {
+    if let Some(lua) = state.lua.as_mut() {
+        lua.headless.remove(&id);
     }
 }
 
