@@ -207,9 +207,9 @@ A Lua script can make a background job show up next to your agents:
 (see Running processes in the Lua scripting chapter). `kind` and `label` are
 required. A job is not an agent: it has no pane and no record in the agent
 store, so no `agent-changed` event, hook, `agent next` or attention count
-involves it. While it runs it is one `working` row in the sidebar, the grid
-and `agent list`; Enter on the row does nothing. Two jobs with the same label
-are two rows.
+involves it, and `agent list` leaves it out. While it runs it is one `working`
+row in the sidebar and the grid; Enter on the row does nothing. Two jobs with
+the same label are two rows.
 
 The row lives only while that job runs. When the process exits (0 is `done`,
 anything else `error`), times out, is cancelled with `grofe.cancel`, or the
@@ -318,7 +318,6 @@ For your own status line or scripts:
 | Variable | Value |
 |---|---|
 | `agent_kind`, `agent_state`, `agent_msg`, `agent_blocked_kind` | the pane's agent; empty when none |
-| `agent_label` | a job's label (`agent list` only); empty for a pane's agent |
 | `agent_since` | seconds in the current state |
 | `agent_unseen`, `agent_attention` | `1` or `0` |
 | `window_agent_state`, `session_agent_state` | the most urgent state in the window or session |

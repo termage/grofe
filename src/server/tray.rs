@@ -209,8 +209,9 @@ fn click(state: &mut State, size: (u16, u16), st: &mut ListState, m: &Mouse) {
 
 /// Jumps to the notification's pane and marks it read.
 fn enter(state: &mut State, client: ClientId, n: &Notification) {
-    // A job's notification has no pane to jump to.
+    // A job's notification has no pane to jump to: it is only read.
     let Some(pane) = n.pane else {
+        state.notify.read(n.id);
         return;
     };
     let ctx = state.clients.get(&client).map(|c| c.ctx.clone());
@@ -422,5 +423,25 @@ mod tests {
         state.clients.remove(&client);
         assert!(press(&mut state, client, "Down").is_none());
         assert!(!state.trays.is_open(client));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn enter_on_a_job_entry_marks_it_read() {
+        let (mut state, client, _p1, _p2) = setup();
+        let now = Instant::now();
+        let worked = Duration::from_secs(5);
+        state
+            .notify
+            .on_job_end("triage", "issue 7", "error", Some("exit 3"), worked, now);
+        let unread = |state: &mut State| {
+            let argv = ["display-message", "-p", "#{notifications_unread}"];
+            let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+            dispatch::run(state, &test_ctx(), &argv).expect("display-message")
+        };
+        assert_eq!(unread(&mut state).trim(), "3");
+        open(&mut state, client).expect("open");
+        // Newest first: the first row is the job's.
+        press(&mut state, client, "Enter");
+        assert_eq!(unread(&mut state).trim(), "2");
     }
 }

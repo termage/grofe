@@ -14,7 +14,7 @@ use tokio::task::{AbortHandle, JoinHandle};
 use crate::lua::api::{Payload, SystemJob};
 use crate::server::agents::headless;
 use crate::server::events::{QUEUE, Scope};
-use crate::server::{Job, events::Events, lua_host};
+use crate::server::{Job, State, events::Events, lua_host};
 
 #[derive(Default)]
 pub(crate) struct Async {
@@ -23,18 +23,28 @@ pub(crate) struct Async {
     generation: u64,
 }
 
-fn post(id: u32, payload: Payload) -> Job {
-    Box::new(move |state| lua_host::call_job(state, id, payload))
+/// A job for runtime `generation`, run only while that runtime is the one
+/// running: callback ids restart at each reload, so what an earlier runtime
+/// queued must not reach the new one. Every job that names a callback is made
+/// here.
+pub(crate) fn guarded(generation: u64, f: impl FnOnce(&mut State) + Send + 'static) -> Job {
+    Box::new(move |state| {
+        if lua_host::is_current(state, generation) {
+            f(state);
+        }
+    })
 }
 
-/// The job that ends a `system` run of runtime `generation`: if that runtime is
-/// still running, the job's list entry ends (and the tray hears of it), then
-/// the callback runs.
+fn post(generation: u64, id: u32, payload: Payload) -> Job {
+    guarded(generation, move |state| {
+        lua_host::call_job(state, id, payload)
+    })
+}
+
+/// The job that ends a `system` run: the job's list entry ends (and the tray
+/// hears of it), then the callback runs.
 fn finished(generation: u64, id: u32, payload: Payload) -> Job {
-    Box::new(move |state| {
-        if !lua_host::is_current(state, generation) {
-            return;
-        }
+    guarded(generation, move |state| {
         if let Payload::System { code, .. } = &payload {
             headless::finish(state, generation, id, *code);
         }
@@ -50,7 +60,7 @@ fn read_all<R: AsyncRead + Unpin + Send + 'static>(pipe: Option<R>) -> JoinHandl
 /// arrives, the last one even without a newline.
 fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
     pipe: Option<R>,
-    lines: Option<(mpsc::Sender<Job>, u32)>,
+    lines: Option<(mpsc::Sender<Job>, u64, u32)>,
 ) -> JoinHandle<String> {
     tokio::spawn(async move {
         let mut all = Vec::new();
@@ -66,24 +76,28 @@ fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
                     Ok(n) => n,
                 };
                 all.extend_from_slice(&chunk[..n]);
-                while let Some((jobs, id)) = &lines
+                while let Some((jobs, generation, id)) = &lines
                     && let Some(nl) = all[scanned..].iter().position(|b| *b == b'\n')
                 {
                     let end = scanned + nl;
                     let line = String::from_utf8_lossy(&all[start..end]).into_owned();
                     start = end + 1;
                     scanned = start;
-                    if jobs.send(post(*id, Payload::Line(line))).await.is_err() {
+                    if jobs
+                        .send(post(*generation, *id, Payload::Line(line)))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
                 scanned = all.len();
             }
-            if let Some((jobs, id)) = &lines
+            if let Some((jobs, generation, id)) = &lines
                 && start < all.len()
             {
                 let line = String::from_utf8_lossy(&all[start..]).into_owned();
-                let _ = jobs.send(post(*id, Payload::Line(line))).await;
+                let _ = jobs.send(post(*generation, *id, Payload::Line(line))).await;
             }
         }
         String::from_utf8_lossy(&all).into_owned()
@@ -119,7 +133,7 @@ impl Drop for Group {
 // it open; after this the output is given up on rather than awaited forever.
 const PIPE_GRACE: Duration = Duration::from_secs(2);
 
-async fn run_system(job: SystemJob, jobs: mpsc::Sender<Job>) -> Payload {
+async fn run_system(job: SystemJob, generation: u64, jobs: mpsc::Sender<Job>) -> Payload {
     let failed = |msg: String| Payload::System {
         code: -1,
         stdout: String::new(),
@@ -159,7 +173,10 @@ async fn run_system(job: SystemJob, jobs: mpsc::Sender<Job>) -> Payload {
         });
         group.tasks.push(writer.abort_handle());
     }
-    let mut out_task = read_lines(child.stdout.take(), job.on_line.map(|id| (jobs, id)));
+    let mut out_task = read_lines(
+        child.stdout.take(),
+        job.on_line.map(|id| (jobs, generation, id)),
+    );
     let mut err_task = read_all(child.stderr.take());
     group.tasks.push(out_task.abort_handle());
     group.tasks.push(err_task.abort_handle());
@@ -229,13 +246,18 @@ impl Async {
 
     pub(crate) fn every(&mut self, jobs: &mpsc::Sender<Job>, ms: u64, id: u32) {
         let jobs = jobs.clone();
+        let generation = self.generation;
         let period = Duration::from_millis(ms);
         let task = tokio::spawn(async move {
             let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 tick.tick().await;
-                if jobs.send(post(id, Payload::None)).await.is_err() {
+                if jobs
+                    .send(post(generation, id, Payload::None))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -258,13 +280,18 @@ impl Async {
         let task = tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
                 let value = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
-                if jobs.send(post(id, Payload::Event(value))).await.is_err() {
+                if jobs
+                    .send(post(generation, id, Payload::Event(value)))
+                    .await
+                    .is_err()
+                {
                     return;
                 }
             }
             // The server dropped the subscription: its scope is gone.
-            let end: Job =
-                Box::new(move |state| lua_host::forget_subscription(state, generation, id));
+            let end = guarded(generation, move |state| {
+                lua_host::forget_subscription(state, id)
+            });
             let _ = jobs.send(end).await;
         });
         self.track(id, task.abort_handle());
@@ -276,7 +303,7 @@ impl Async {
         let jobs = jobs.clone();
         let generation = self.generation;
         let task = tokio::spawn(async move {
-            let payload = run_system(job, jobs.clone()).await;
+            let payload = run_system(job, generation, jobs.clone()).await;
             let _ = jobs.send(finished(generation, id, payload)).await;
         });
         self.track(id, task.abort_handle());
@@ -313,14 +340,14 @@ mod tests {
 
     async fn run(job: SystemJob) -> Payload {
         let (tx, _rx) = mpsc::channel::<Job>(16);
-        run_system(job, tx).await
+        run_system(job, 0, tx).await
     }
 
     #[tokio::test]
     async fn test_lines_split_across_chunks_are_joined() {
         let (tx, mut rx) = mpsc::channel::<Job>(16);
         let (mut w, r) = tokio::io::duplex(64);
-        let task = read_lines(Some(r), Some((tx, 1)));
+        let task = read_lines(Some(r), Some((tx, 0, 1)));
         for part in ["ab", "c\nd", "e\n\nf"] {
             w.write_all(part.as_bytes()).await.unwrap();
             tokio::time::sleep(Duration::from_millis(20)).await;

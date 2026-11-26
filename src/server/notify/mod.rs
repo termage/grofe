@@ -193,6 +193,15 @@ impl Notifier {
         changed
     }
 
+    /// Marks notification `id` read; true if it was unread.
+    pub fn read(&mut self, id: u64) -> bool {
+        self.items
+            .iter_mut()
+            .find(|i| i.id == id && !i.read)
+            .map(|i| i.read = true)
+            .is_some()
+    }
+
     pub fn dismiss(&mut self, id: u64) -> bool {
         let before = self.items.len();
         self.items.retain(|i| i.id != id);

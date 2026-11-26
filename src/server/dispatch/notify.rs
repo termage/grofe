@@ -18,14 +18,19 @@ pub(crate) fn run(state: &mut State, _ctx: &ClientCtx, c: NotifyCmd) -> Result<S
             .items()
             .iter()
             .map(|n| {
+                // A job has no pane; its label leads the free text.
+                let text = [n.label.as_deref(), n.msg.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 format!(
                     "{} {} {} {} {}\n",
                     n.id,
-                    n.pane
-                        .map_or_else(|| n.label.clone().unwrap_or_default(), |p| p.to_string()),
+                    n.pane.map_or_else(|| "-".to_string(), |p| p.to_string()),
                     n.kind.as_deref().unwrap_or("-"),
                     n.state,
-                    n.msg.as_deref().unwrap_or("")
+                    text
                 )
             })
             .collect()),
@@ -114,5 +119,16 @@ mod tests {
         assert!(!s.notify.muted(Instant::now()));
         run(&mut s, &ctx, NotifyCmd::Mute(None)).unwrap();
         assert!(s.notify.muted(Instant::now()));
+    }
+
+    #[test]
+    fn a_job_entry_has_no_pane_and_its_label_in_the_text() {
+        let mut s = test_state();
+        let worked = Duration::from_secs(5);
+        let now = Instant::now();
+        s.notify
+            .on_job_end("triage", "issue 7", "error", Some("exit 3"), worked, now);
+        let out = run(&mut s, &test_ctx(), NotifyCmd::List).unwrap();
+        assert_eq!(out, "1 - triage error issue 7 exit 3\n");
     }
 }

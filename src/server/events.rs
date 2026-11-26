@@ -297,21 +297,6 @@ impl Events {
         Ok(())
     }
 
-    /// Takes the pane snapshot `pane-created` and `pane-closed` measure
-    /// against now, if a subscription names them and none is kept yet: a
-    /// command in the same chunk as the `subscribe` is then reported.
-    pub(crate) fn watch_panes(&mut self, model: &Model) {
-        if self.panes.is_none() && self.names_panes() {
-            self.panes = Some(pane_places(model));
-        }
-    }
-
-    fn names_panes(&self) -> bool {
-        self.subscribers
-            .iter()
-            .any(|s| !s.gone && (s.wants("pane-created") || s.wants("pane-closed")))
-    }
-
     /// Whether some subscription names event `name` (a [`NAMED_ONLY`] one):
     /// what makes `open-url` deliverable and the poller worth running.
     pub(crate) fn named(&self, name: &str) -> bool {
@@ -403,36 +388,6 @@ impl Events {
         }
     }
 
-    /// `pane-created` and `pane-closed`, the one emission site for both: what
-    /// differs in the model since the last look, whichever command, process
-    /// exit or restore made it. Nothing is kept while nobody names them, so a
-    /// subscription reports from its first flush on.
-    fn track_panes(&mut self, model: &Model) {
-        if !self.names_panes() {
-            self.panes = None;
-            return;
-        }
-        let now = pane_places(model);
-        if let Some(before) = self.panes.take() {
-            for (pane, place) in now.iter().filter(|(p, _)| !before.contains_key(p)) {
-                let (Some(window), Some(session)) = (place.window, place.session) else {
-                    continue;
-                };
-                let event = Event::PaneCreated {
-                    pane: *pane,
-                    window,
-                    session,
-                };
-                self.emit(event);
-            }
-            // Where it was, so a window or session scope hears it too.
-            for (pane, place) in before.iter().filter(|(p, _)| !now.contains_key(p)) {
-                self.emit_at(Event::PaneClosed { pane: *pane }, *place);
-            }
-        }
-        self.panes = Some(now);
-    }
-
     /// Pane readers copy their output to the actor only while someone
     /// wants `pane-output`.
     fn update_tap(&self) {
@@ -443,21 +398,6 @@ impl Events {
     fn len(&self) -> usize {
         self.subscribers.len()
     }
-}
-
-/// Where each pane of the model is.
-fn pane_places(model: &Model) -> BTreeMap<PaneId, Place> {
-    model
-        .panes
-        .iter()
-        .map(|(id, p)| {
-            let place = Place {
-                window: Some(p.window),
-                session: model.windows.get(&p.window).map(|w| w.session),
-            };
-            (*id, place)
-        })
-        .collect()
 }
 
 /// `pane-focus`, the one emission site for it (spec §7.2): compares each
@@ -557,5 +497,6 @@ pub(crate) fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agent
     crate::server::hooks::agent_changed(state, pane);
 }
 
+mod panes;
 #[cfg(test)]
 mod tests;

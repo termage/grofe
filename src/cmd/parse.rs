@@ -781,6 +781,11 @@ pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
                 Some((k, tail)) if !k.starts_with('-') => (Some(k.clone()), tail),
                 _ => (None, rest),
             };
+            // Words after `--` are the command, in place of the kind's.
+            let (flag_argv, command) = match flag_argv.iter().position(|a| a == "--") {
+                Some(at) => (&flag_argv[..at], flag_argv[at + 1..].to_vec()),
+                None => (flag_argv, Vec::new()),
+            };
             let flags = flags_for(flag_argv, "pc:n:wWb:dPe:", "agent new")?;
             if flags
                 .repeated
@@ -793,12 +798,6 @@ pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
             if let Some(k) = lead {
                 positionals.insert(0, k);
             }
-            // Words after `--` are the command, in place of the kind's.
-            let command = if flag_argv.iter().any(|a| a == "--") && positionals.len() > 1 {
-                positionals.split_off(1)
-            } else {
-                Vec::new()
-            };
             if positionals.len() > 1 {
                 return Err(too_many("agent new", 1));
             }

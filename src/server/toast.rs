@@ -185,13 +185,15 @@ impl InputHook for ToastHook {
         if m.row == a.y + 1 && m.col == a.x + a.cols - 2 {
             state.notify.dismiss(id);
         } else {
-            // A job's notification has no pane to jump to.
+            // A job's notification has no pane to jump to: it is only read.
             if let Some(pane) = pane {
                 let ctx = state.clients.get(&client)?.ctx.clone();
                 if let Err(e) = agent::jump(state, &ctx, pane) {
                     clients::show_message(state, client, &e);
                 }
                 state.notify.seen(pane);
+            } else {
+                state.notify.read(id);
             }
         }
         clients::mark_all_dirty(state);
@@ -361,5 +363,31 @@ mod tests {
         let window = state.model.panes[&p1].window;
         let session = state.clients[&client].session;
         assert_eq!(state.model.sessions[&session].active, window);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn click_on_a_job_entry_marks_it_read() {
+        let (mut state, client, _p1, _p2, _out) = setup();
+        state.notify.cfg.toast = vec!["error".to_string()];
+        let worked = Duration::from_secs(5);
+        let end = |state: &mut State| {
+            let now = Instant::now();
+            state
+                .notify
+                .on_job_end("triage", "issue 7", "error", Some("exit 3"), worked, now);
+        };
+        end(&mut state);
+        let unread = |state: &mut State| {
+            let argv = ["display-message", "-p", "#{notifications_unread}"];
+            let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+            dispatch::run(state, &test_ctx(), &argv).expect("display-message")
+        };
+        assert_eq!(unread(&mut state).trim(), "1");
+        assert!(lines(&state, client).join("\n").contains("issue 7"));
+        assert!(matches!(
+            click(&mut state, client, 60, 2),
+            Some(Routed::Consumed)
+        ));
+        assert_eq!(unread(&mut state).trim(), "0");
     }
 }

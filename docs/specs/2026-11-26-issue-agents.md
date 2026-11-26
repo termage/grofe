@@ -13,7 +13,7 @@
 - The plugin is `bifurc`, in its own repo, installed as a `[[pack]]`; config file `bifurc.toml`.
 - grofe core gets the API the plugin needs first (Part A), in four PRs (A2 splits into A2a processes and events, A2b agent control and detection); the plugin (Part B) starts after A3 (2026-11-26).
 - The plugin repo is `termage/bifurc`, private for now (2026-11-26).
-- 2026-11-26 ruling: headless jobs are their own list, one entry per running job, shown as working rows in sidebar, grid and tray, not agents: no agent-changed events, hooks, agent next or attention counts; finish posts a done/error tray entry.
+- 2026-11-26 ruling: headless jobs are their own list, one entry per running job, shown as working rows in sidebar and grid (not `agent list`), not agents: no agent-changed events, hooks, agent next or attention counts; finish posts a done/error tray entry.
 - Herdr-style additions (2026-11-26): `agent prompt --wait` and `agent read`, per-kind detection files with `agent explain`, worktrees grouped under their repo, the unseen `done` state rolled up, and agents resumed after a restore. Herdr's mobile app and plugin marketplace are not copied.
 
 ## Agent profiles

@@ -510,11 +510,10 @@ pub(crate) fn is_current(state: &State, generation: u64) -> bool {
         .is_some_and(|l| l.async_.generation() == generation)
 }
 
-/// The subscription behind callback `id` of runtime `generation` ended on the
-/// server's side (its pane, window or session closed): its callback is freed.
-pub(crate) fn forget_subscription(state: &mut State, generation: u64, id: u32) {
+/// The subscription behind callback `id` ended on the server's side (its
+/// pane, window or session closed): its callback is freed.
+pub(crate) fn forget_subscription(state: &mut State, id: u32) {
     if let Some(lua) = state.lua.as_mut()
-        && lua.async_.generation() == generation
         && lua.async_.forget(id)
     {
         api::release(&lua.rt, id);

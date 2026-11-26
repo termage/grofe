@@ -1,33 +1,47 @@
-//! A2a bullet 3: a `system` job shows as a `working` row while it runs. It
-//! is not an agent. Assumed shape (open question): `opts.agent = {kind, label}`.
+//! A2a bullet 3: a `system` job shows as a `working` row in the sidebar and
+//! grid while it runs. It is not an agent, and `agent list` omits it. Assumed shape (open question): `opts.agent = {kind, label}`.
 
 use crate::harness;
 use crate::helpers::{server, stays_empty, wait_opt};
 use crate::support::{lua, lua_ok};
 
-const LIST: &str = "#{agent_kind}|#{agent_label}|#{agent_state}";
+/// A client with the sidebar open, where a job's row shows.
+fn with_sidebar(srv: &crate::common::TestServer) -> harness::Harness {
+    let mut a = harness::Harness::spawn_attach_with_env(srv.command(), "main", &[], 160, 30);
+    a.wait_for_output(b"\x1b[2J", 0);
+    a.send("\x02");
+    a.send("b");
+    a
+}
 
-fn list(srv: &crate::common::TestServer) -> String {
-    srv.cmd(&["agent", "list", "-F", LIST]).unwrap_or_default()
+/// Waits until `text` is no longer on the client's screen.
+fn wait_gone(a: &mut harness::Harness, text: &str) {
+    a.wait_until(&format!("{text:?} gone"), crate::support::WAIT, |t| {
+        !t.contains(text)
+    });
 }
 
 #[test]
 fn system_job_registers_and_leaves_working() {
     let srv = server();
+    let mut a = with_sidebar(&srv);
     lua_ok(
         &srv,
         "grofe.system({'sh','-c','sleep 2'}, function(r) \
          grofe.cmd{'set-option','-g','@r','fin'} end, \
          {agent = {kind = 'triage', label = 'issue 7'}})",
     );
-    srv.wait_for(
-        || list(&srv).lines().any(|l| l == "triage|issue 7|working"),
-        crate::support::WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{e}: list was {:?}", list(&srv)));
+    a.wait_for("triage · issue 7");
+    assert!(a.text().contains("working"), "{}", a.text());
     wait_opt(&srv, "@r");
-    srv.wait_for(|| !list(&srv).contains("|working"), crate::support::WAIT)
-        .unwrap_or_else(|e| panic!("{e}: still working: {:?}", list(&srv)));
+    wait_gone(&mut a, "triage · issue 7");
+}
+
+#[test]
+fn a_job_is_not_listed_by_agent_list() {
+    let srv = server();
+    lua_ok(&srv, &job("listed", "sleep 3"));
+    assert_eq!(srv.cmd(&["agent", "list"]).unwrap_or_default().trim(), "");
 }
 
 #[test]
@@ -39,7 +53,6 @@ fn agent_record_without_kind_is_an_error() {
     )
     .expect_err("kind is required");
     assert!(err.contains("kind"), "{err}");
-    assert_eq!(list(&srv).trim(), "");
 }
 
 #[test]
@@ -55,7 +68,6 @@ fn two_jobs_with_one_label_are_two_rows() {
     a.wait_for("zebrafish-7");
     crate::common::quiet_period(std::time::Duration::from_millis(300));
     assert_eq!(a.text().matches("zebrafish-7").count(), 2, "{}", a.text());
-    assert_eq!(list(&srv).lines().count(), 2, "{:?}", list(&srv));
 }
 
 fn notes(srv: &crate::common::TestServer) -> String {
@@ -76,11 +88,10 @@ fn two_failing_jobs_with_one_label_give_two_notifications() {
         lua_ok(&srv, &job("twin", "exit 3"));
     }
     srv.wait_for(
-        || notes(&srv).matches("triage error exit 3").count() == 2,
+        || notes(&srv).matches(" - triage error twin exit 3").count() == 2,
         crate::support::WAIT,
     )
     .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
-    assert_eq!(list(&srv).trim(), "");
 }
 
 #[test]
@@ -97,7 +108,7 @@ fn a_job_raises_no_agent_changed_event() {
     );
     wait_opt(&srv, "@r");
     srv.wait_for(
-        || notes(&srv).contains("triage error exit 3"),
+        || notes(&srv).contains(" - triage error quiet-job exit 3"),
         crate::support::WAIT,
     )
     .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
@@ -107,18 +118,15 @@ fn a_job_raises_no_agent_changed_event() {
 #[test]
 fn failing_job_notifies_error_then_the_record_is_gone() {
     let srv = server();
+    let mut a = with_sidebar(&srv);
     lua_ok(&srv, &job("job-e", "sleep 1; exit 3"));
+    a.wait_for("triage · job-e");
     srv.wait_for(
-        || list(&srv).lines().any(|l| l == "triage|job-e|working"),
-        crate::support::WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{e}: list was {:?}", list(&srv)));
-    srv.wait_for(
-        || notes(&srv).contains("triage error exit 3"),
+        || notes(&srv).contains(" - triage error job-e exit 3"),
         crate::support::WAIT,
     )
     .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
-    assert_eq!(list(&srv).trim(), "");
+    wait_gone(&mut a, "triage · job-e");
 }
 
 #[test]
@@ -149,36 +157,40 @@ fn running_record_shows_in_the_grid_and_its_notification_in_the_tray() {
 #[test]
 fn record_is_gone_after_the_job_with_notifications_off() {
     let srv = server();
+    let mut a = with_sidebar(&srv);
     let conf = srv.config_home.join("grofe").join("conf.d");
     std::fs::create_dir_all(&conf).expect("conf.d");
     std::fs::write(conf.join("50-notify.toml"), "[notify]\nenabled = false\n").expect("config");
     srv.cmd(&["reload"]).expect("reload");
     lua_ok(
         &srv,
-        "grofe.system({'sh','-c','exit 2'}, \
+        "grofe.system({'sh','-c','sleep 1; exit 2'}, \
          function() grofe.cmd{'set-option','-g','@r','fin'} end, \
          {agent = {kind = 'triage', label = 'quiet'}})",
     );
+    a.wait_for("triage · quiet");
     wait_opt(&srv, "@r");
-    assert_eq!(list(&srv).trim(), "");
+    wait_gone(&mut a, "triage · quiet");
     assert_eq!(notes(&srv).trim(), "");
 }
 
 #[test]
 fn cancel_removes_the_record() {
     let srv = server();
+    let mut a = with_sidebar(&srv);
     lua_ok(&srv, &format!("j = {}", job("cancelled", "sleep 30")));
-    assert_eq!(list(&srv).trim(), "triage|cancelled|working");
+    a.wait_for("triage · cancelled");
     lua_ok(&srv, "grofe.cancel(j)");
-    assert_eq!(list(&srv).trim(), "");
+    wait_gone(&mut a, "triage · cancelled");
     assert_eq!(notes(&srv).trim(), "");
 }
 
 #[test]
 fn reload_removes_the_record() {
     let srv = server();
+    let mut a = with_sidebar(&srv);
     lua_ok(&srv, &job("reloaded", "sleep 30"));
-    assert_eq!(list(&srv).trim(), "triage|reloaded|working");
+    a.wait_for("triage · reloaded");
     srv.cmd(&["reload"]).expect("reload");
-    assert_eq!(list(&srv).trim(), "");
+    wait_gone(&mut a, "triage · reloaded");
 }

@@ -476,33 +476,42 @@ async fn the_on_line_callback_is_freed_when_the_job_ends_or_is_cancelled() {
 async fn jobs_queued_before_a_reload_are_ignored_by_the_new_runtime() {
     let (mut state, mut rx) = crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
     let ctx = test_ctx();
+    // Ids 1 and 2 go to the lines and the end of a job that prints a line, and
+    // a last one with no newline.
     run_chunk(
         &mut state,
         &ctx,
-        "grofe.system({'true'}, function() old = 1 end)",
+        "grofe.system({'sh','-c','echo a; printf b'}, function() old = 1 end, \
+         {on_line = function() old = 1 end})",
     )
     .unwrap();
     let old = state.lua.as_ref().unwrap().async_.generation();
-    // The job has ended and is queued, but has not run yet.
-    let ended = tokio::time::timeout(Duration::from_secs(5), rx.recv())
-        .await
-        .unwrap()
-        .unwrap();
+    // Both lines and the end are queued, but have not run yet.
+    let mut queued = Vec::new();
+    for _ in 0..3 {
+        let job = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        queued.push(job);
+    }
     reset(&mut state);
-    // The new runtime hands out callback id 1 again, to a timer.
+    // The new runtime hands out callback ids 1 and 2 again, to timers.
     run_chunk(
         &mut state,
         &ctx,
-        "grofe.every(60000, function() new = 1 end)",
+        "grofe.every(60000, function() new = 1 end) grofe.every(60000, function() new = 1 end)",
     )
     .unwrap();
     assert_ne!(state.lua.as_ref().unwrap().async_.generation(), old);
-    ended(&mut state);
-    forget_subscription(&mut state, old, 1);
+    for job in queued {
+        job(&mut state);
+    }
+    crate::server::lua_async::guarded(old, |state| forget_subscription(state, 1))(&mut state);
     assert_eq!(
         run_chunk(&mut state, &ctx, "return tostring(new)"),
         Ok("nil".into())
     );
-    assert_eq!(state.lua.as_ref().map(|l| l.async_.len()), Some(1));
-    assert!(!callback_freed(&state, 1));
+    assert_eq!(state.lua.as_ref().map(|l| l.async_.len()), Some(2));
+    assert!(!callback_freed(&state, 1) && !callback_freed(&state, 2));
 }

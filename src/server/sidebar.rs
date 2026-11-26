@@ -9,6 +9,7 @@
 //! ponytail: right side only; a left side needs a `window_left` at every
 //! `window_top` site.
 
+mod jobs;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -150,10 +151,6 @@ fn rows(state: &State, client: ClientId) -> Vec<Row> {
         let first = groups.remove(at);
         groups.insert(0, first);
     }
-    let jobs = state.agents.jobs.iter().map(|j| Row {
-        pane: None,
-        label: format!("{} · {}", j.kind, j.label),
-    });
     groups
         .into_iter()
         .flat_map(|(session, panes)| {
@@ -167,7 +164,7 @@ fn rows(state: &State, client: ClientId) -> Vec<Row> {
                 label: format!("{prefix}{}", field(state, pane, "#{window_name}")),
             })
         })
-        .chain(jobs)
+        .chain(jobs::rows(state))
         .collect()
 }
 
@@ -501,7 +498,7 @@ impl Overlay for SidebarOverlay {
                 break;
             }
             let a = row.pane.and_then(|p| state.agents.get(p));
-            let r = a.map_or(Rank::Working, rank);
+            let (r, label, text) = jobs::entry(a, row);
             let selected = focused && k == list.selected;
             let base = if selected { look.mode } else { plain };
             if selected {
@@ -520,14 +517,8 @@ impl Overlay for SidebarOverlay {
             name.attrs |= CellFlags::BOLD;
             let mut muted = base;
             muted.attrs |= CellFlags::DIM;
-            // A job's label has its kind in it already.
-            let kind = a.map_or(String::new(), |a| {
-                format!(" {} ·", a.kind.as_deref().unwrap_or("agent"))
-            });
             let at = put_text(screen, tx, y, end, glyph(r), &glyph_style);
-            let label = format!("{kind} {}", row.label);
             put_fit(screen, at, y, end, &label, &name);
-            let text = a.map_or_else(|| "working".into(), detail);
             put_fit(screen, tx + 2, y + 1, end, &text, &muted);
         }
     }
@@ -629,7 +620,7 @@ mod tests {
 
     /// Sessions `a` (panes p1, p2 in two windows) and `b` (p3), a client of
     /// `cols` columns on `b`. p1 blocked, p2 idle, p3 working.
-    fn setup(
+    pub(super) fn setup(
         cols: u16,
     ) -> (
         State,
@@ -716,7 +707,7 @@ mod tests {
         screen
     }
 
-    fn lines(state: &State, client: ClientId, cols: u16) -> Vec<String> {
+    pub(super) fn lines(state: &State, client: ClientId, cols: u16) -> Vec<String> {
         screen(state, client, cols)
             .cells
             .chunks(usize::from(cols))

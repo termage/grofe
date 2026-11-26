@@ -1,10 +1,9 @@
 //! Jobs a script asked to show (`grofe.system`'s `opts.agent`). They are not
 //! agents: one entry per running job, in `Agents::jobs`, shown as `working`
-//! rows by the sidebar, grid and tray and dropped when the job ends.
+//! rows by the sidebar and grid and dropped when the job ends.
 
 use std::time::Instant;
 
-use crate::cmd::FormatVars;
 use crate::server::{State, clients};
 
 /// A running job. `generation` is the Lua runtime's generation and `id` the job's
@@ -16,27 +15,6 @@ pub(crate) struct Job {
     pub kind: String,
     pub label: String,
     pub started: Instant,
-}
-
-impl Job {
-    /// The agent variables a job has, for `agent list`.
-    pub(crate) fn vars(&self) -> impl FormatVars + '_ {
-        JobVars(self)
-    }
-}
-
-struct JobVars<'a>(&'a Job);
-
-impl FormatVars for JobVars<'_> {
-    fn get(&self, name: &str) -> Option<String> {
-        Some(match name {
-            "agent_kind" => self.0.kind.clone(),
-            "agent_label" => self.0.label.clone(),
-            "agent_state" => "working".to_string(),
-            "agent_since" => self.0.started.elapsed().as_secs().to_string(),
-            _ => return None,
-        })
-    }
 }
 
 pub(crate) fn start(state: &mut State, generation: u64, id: u32, kind: &str, label: &str) {

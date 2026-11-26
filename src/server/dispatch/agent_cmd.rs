@@ -47,9 +47,9 @@ fn now_micros() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX))
 }
 
-/// One line per agent pane, most urgent first, then one per running job.
+/// One line per agent pane, most urgent first.
 fn list(state: &State, format: &str) -> String {
-    let panes = state
+    state
         .agents
         .by_urgency()
         .into_iter()
@@ -57,13 +57,8 @@ fn list(state: &State, format: &str) -> String {
         .map(|p| {
             let vars = FormatCtx::new(&state.model, p);
             format!("{}\n", expand(format, &ServerVars::fresh(state, p, &vars)))
-        });
-    let jobs = state
-        .agents
-        .jobs
-        .iter()
-        .map(|j| format!("{}\n", expand(format, &j.vars())));
-    panes.chain(jobs).collect()
+        })
+        .collect()
 }
 
 /// Jumps to the most urgent pane that needs attention, oldest first
