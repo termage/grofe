@@ -69,7 +69,7 @@ fn init_binds_a_key_that_runs() {
 #[test]
 fn status_widget_updates_option() {
     let srv = with_init(
-        "grofe.every(100, function() grofe.system({'sh','-c','sleep 1'}, function(r) \
+        "grofe.every(100, function() grofe.system({'echo','hi'}, function(r) \
          grofe.cmd{'set-option','-g','@w', (r.stdout:gsub('%s+$',''))} end) end)\n",
     );
     srv.wait_for(
