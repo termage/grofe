@@ -5,31 +5,35 @@ use super::*;
 /// repeat where tmux has `-r` and tmux's notes (`list-keys -N`). New panes
 /// and windows open in the active pane's cwd (spec §5.3), which tmux leaves
 /// to a `-c '#{pane_current_path}'` in the user's config, and prompts and
-/// confirmations spell tmux's `#P`/`#W` as native formats. `o` is bound in
-/// tmux's dialect (its `+`/`-` target offsets, FE.1's) and `C` opens
-/// grofe's settings menu, where tmux has customize-mode. Left unbound:
-/// `m`/`M` (marking), `t` (out of scope, spec §4.5), `<`/`>` (tmux's window
-/// and pane menus), `*` (`new-pane`). Copy mode binds `[`, `PPage` and the `copy-mode-vi` table.
+/// confirmations spell tmux's `#P`/`#W` as native formats. `o` and `<` (the
+/// window menu) are tmux's own rows in its dialect (their `+`/`-` target
+/// offsets, FE.1's), `>` opens grofe's pane menu ([`grofe_pane_menu`]) on
+/// the active pane and `C` opens grofe's settings menu, where tmux has
+/// customize-mode. Copy mode binds `[`, `PPage` and the `copy-mode-vi` table.
 pub(crate) fn default_bindings() -> KeyTables {
     let mut t = KeyTables::default();
-    let mut bind = |key: &str, argv: &[&str], repeat: bool, note: &str| {
-        let argv = argv.iter().map(|s| s.to_string()).collect();
-        if let Ok(key) = parse_key(key) {
-            let mut b = Binding::new(vec![argv], repeat, BindingSource::Default);
-            b.desc = Some(note.to_string());
-            t.insert(PREFIX_TABLE, key, b);
-        }
-    };
-    for &(key, argv, repeat, note) in PREFIX_ROWS {
-        bind(key, argv, repeat, note);
+    let argv = |words: &[&str]| vec![words.iter().map(|s| s.to_string()).collect()];
+    for &(key, words, repeat, note) in PREFIX_ROWS {
+        bind(
+            &mut t,
+            PREFIX_TABLE,
+            key,
+            argv(words),
+            repeat,
+            Some(note),
+            Dialect::Grofe,
+        );
     }
     for n in 0..=9 {
         let target = format!(":{n}");
         bind(
+            &mut t,
+            PREFIX_TABLE,
             &n.to_string(),
-            &["select-window", "-t", &target],
+            argv(&["select-window", "-t", &target]),
             false,
-            &format!("Select window {n}"),
+            Some(&format!("Select window {n}")),
+            Dialect::Grofe,
         );
     }
     for (table, rows) in [
@@ -37,19 +41,29 @@ pub(crate) fn default_bindings() -> KeyTables {
         (COPY_MODE_TABLE, COPY_MODE_EMACS),
     ] {
         for (key, text) in rows {
-            put(&mut t, table, key, text);
+            put(&mut t, table, key, text, None, Dialect::Grofe);
         }
     }
-    // FE.1: stock `o`. Its `:.+` offset has no native spelling, so the
-    // binding is tmux dialect, run through the front end (recorded on tmux
-    // 3.7b: `select-pane -t :.+`, "Select the next pane").
-    if let Ok(key) = parse_key("o") {
-        let argv = ["select-pane", "-t", ":.+"].map(String::from).to_vec();
-        let mut b = Binding::new(vec![argv], false, BindingSource::Default);
-        b.desc = Some("Select the next pane".to_string());
-        b.dialect = Dialect::Tmux;
-        t.insert(PREFIX_TABLE, key, b);
+    // FE.1: stock `o` and `<`. Their `:.+` and `:-1` offsets have no
+    // native spelling, so they are tmux's rows, run through the front end.
+    // Neither repeats.
+    for &(key, _, note, text) in TMUX_STOCK.iter().filter(|(k, ..)| ["o", "<"].contains(k)) {
+        put(&mut t, PREFIX_TABLE, key, text, Some(note), Dialect::Tmux);
     }
+    // grofe identity's pane menu on the active pane, below it, as tmux's
+    // stock `>` places its own.
+    let pane_menu = format!(
+        "{GROFE_PANE_MENU_TITLE} -x P -y P {}",
+        grofe_pane_menu_items(None)
+    );
+    put(
+        &mut t,
+        PREFIX_TABLE,
+        ">",
+        &pane_menu,
+        Some("Display pane menu"),
+        Dialect::Grofe,
+    );
     // tmux 3.7b's stock mouse rows, in its dialect ([`NATIVE_STOCK_ROOT`]):
     // ordinary bindings, which the mouse module runs as they are (a border
     // drag, `resize-pane -M`, is the mouse's own).
@@ -58,24 +72,24 @@ pub(crate) fn default_bindings() -> KeyTables {
             t.insert_stock_root(name, text);
         }
     }
-    // FR.4: grofe identity's pane menu, with Float and Unfloat; a server
-    // with tmux identity binds tmux's stock menu instead.
-    put(&mut t, ROOT_TABLE, "MouseDown3Pane", GROFE_PANE_MENU);
-    // FR.3: Ctrl and drag anywhere in a pane moves it, as dragging a
-    // framed tile's title does; grofe's own, so a tmux-identity server
-    // drops it and the key is unbound, as in tmux.
-    put(&mut t, ROOT_TABLE, "C-MouseDrag1Pane", "drag-pane -M");
-    // The float control of a framed title's tab (`render::frame_tab`);
-    // grofe's own, as the tab is.
-    put(
-        &mut t,
-        ROOT_TABLE,
-        "MouseDown1Control7",
-        GROFE_FLOAT_CONTROL,
-    );
-    // A click on the status line's agents badge opens the tray; any other
-    // click switches client, as tmux's stock row does.
-    put(&mut t, ROOT_TABLE, "MouseDown1Status", GROFE_STATUS_CLICK);
+    let mouse_menu = grofe_pane_menu();
+    for (key, text) in [
+        // FR.4: grofe identity's pane menu, with Float and Unfloat; a server
+        // with tmux identity binds tmux's stock menu instead.
+        ("MouseDown3Pane", mouse_menu.as_str()),
+        // FR.3: Ctrl and drag anywhere in a pane moves it, as dragging a
+        // framed tile's title does; grofe's own, so a tmux-identity server
+        // drops it and the key is unbound, as in tmux.
+        ("C-MouseDrag1Pane", "drag-pane -M"),
+        // The float control of a framed title's tab (`render::frame_tab`);
+        // grofe's own, as the tab is.
+        ("MouseDown1Control7", GROFE_FLOAT_CONTROL),
+        // A click on the status line's agents badge opens the tray; any
+        // other click switches client, as tmux's stock row does.
+        ("MouseDown1Status", GROFE_STATUS_CLICK),
+    ] {
+        put(&mut t, ROOT_TABLE, key, text, None, Dialect::Grofe);
+    }
     for (table, bindings) in t.tables.iter_mut() {
         for b in bindings.values_mut() {
             b.group = Some(default_group(table, &b.cmds).to_string());
@@ -84,14 +98,36 @@ pub(crate) fn default_bindings() -> KeyTables {
     t
 }
 
-/// Binds `text`, a command string, to `key` in `table` as a default binding.
-fn put(t: &mut KeyTables, table: &str, key: &str, text: &str) {
-    if let (Ok(key), Ok(cmds)) = (parse_key(key), crate::cmd::split_command_string(text)) {
-        t.insert(
-            table,
-            key,
-            Binding::new(cmds, false, BindingSource::Default),
-        );
+/// Binds `cmds` to `key` in `table` as a default binding, with its note,
+/// in `dialect`.
+fn bind(
+    t: &mut KeyTables,
+    table: &str,
+    key: &str,
+    cmds: Vec<Vec<String>>,
+    repeat: bool,
+    note: Option<&str>,
+    dialect: Dialect,
+) {
+    if let Ok(key) = parse_key(key) {
+        let mut b = Binding::new(cmds, repeat, BindingSource::Default);
+        b.desc = note.map(str::to_string);
+        b.dialect = dialect;
+        t.insert(table, key, b);
+    }
+}
+
+/// [`bind`] for `text`, a command string, that does not repeat.
+fn put(
+    t: &mut KeyTables,
+    table: &str,
+    key: &str,
+    text: &str,
+    note: Option<&str>,
+    dialect: Dialect,
+) {
+    if let Ok(cmds) = crate::cmd::split_command_string(text) {
+        bind(t, table, key, cmds, false, note, dialect);
     }
 }
 
@@ -130,6 +166,12 @@ const PREFIX_ROWS: &[(&str, &[&str], bool, &str)] = &[
     ("x", &["confirm-before", "-p", "kill-pane #{pane_index}? (y/n)", "kill-pane"], false, "Kill the active pane"),
     ("&", &["confirm-before", "-p", "kill-window #{window_name}? (y/n)", "kill-window"], false, "Kill current window"),
     ("!", &["break-pane"], false, "Break pane to a new window"),
+    ("m", &["select-pane", "-m"], false, "Toggle the marked pane"),
+    ("M", &["select-pane", "-M"], false, "Clear the marked pane"),
+    ("t", &["clock-mode"], false, "Show a clock"),
+    ("*", &["new-pane"], false, "New floating pane"),
+    // grofe's own: tmux 3.7b binds no `e`.
+    ("e", &["command-prompt", "-I", "#{pane_title}", "select-pane -T \"%%%\""], false, "Rename the active pane"),
     // grofe's own: tmux 3.7b has no key for `kill-server`.
     ("Q", &["confirm-before", "-p", "kill-server: stop grofe and every session? (y/n)", "kill-server"], false, "Stop the server and every session"),
     // grofe's own: tmux 3.7b binds no `u`.
@@ -208,7 +250,12 @@ pub(super) fn default_group(table: &str, cmds: &[Vec<String>]) -> &'static str {
     let last = argv.last().map(String::as_str).unwrap_or("");
     match word(0) {
         "split-window" | "select-pane" | "resize-pane" | "last-pane" | "rotate-window"
-        | "display-panes" | "break-pane" | "swap-pane" | "if-shell" => "pane",
+        | "display-panes" | "break-pane" | "swap-pane" | "if-shell" | "clock-mode" | "new-pane" => {
+            "pane"
+        }
+        // `-x W` (`<`) is the window's menu, `-x P` (`>`) the pane's.
+        "display-menu" if word(4) == "W" => "window",
+        "display-menu" => "pane",
         "new-window" | "next-window" | "previous-window" | "last-window" | "select-window"
         | "kill-window" => "window",
         "switch-client" => "session",
@@ -222,6 +269,7 @@ pub(super) fn default_group(table: &str, cmds: &[Vec<String>]) -> &'static str {
         "confirm-before" if last == "kill-pane" => "pane",
         "confirm-before" if last == "kill-window" => "window",
         "command-prompt" if last.starts_with("rename-session") => "session",
+        "command-prompt" if last.starts_with("select-pane") => "pane",
         "command-prompt"
             if last.starts_with("rename-window")
                 || last.starts_with("move-window")
@@ -364,19 +412,42 @@ pub(crate) const GROFE_STATUS_CLICK: &str = r##"if-shell -F "#{==:#{mouse_status
 /// any other opens
 /// the pane's menu at the pointer, its items acting on the pane clicked.
 /// Float shows on a tiled pane and Unfloat on a floating one.
-pub(crate) const GROFE_PANE_MENU: &str = concat!(
-    r##"if-shell -F "#{mouse_any_flag}" { select-pane -t = ; send-keys -M } { "##,
-    r##"display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" "##,
-    r##""#{?pane_floating_flag,,Float}" f { float-pane -t = } "##,
-    r##""#{?pane_floating_flag,Unfloat,}" f { unfloat-pane -t = } "##,
-    r##"'' "##,
-    r##""#{?pane_floating_flag,,Horizontal Split}" h { split-window -h -t = -c "#{pane_current_path}" } "##,
-    r##""#{?pane_floating_flag,,Vertical Split}" v { split-window -v -t = -c "#{pane_current_path}" } "##,
-    r##"'' "##,
-    r##"Kill X { kill-pane -t = } "##,
-    r##""#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z -t = } "##,
-    r##"}"##,
-);
+pub(crate) fn grofe_pane_menu() -> String {
+    format!(
+        r##"if-shell -F "#{{mouse_any_flag}}" {{ select-pane -t = ; send-keys -M }} {{ {GROFE_PANE_MENU_TITLE} {} }}"##,
+        grofe_pane_menu_items(Some("="))
+    )
+}
+
+/// The title of grofe identity's pane menu, on a right click and on
+/// `prefix >`.
+const GROFE_PANE_MENU_TITLE: &str =
+    r##"display-menu -T "#[align=centre]#{pane_index} (#{pane_id})""##;
+
+/// The items of grofe identity's pane menu, acting on `target` (`=`, the
+/// pane clicked), or on the active pane with none (`prefix >`). Rename
+/// selects the target and prompts with its title: `##` keeps the format
+/// for the prompt, as a menu expands its rows when it opens, no `%N` pane
+/// id goes into the template, where `%1` is the answer, and `%%%` keeps
+/// the answer as typed.
+pub(crate) fn grofe_pane_menu_items(target: Option<&str>) -> String {
+    let t = target.map(|t| format!(" -t {t}")).unwrap_or_default();
+    let select = target
+        .map(|t| format!("select-pane -t {t} ; "))
+        .unwrap_or_default();
+    [
+        format!(r##""#{{?pane_floating_flag,,Float}}" f {{ float-pane{t} }}"##),
+        format!(r##""#{{?pane_floating_flag,Unfloat,}}" f {{ unfloat-pane{t} }}"##),
+        "''".to_string(),
+        format!(r##""#{{?pane_floating_flag,,Horizontal Split}}" h {{ split-window -h{t} -c "#{{pane_current_path}}" }}"##),
+        format!(r##""#{{?pane_floating_flag,,Vertical Split}}" v {{ split-window -v{t} -c "#{{pane_current_path}}" }}"##),
+        "''".to_string(),
+        format!(r###"Rename n {{ {select}command-prompt -I "##{{pane_title}}" "select-pane -T \"%%%\"" }}"###),
+        format!("Kill X {{ kill-pane{t} }}"),
+        format!(r##""#{{?#{{>:#{{window_panes}},1}},,-}}#{{?window_zoomed_flag,Unzoom,Zoom}}" z {{ resize-pane -Z{t} }}"##),
+    ]
+    .join(" ")
+}
 
 /// The copy-mode key table with `mode-keys vi`.
 pub(crate) const COPY_MODE_VI_TABLE: &str = "copy-mode-vi";
@@ -559,197 +630,4 @@ pub(crate) const COPY_MODE_EMACS: &[(&str, &str)] = &[
     ("C-Down", "send-keys -X scroll-down"),
     ("C-M-b", "send-keys -X previous-matching-bracket"),
     ("C-M-f", "send-keys -X next-matching-bracket"),
-];
-
-/// How tmux 3.7b's `list-keys -T copy-mode` prints the stock emacs rows
-/// whose template is a `{ }` list (the `b2b/emacs-keys` golden), for a
-/// server with tmux identity ([`KeyTables::use_tmux_stock`]).
-#[rustfmt::skip]
-pub(crate) const TMUX_COPY_MODE_EMACS_SHOWN: &[(&str, &str)] = &[
-    ("F", r#"command-prompt -1 -p "(jump backward)" { send-keys -X jump-backward -- "%%" }"#),
-    ("T", r#"command-prompt -1 -p "(jump to backward)" { send-keys -X jump-to-backward -- "%%" }"#),
-    ("f", r#"command-prompt -1 -p "(jump forward)" { send-keys -X jump-forward -- "%%" }"#),
-    ("g", r#"command-prompt -p "(goto line)" { send-keys -X goto-line -- "%%" }"#),
-    ("t", r#"command-prompt -1 -p "(jump to forward)" { send-keys -X jump-to-forward -- "%%" }"#),
-    ("M-1", r#"command-prompt -N -I 1 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-2", r#"command-prompt -N -I 2 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-3", r#"command-prompt -N -I 3 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-4", r#"command-prompt -N -I 4 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-5", r#"command-prompt -N -I 5 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-6", r#"command-prompt -N -I 6 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-7", r#"command-prompt -N -I 7 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-8", r#"command-prompt -N -I 8 -p (repeat) { send-keys -N "%%" }"#),
-    ("M-9", r#"command-prompt -N -I 9 -p (repeat) { send-keys -N "%%" }"#),
-    ("C-r", r##"command-prompt -i -I "#{pane_search_string}" -T search -p "(search up)" { send-keys -X search-backward-incremental -- "%%" }"##),
-    ("C-s", r##"command-prompt -i -I "#{pane_search_string}" -T search -p "(search down)" { send-keys -X search-forward-incremental -- "%%" }"##),
-];
-
-/// How tmux 3.7b's `list-keys -T copy-mode-vi` prints the stock rows whose
-/// template is a `{ }` list (the `tm_0/list-keys-copy-mode-vi` golden),
-/// for a server with tmux identity ([`KeyTables::use_tmux_stock`]).
-#[rustfmt::skip]
-pub(crate) const TMUX_COPY_MODE_VI_SHOWN: &[(&str, &str)] = &[
-    ("/", r#"command-prompt -T search -p "(search down)" { send-keys -X search-forward -- "%%" }"#),
-    ("?", r#"command-prompt -T search -p "(search up)" { send-keys -X search-backward -- "%%" }"#),
-    (":", r#"command-prompt -p "(goto line)" { send-keys -X goto-line -- "%%" }"#),
-    ("F", r#"command-prompt -1 -p "(jump backward)" { send-keys -X jump-backward -- "%%" }"#),
-    ("T", r#"command-prompt -1 -p "(jump to backward)" { send-keys -X jump-to-backward -- "%%" }"#),
-    ("f", r#"command-prompt -1 -p "(jump forward)" { send-keys -X jump-forward -- "%%" }"#),
-    ("t", r#"command-prompt -1 -p "(jump to forward)" { send-keys -X jump-to-forward -- "%%" }"#),
-    ("1", r#"command-prompt -N -I 1 -p (repeat) { send-keys -N "%%" }"#),
-    ("2", r#"command-prompt -N -I 2 -p (repeat) { send-keys -N "%%" }"#),
-    ("3", r#"command-prompt -N -I 3 -p (repeat) { send-keys -N "%%" }"#),
-    ("4", r#"command-prompt -N -I 4 -p (repeat) { send-keys -N "%%" }"#),
-    ("5", r#"command-prompt -N -I 5 -p (repeat) { send-keys -N "%%" }"#),
-    ("6", r#"command-prompt -N -I 6 -p (repeat) { send-keys -N "%%" }"#),
-    ("7", r#"command-prompt -N -I 7 -p (repeat) { send-keys -N "%%" }"#),
-    ("8", r#"command-prompt -N -I 8 -p (repeat) { send-keys -N "%%" }"#),
-    ("9", r#"command-prompt -N -I 9 -p (repeat) { send-keys -N "%%" }"#),
-];
-
-/// tmux 3.7b's stock `root` table, all of its mouse rows (`list-keys -T
-/// root` on a `-f /dev/null` server, the `b3wpc/stock-root` golden): the key
-/// and its commands as tmux prints them. A server with tmux identity binds
-/// them all; the rows in [`NATIVE_STOCK_ROOT`] are bound on every server.
-#[rustfmt::skip]
-pub const TMUX_STOCK_ROOT: &[(&str, &str)] = &[
-    ("MouseDown1Pane", r##"select-pane -t = \; send-keys -M"##),
-    ("MouseDown1Status", r##"switch-client -t ="##),
-    ("MouseDown1Border", r##"select-pane -M"##),
-    ("MouseDown1ScrollbarUp", r##"if-shell -F -t = "#{pane_in_mode}" { send-keys -X page-up } { copy-mode -u }"##),
-    ("MouseDown1ScrollbarDown", r##"if-shell -F -t = "#{pane_in_mode}" { send-keys -X page-down } { copy-mode -d }"##),
-    ("MouseDown1Control8", r##"resize-pane -Z"##),
-    ("MouseDown1Control9", r##"display-menu -O -T "Kill pane #{pane_index}?" -t = -x M -y M Yes y { kill-pane -t = } No n {  }"##),
-    ("MouseDown2Pane", r##"select-pane -t = \; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { paste-buffer -p }"##),
-    ("MouseDown3Pane", r##"if-shell -F -t = "#{||:#{mouse_any_flag},#{&&:#{pane_in_mode},#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}}}" { select-pane -t = ; send-keys -M } { display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -t = -x M -y M "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}" < { send-keys -X history-top } "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}" > { send-keys -X history-bottom } '' "#{?#{&&:#{buffer_size},#{!:#{pane_in_mode}}},Paste #[underscore]#{=/9/...:buffer_sample},}" p { paste-buffer } '' "#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}" C-r { if-shell -F "#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}" "copy-mode -t=" ; send-keys -X -t = search-backward -- "#{q:mouse_word}" } "#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}" C-y { copy-mode -q ; send-keys -l "#{q:mouse_word}" } "#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}" c { copy-mode -q ; set-buffer "#{q:mouse_word}" } "#{?mouse_line,Copy Line,}" l { copy-mode -q ; set-buffer "#{q:mouse_line}" } '' "#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}" C-h { copy-mode -q ; send-keys -l "#{q:mouse_hyperlink}" } "#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}" h { copy-mode -q ; set-buffer "#{q:mouse_hyperlink}" } '' "#{?#{!:#{pane_floating_flag}},Horizontal Split,}" h { split-window -h } "#{?#{!:#{pane_floating_flag}},Vertical Split,}" v { split-window -v } '' "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Up,}" u { swap-pane -U } "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Down,}" d { swap-pane -D } "#{?pane_marked_set,,-}Swap Marked" s { swap-pane } '' Kill X { kill-pane } Respawn R { respawn-pane -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z } }"##),
-    ("MouseDown3Status", r##"display-menu -T "#[align=centre]#{window_index}:#{window_name}" -t = -x W -y W "#{?#{>:#{session_windows},1},,-}Swap Left" l { swap-window -t :-1 } "#{?#{>:#{session_windows},1},,-}Swap Right" r { swap-window -t :+1 } "#{?pane_marked_set,,-}Swap Marked" s { swap-window } '' Kill X { kill-window } Respawn R { respawn-window -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } Rename n { command-prompt -F -I "#W" { rename-window -t "#{window_id}" "%%" } } '' "New After" w { new-window -a } "New At End" W { new-window }"##),
-    ("MouseDown3StatusLeft", r##"display-menu -T "#[align=centre]#{session_name}" -t = -x M -y W Next n { switch-client -n } Previous p { switch-client -p } '' Renumber N { move-window -r } Rename r { command-prompt -I "#S" { rename-session "%%" } } Detach d { detach-client } '' "New Session" s { new-session } "New Window" w { new-window }"##),
-    ("MouseDrag1Pane", r##"if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -M }"##),
-    ("MouseDrag1Border", r##"resize-pane -M"##),
-    ("MouseDrag1ScrollbarSlider", r##"if-shell -F -t = "#{pane_in_mode}" { send-keys -X scroll-to-mouse } { copy-mode -S }"##),
-    ("WheelDownStatus", r##"next-window"##),
-    ("WheelUpPane", r##"if-shell -F "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -e }"##),
-    ("WheelUpStatus", r##"previous-window"##),
-    ("DoubleClick1Pane", r##"select-pane -t = \; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-word ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }"##),
-    ("TripleClick1Pane", r##"select-pane -t = \; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-line ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }"##),
-    ("M-MouseDown3Pane", r##"display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -t = -x M -y M "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}" < { send-keys -X history-top } "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}" > { send-keys -X history-bottom } '' "#{?#{&&:#{buffer_size},#{!:#{pane_in_mode}}},Paste #[underscore]#{=/9/...:buffer_sample},}" p { paste-buffer } '' "#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}" C-r { if-shell -F "#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}" "copy-mode -t=" ; send-keys -X -t = search-backward -- "#{q:mouse_word}" } "#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}" C-y { copy-mode -q ; send-keys -l "#{q:mouse_word}" } "#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}" c { copy-mode -q ; set-buffer "#{q:mouse_word}" } "#{?mouse_line,Copy Line,}" l { copy-mode -q ; set-buffer "#{q:mouse_line}" } '' "#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}" C-h { copy-mode -q ; send-keys -l "#{q:mouse_hyperlink}" } "#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}" h { copy-mode -q ; set-buffer "#{q:mouse_hyperlink}" } '' "#{?#{!:#{pane_floating_flag}},Horizontal Split,}" h { split-window -h } "#{?#{!:#{pane_floating_flag}},Vertical Split,}" v { split-window -v } '' "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Up,}" u { swap-pane -U } "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Down,}" d { swap-pane -D } "#{?pane_marked_set,,-}Swap Marked" s { swap-pane } '' Kill X { kill-pane } Respawn R { respawn-pane -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z }"##),
-    ("M-MouseDown3Status", r##"display-menu -T "#[align=centre]#{window_index}:#{window_name}" -t = -x W -y W "#{?#{>:#{session_windows},1},,-}Swap Left" l { swap-window -t :-1 } "#{?#{>:#{session_windows},1},,-}Swap Right" r { swap-window -t :+1 } "#{?pane_marked_set,,-}Swap Marked" s { swap-window } '' Kill X { kill-window } Respawn R { respawn-window -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } Rename n { command-prompt -F -I "#W" { rename-window -t "#{window_id}" "%%" } } '' "New After" w { new-window -a } "New At End" W { new-window }"##),
-    ("M-MouseDown3StatusLeft", r##"display-menu -T "#[align=centre]#{session_name}" -t = -x M -y W Next n { switch-client -n } Previous p { switch-client -p } '' Renumber N { move-window -r } Rename r { command-prompt -I "#S" { rename-session "%%" } } Detach d { detach-client } '' "New Session" s { new-session } "New Window" w { new-window }"##),
-    ("C-MouseDown1Pane", r##"swap-pane -s @"##),
-    ("C-MouseDown1Status", r##"swap-window -t @"##),
-];
-
-/// The stock `root` rows every server binds, whatever its identity: the
-/// pane, status line, border and wheel rows. The right-button menus, the
-/// Meta and Control variants and the scrollbar rows are tmux's alone.
-pub(crate) const NATIVE_STOCK_ROOT: &[&str] = &[
-    "MouseDown1Pane",
-    "MouseDown1Status",
-    "MouseDown1Border",
-    "MouseDown1Control8",
-    "MouseDown1Control9",
-    "MouseDown2Pane",
-    "MouseDrag1Pane",
-    "MouseDrag1Border",
-    "WheelDownStatus",
-    "WheelUpPane",
-    "WheelUpStatus",
-    "DoubleClick1Pane",
-    "TripleClick1Pane",
-];
-
-/// tmux 3.7b's stock prefix table (`list-keys -T prefix` on a `-f
-/// /dev/null` server, the `fe_4/list-keys` golden; notes from its
-/// `key-bindings.c`): the key, whether it repeats, its note, and its
-/// commands as tmux prints them.
-#[rustfmt::skip]
-pub(crate) const TMUX_STOCK: &[(&str, bool, &str, &str)] = &[
-    ("Space", false, "Select next layout", "next-layout"),
-    ("!", false, "Break pane to a new window", "break-pane"),
-    (r#"""#, false, "Split window vertically", "split-window"),
-    ("#", false, "List all paste buffers", "list-buffers"),
-    ("$", false, "Rename current session", r##"command-prompt -I "#S" { rename-session "%%" }"##),
-    ("%", false, "Split window horizontally", "split-window -h"),
-    ("&", false, "Kill current window", r#"confirm-before -p "kill-window #W? (y/n)" kill-window"#),
-    ("'", false, "Prompt for window index to select", r#"command-prompt -T window-target -p index { select-window -t ":%%" }"#),
-    ("(", false, "Switch to previous client", "switch-client -p"),
-    (")", false, "Switch to next client", "switch-client -n"),
-    ("*", false, "New floating pane", "new-pane"),
-    (",", false, "Rename current window", r##"command-prompt -I "#W" { rename-window "%%" }"##),
-    ("-", false, "Delete the most recent paste buffer", "delete-buffer"),
-    (".", false, "Move the current window", r#"command-prompt -T target { move-window -t "%%" }"#),
-    ("/", false, "Describe key binding", r#"command-prompt -k -p key { list-keys -1N "%%" }"#),
-    ("0", false, "Select window 0", "select-window -t :=0"),
-    ("1", false, "Select window 1", "select-window -t :=1"),
-    ("2", false, "Select window 2", "select-window -t :=2"),
-    ("3", false, "Select window 3", "select-window -t :=3"),
-    ("4", false, "Select window 4", "select-window -t :=4"),
-    ("5", false, "Select window 5", "select-window -t :=5"),
-    ("6", false, "Select window 6", "select-window -t :=6"),
-    ("7", false, "Select window 7", "select-window -t :=7"),
-    ("8", false, "Select window 8", "select-window -t :=8"),
-    ("9", false, "Select window 9", "select-window -t :=9"),
-    (":", false, "Prompt for a command", "command-prompt"),
-    (";", false, "Move to the previously active pane", "last-pane"),
-    ("<", false, "Display window menu", r##"display-menu -T "#[align=centre]#{window_index}:#{window_name}" -x W -y W "#{?#{>:#{session_windows},1},,-}Swap Left" l { swap-window -t :-1 } "#{?#{>:#{session_windows},1},,-}Swap Right" r { swap-window -t :+1 } "#{?pane_marked_set,,-}Swap Marked" s { swap-window } '' Kill X { kill-window } Respawn R { respawn-window -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } Rename n { command-prompt -F -I "#W" { rename-window -t "#{window_id}" "%%" } } '' "New After" w { new-window -a } "New At End" W { new-window }"##),
-    ("=", false, "Choose a paste buffer from a list", "choose-buffer -Z"),
-    (">", false, "Display pane menu", r##"display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -x P -y P "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Top,}" < { send-keys -X history-top } "#{?#{m/r:(copy|view)-mode,#{pane_mode}},Go To Bottom,}" > { send-keys -X history-bottom } '' "#{?#{&&:#{buffer_size},#{!:#{pane_in_mode}}},Paste #[underscore]#{=/9/...:buffer_sample},}" p { paste-buffer } '' "#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},}" C-r { if-shell -F "#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}" "copy-mode -t=" ; send-keys -X -t = search-backward -- "#{q:mouse_word}" } "#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},}" C-y { copy-mode -q ; send-keys -l "#{q:mouse_word}" } "#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},}" c { copy-mode -q ; set-buffer "#{q:mouse_word}" } "#{?mouse_line,Copy Line,}" l { copy-mode -q ; set-buffer "#{q:mouse_line}" } '' "#{?mouse_hyperlink,Type #[underscore]#{=/9/...:mouse_hyperlink},}" C-h { copy-mode -q ; send-keys -l "#{q:mouse_hyperlink}" } "#{?mouse_hyperlink,Copy #[underscore]#{=/9/...:mouse_hyperlink},}" h { copy-mode -q ; set-buffer "#{q:mouse_hyperlink}" } '' "#{?#{!:#{pane_floating_flag}},Horizontal Split,}" h { split-window -h } "#{?#{!:#{pane_floating_flag}},Vertical Split,}" v { split-window -v } '' "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Up,}" u { swap-pane -U } "#{?#{&&:#{!:#{pane_floating_flag}},#{>:#{window_panes},1}},Swap Down,}" d { swap-pane -D } "#{?pane_marked_set,,-}Swap Marked" s { swap-pane } '' Kill X { kill-pane } Respawn R { respawn-pane -k } "#{?pane_marked,Unmark,Mark}" m { select-pane -m } "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z }"##),
-    ("?", false, "List key bindings", "list-keys -N"),
-    ("C", false, "Customize options", "customize-mode -Z"),
-    ("D", false, "Choose and detach a client from a list", "choose-client -Z"),
-    ("E", false, "Spread panes out evenly", "select-layout -E"),
-    ("L", false, "Switch to the last client", "switch-client -l"),
-    ("M", false, "Clear the marked pane", "select-pane -M"),
-    ("[", false, "Enter copy mode", "copy-mode"),
-    ("]", false, "Paste the most recent paste buffer", "paste-buffer -p"),
-    ("c", false, "Create a new window", "new-window"),
-    ("d", false, "Detach the current client", "detach-client"),
-    ("f", false, "Search for a pane", r#"command-prompt { find-window -Z "%%" }"#),
-    ("i", false, "Display window information", "display-message"),
-    ("l", false, "Select the previously current window", "last-window"),
-    ("m", false, "Toggle the marked pane", "select-pane -m"),
-    ("n", false, "Select the next window", "next-window"),
-    ("o", false, "Select the next pane", "select-pane -t :.+"),
-    ("p", false, "Select the previous window", "previous-window"),
-    ("q", false, "Display pane numbers", "display-panes"),
-    ("r", false, "Redraw the current client", "refresh-client"),
-    ("s", false, "Choose a session from a list", "choose-tree -Zs"),
-    ("t", false, "Show a clock", "clock-mode"),
-    ("w", false, "Choose a window from a list", "choose-tree -Zw"),
-    ("x", false, "Kill the active pane", r#"confirm-before -p "kill-pane #P? (y/n)" kill-pane"#),
-    ("z", false, "Zoom the active pane", "resize-pane -Z"),
-    ("{", false, "Swap the active pane with the pane above", "swap-pane -U"),
-    ("}", false, "Swap the active pane with the pane below", "swap-pane -D"),
-    ("~", false, "Show messages", "show-messages"),
-    ("DC", true, "Reset so the visible part of the window follows the cursor", "refresh-client -c"),
-    ("PPage", false, "Enter copy mode and scroll up", "copy-mode -u"),
-    ("Up", true, "Select the pane above the active pane", "select-pane -U"),
-    ("Down", true, "Select the pane below the active pane", "select-pane -D"),
-    ("Left", true, "Select the pane to the left of the active pane", "select-pane -L"),
-    ("Right", true, "Select the pane to the right of the active pane", "select-pane -R"),
-    ("M-1", false, "Set the even-horizontal layout", "select-layout even-horizontal"),
-    ("M-2", false, "Set the even-vertical layout", "select-layout even-vertical"),
-    ("M-3", false, "Set the main-horizontal layout", "select-layout main-horizontal"),
-    ("M-4", false, "Set the main-vertical layout", "select-layout main-vertical"),
-    ("M-5", false, "Select the tiled layout", "select-layout tiled"),
-    ("M-6", false, "Set the main-horizontal-mirrored layout", "select-layout main-horizontal-mirrored"),
-    ("M-7", false, "Set the main-vertical-mirrored layout", "select-layout main-vertical-mirrored"),
-    ("M-n", false, "Select the next window with an alert", "next-window -a"),
-    ("M-o", false, "Rotate through the panes in reverse", "rotate-window -D"),
-    ("M-p", false, "Select the previous window with an alert", "previous-window -a"),
-    ("M-Up", true, "Resize the pane up by 5", "resize-pane -U 5"),
-    ("M-Down", true, "Resize the pane down by 5", "resize-pane -D 5"),
-    ("M-Left", true, "Resize the pane left by 5", "resize-pane -L 5"),
-    ("M-Right", true, "Resize the pane right by 5", "resize-pane -R 5"),
-    ("C-b", false, "Send the prefix key", "send-prefix"),
-    ("C-o", false, "Rotate through the panes", "rotate-window"),
-    ("C-z", false, "Suspend the current client", "suspend-client"),
-    ("C-Up", true, "Resize the pane up", "resize-pane -U"),
-    ("C-Down", true, "Resize the pane down", "resize-pane -D"),
-    ("C-Left", true, "Resize the pane left", "resize-pane -L"),
-    ("C-Right", true, "Resize the pane right", "resize-pane -R"),
-    ("S-Up", true, "Move the visible part of the window up", "refresh-client -U 10"),
-    ("S-Down", true, "Move the visible part of the window down", "refresh-client -D 10"),
-    ("S-Left", true, "Move the visible part of the window left", "refresh-client -L 10"),
-    ("S-Right", true, "Move the visible part of the window right", "refresh-client -R 10"),
 ];

@@ -2,7 +2,7 @@ use super::*;
 
 const ET: Duration = Duration::from_millis(25);
 
-fn k(name: &str) -> Key {
+pub(super) fn k(name: &str) -> Key {
     parse_key(name).unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
@@ -1434,7 +1434,7 @@ fn tmux_identity_has_no_u_binding() {
 
 // ---- default key table (T2.5b) ----
 
-fn words(b: &Binding) -> Vec<&str> {
+pub(super) fn words(b: &Binding) -> Vec<&str> {
     assert_eq!(b.cmds.len(), 1, "one command");
     b.cmds[0].iter().map(String::as_str).collect()
 }
@@ -1521,10 +1521,6 @@ fn default_bindings_are_tmux_stock_for_the_m2_commands() {
     }
     // Nothing in root: every key there goes to the pane.
     assert!(t.get(ROOT_TABLE, &k("q")).is_none());
-    // Stock keys grofe leaves unbound (out of scope).
-    for name in ["m", "M", "t", "<", ">", "*"] {
-        assert!(t.get(PREFIX_TABLE, &k(name)).is_none(), "{name}");
-    }
 }
 
 /// D10, recorded on tmux 3.7b (`list-keys -T prefix`, `list-keys -N`
