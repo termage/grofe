@@ -17,6 +17,11 @@ export type SystemOptions = {
 	timeout_ms: number?,
 }
 
+export type NotifyOptions = {
+	pane: string?,
+	level: ("info" | "warn" | "error")?,
+}
+
 declare grofe: {
 	api: number,
 	cmd: (command: { string } | string) -> string,
@@ -28,4 +33,17 @@ declare grofe: {
 	cancel: (id: number) -> (),
 	log: (msg: string) -> (),
 	plugin: (name: string) -> any,
+	notify: (text: string, opts: NotifyOptions?) -> (),
+	json: {
+		encode: (value: any) -> string,
+		decode: (text: string) -> any,
+	},
+	config: (name: string, dir: string?) -> { [string]: any },
+	pack_dir: () -> string,
+	options: () -> { [string]: any },
+	store: {
+		get: (key: string) -> any,
+		set: (key: string, value: any) -> (),
+		delete: (key: string) -> (),
+	},
 }

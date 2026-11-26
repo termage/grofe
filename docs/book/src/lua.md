@@ -15,7 +15,8 @@ logged, shown by `show-messages` with the name of the script, and never stops st
 ## Modules with `require`
 
 Split `init.luau` into modules in your config folder. `require(name)` loads the first file
-that exists, in this order:
+that exists, in this order (inside a pack, `<config dir>` is the pack's own folder, see
+[Writing a plugin](#writing-a-plugin)):
 
 1. `<config dir>/<name>.luau`
 2. `<config dir>/<name>.lua`
@@ -46,8 +47,11 @@ Each of these is a Lua error, logged like any other:
 - a cycle, where a module requires itself through other modules
 - an error inside the module, which `require` passes on
 
-There is one `require` for all Lua code: packs, at load time and in their callbacks, load
-modules from your config folder too, sharing the load's cache with `init.luau`. Without a config folder, `require` is an error.
+There is one `require`, and it looks where the running code lives. Your `init.luau`, and
+anything it calls later, loads from the config folder; a pack, at load time and in its
+callbacks, loads from the pack's own folder, so two packs can each have an `ui.luau`. A pack
+does not see your config folder. Without a config folder, `require` in your own code is an
+error.
 
 ## The no-freeze contract
 
@@ -58,7 +62,7 @@ command) is one call with its own limits:
   twice the budget.
 - 64 MiB of memory.
 - No `io`, no `os.execute`, no `loadstring`, no native modules. `require` loads modules from
-  your config folder (see [Modules with `require`](#modules-with-require)).
+  your config folder, or from a pack's own folder (see [Modules with `require`](#modules-with-require)).
 - Calling the `lua` command from Lua is an error, not a deadlock.
 
 When a call goes over, grofe aborts it, logs `<script>: over its 50 ms budget` and carries on. The
@@ -83,12 +87,40 @@ grofe.system({ "git", "status" }, function(r) grofe.log(r.stdout) end,
 grofe.cancel(id)                             -- stop a timer, binding, event or process
 grofe.log("text")                            -- write to the server log
 local cfg = grofe.plugin("my-plugin")        -- what that plugin's init.luau returned
+grofe.notify("build finished", { level = "warn", pane = "%3" }) -- a tray entry
+local text = grofe.json.encode({ a = { 1, 2 } })  -- '{"a":[1,2]}'
+local value = grofe.json.decode(text)             -- back to a table
+local conf = grofe.config("tool", "/path/in/a/repo") -- settings files, merged
 ```
 
 `grofe.every` and `grofe.system` are the only way to run things over time. `system` kills the
 process at `timeout_ms` (default 10000) and reports `code = -1`. Event names are the ones
 `grofe control` can subscribe to (see [protocol v1](https://github.com/termage/grofe/blob/main/docs/protocol-v1.md)); the callback receives the
 event as a table.
+
+### Notifications
+
+`grofe.notify(text, { pane = ..., level = ... })` adds an entry to the notification tray (see
+`notify list`). `text` must be a string. `pane` is a pane id such as `"%3"`; without it the
+entry belongs to the active pane, and an unknown pane is an error. `level` is `"info"`
+(default), `"warn"` or `"error"` and is shown as the entry's state. It never raises a toast or
+a desktop message by itself.
+
+### JSON
+
+`grofe.json.encode(value)` returns JSON text. A table holding `1..n` becomes an array, any
+other table an object with string keys, and an empty table is `{}`. Functions, userdata and
+NaN raise an error, as does a table nested deeper than 64 levels (which also catches a table
+that contains itself). `grofe.json.decode(text)` returns the value, or raises on invalid
+text; JSON `null` becomes `nil`.
+
+### Settings files
+
+`grofe.config(name, dir)` reads `<config dir>/<name>.toml`, then lays
+`<git root of dir>/.grofe/<name>.toml` over it: the project's keys win, and nested tables are
+merged key by key. A file that does not exist counts as empty, so the result is always a table.
+Without `dir` only the user file is read. A file that does not parse raises an error that names
+the file and the line.
 
 ## Example: a status widget
 
@@ -148,17 +180,40 @@ Clones live in `$XDG_DATA_HOME/grofe/pack/<name>`. The lock is `<config dir>/pac
 entry per plugin with the source and the exact commit. Commit it to keep machines in step.
 `update` without a terminal needs `--yes`. Run `reload` after `sync` to load what was installed.
 
-The kind of plugin comes from the repo. A `grofe-plugin.toml` with `name` and `api` marks a Luau
-plugin, and an `api` other than 1 fails `sync` with the plugin's name. A repo with `*.tmux`
-files and no manifest is a tmux plugin: each `*.tmux` runs through `run-shell` at load, so this
-replaces TPM.
+The kind of plugin comes from the repo. A `grofe-plugin.toml` with `name` and `min_api` marks a
+Luau plugin. A repo with `*.tmux` files and no manifest is a tmux plugin: each `*.tmux` runs
+through `run-shell` at load, so this replaces TPM.
+
+`min_api` is the oldest plugin API (`grofe.api`) the pack runs on. A grofe whose API is at
+least that loads the pack; an older one skips it and says why in `show-messages`. `sync` still
+installs such a pack, so it starts working after you upgrade grofe. The earlier `api` key is
+still read, as the same number, and an `api` above this grofe's API fails `sync` with the
+plugin's name.
+
+A user can override a pack's options on its entry:
+
+```toml
+[[pack]]
+src = "github:someone/grofe-git"
+options = { interval = 5000, theme = { accent = "blue" } }
+```
 
 ## Writing a plugin
 
 ```
 my-plugin/
-  grofe-plugin.toml   -- name = "my-plugin"  and  api = 1
+  grofe-plugin.toml   -- name = "my-plugin"  and  min_api = 1
   init.luau
+```
+
+```toml
+# grofe-plugin.toml
+name = "my-plugin"
+min_api = 1
+
+[options]            # defaults, read with grofe.options()
+interval = 2000
+theme = { accent = "green" }
 ```
 
 `init.luau` runs at load, and what it returns is stored for `grofe.plugin("my-plugin")`:
@@ -170,6 +225,26 @@ return M
 ```
 
 The user can then read or tune it from their own `init.luau`, which loads after every pack.
+
+What a pack can use besides the API above:
+
+- `require(name)` loads `<name>.luau` and friends from the pack's own folder, never from the
+  user's config folder.
+- `grofe.pack_dir()` returns the pack's folder, for data files that ship with it.
+- `grofe.options()` returns the `[options]` defaults of the manifest with the user's
+  `options = {...}` on the `[[pack]]` entry laid over them (nested tables merge key by key).
+  Outside a pack it raises an error.
+- `grofe.store` keeps data between reloads and restarts, private to the pack, under the state
+  directory (`<state dir>/packs/<name>/store.json`). `store.get(key)` returns the value or
+  `nil`, `store.set(key, value)` saves a string, number, boolean or table (a function or
+  userdata raises an error; `nil` deletes), and `store.delete(key)` removes it. Every call reads
+  or writes the file, so keep values small. Outside a pack it raises an error.
+
+Errors name their pack. A callback that fails is logged as `pack <name> callback <id>: <error>`.
+A pack that fails while loading, whether the error is in its `init.luau`, a `require` or a
+`min_api` that is too new, shows up in `show-messages` too, and everything it registered
+before the failure (key bindings, timers, event subscriptions) is removed again, so a pack is
+never left half loaded. The other packs and your `init.luau` still load.
 
 ## Editor setup
 
