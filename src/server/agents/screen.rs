@@ -1,7 +1,7 @@
 //! Screen detection's side of the store: the debounce of pane output, and
 //! what a screen read does to a record.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use super::{AgentState, Agents, Change, Source};
@@ -14,9 +14,10 @@ pub(crate) struct Scan {
     pub pending: BTreeSet<PaneId>,
     pub at: Option<Instant>,
     pub first: Option<Instant>,
-    /// Panes prompted since their last read: that read shows the typed text
-    /// at best, so an `idle` in it does not count.
-    pub armed: BTreeSet<PaneId>,
+    /// Prompted panes still `working`, with when they were prompted: a read
+    /// soon after shows the typed text at best, so its `idle` does not count.
+    /// They are re-read without new output.
+    pub armed: BTreeMap<PaneId, Instant>,
 }
 
 impl Agents {

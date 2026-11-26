@@ -187,7 +187,7 @@ fn wait(state: &mut State, pane: PaneId, until: Vec<AgentState>, timeout: Durati
 
 /// The text was typed into `pane`: its agent is `working` (announced as any
 /// state change), before a wait starts. Output from before the text is not
-/// read, and the first read after it cannot end the work with `idle`.
+/// read, and a read within `IDLE_GUARD` of it cannot end the work with `idle`.
 fn mark_prompted(state: &mut State, pane: PaneId) {
     let now = Instant::now();
     let before = state.agents.get(pane).map(|a| (a.state, a.since));
@@ -196,7 +196,8 @@ fn mark_prompted(state: &mut State, pane: PaneId) {
     };
     state.agents.scan.pending.remove(&pane);
     if state.agents.get(pane).is_some_and(|a| !a.reported) {
-        state.agents.scan.armed.insert(pane);
+        state.agents.scan.armed.insert(pane, now);
+        state.agents.scan.at.get_or_insert(now + REPOLL);
     }
     agent::announce(state, pane, &change, before, now);
 }
@@ -331,6 +332,12 @@ pub(crate) fn explain(state: &State, ctx: &ClientCtx, target: &Target) -> Result
 const SETTLE: Duration = Duration::from_millis(100);
 const SETTLE_MAX: Duration = Duration::from_millis(500);
 
+/// After `agent prompt` the screen shows the typed text at best: an `idle`
+/// read this soon after it does not count.
+const IDLE_GUARD: Duration = Duration::from_millis(300);
+/// How often the screen of a prompted pane is read again without new output.
+const REPOLL: Duration = Duration::from_millis(500);
+
 /// Output on `panes`: those with an agent that detection can judge are read
 /// once their output has settled (see [`scan_pending`]).
 pub(crate) fn note_output(state: &mut State, panes: &BTreeSet<PaneId>) {
@@ -368,16 +375,24 @@ pub(crate) fn deadline(state: &State) -> Option<Instant> {
 /// output, and takes the state their last lines show. A record that has had
 /// a report is not judged. A screen that matches nothing changes nothing,
 /// except that a `working` or `blocked` state the screen gave falls back to
-/// `idle`. After
-/// `agent prompt` the first read cannot say `idle`.
+/// `idle`. After `agent prompt` a read within `IDLE_GUARD` cannot say `idle`,
+/// and the pane is read every `REPOLL` until it leaves `working` or is
+/// reported.
 pub(crate) fn scan_pending(state: &mut State, now: Instant) {
     if state.agents.scan.at.is_none_or(|at| at > now) {
         return;
     }
     state.agents.scan.at = None;
     state.agents.scan.first = None;
-    for pane in std::mem::take(&mut state.agents.scan.pending) {
-        let armed = state.agents.scan.armed.remove(&pane);
+    let mut panes = std::mem::take(&mut state.agents.scan.pending);
+    panes.extend(state.agents.scan.armed.keys().copied());
+    for pane in panes {
+        let guarded = state
+            .agents
+            .scan
+            .armed
+            .get(&pane)
+            .is_some_and(|t| now < *t + IDLE_GUARD);
         let Some(a) = state.agents.get(pane).filter(|a| !a.reported) else {
             continue;
         };
@@ -400,7 +415,7 @@ pub(crate) fn scan_pending(state: &mut State, now: Instant) {
             }
             None => continue,
         };
-        if armed && new == AgentState::Idle {
+        if guarded && new == AgentState::Idle {
             continue;
         }
         let source = Source::Screen {
@@ -412,5 +427,23 @@ pub(crate) fn scan_pending(state: &mut State, now: Instant) {
         if let Some(change) = state.agents.screen(pane, new, source, seen, now) {
             agent::announce(state, pane, &change, before, now);
         }
+    }
+    // ponytail: bounded polling, a prompted pane is re-read every REPOLL
+    // for as long as its state stays `working`, with no overall limit.
+    let agents = &mut state.agents;
+    let live: BTreeSet<PaneId> = agents
+        .scan
+        .armed
+        .keys()
+        .copied()
+        .filter(|p| {
+            agents
+                .get(*p)
+                .is_some_and(|a| !a.reported && a.state == AgentState::Working)
+        })
+        .collect();
+    agents.scan.armed.retain(|p, _| live.contains(p));
+    if !live.is_empty() {
+        agents.scan.at = Some(now + REPOLL);
     }
 }

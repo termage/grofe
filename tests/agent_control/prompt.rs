@@ -60,6 +60,26 @@ fn wait_default_until_returns_when_the_work_ends() {
 }
 
 #[test]
+fn an_answer_before_the_first_read_still_ends_the_wait() {
+    let f = start(Some(DETECT));
+    let pane = f.agent();
+    let t = Instant::now();
+    let out = f.srv.run(&[
+        "agent",
+        "prompt",
+        &pane,
+        "--wait",
+        "--timeout",
+        "5",
+        "--",
+        "blip",
+    ]);
+    assert_eq!(code(&out), Some(0), "{out:?}");
+    assert_eq!(out.stdout.trim(), "idle");
+    assert!(t.elapsed() < Duration::from_secs(2), "{:?}", t.elapsed());
+}
+
+#[test]
 fn wait_exits_1_on_timeout() {
     let f = start(Some(DETECT));
     let pane = f.agent();
