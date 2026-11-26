@@ -7,7 +7,7 @@ use crate::cmd::{AgentCmd, AgentReport, Resolve, Target, expand};
 use crate::protocol::ClientCtx;
 use crate::server::agents::{Rank, Report, ReportState, rank};
 use crate::server::dispatch::options::{FormatCtx, ServerVars};
-use crate::server::dispatch::{agent, agent_new};
+use crate::server::dispatch::{agent, agent_control, agent_new};
 use crate::server::render::Level;
 use crate::server::{State, clients};
 use crate::types::PaneId;
@@ -21,6 +21,9 @@ pub(crate) fn run(state: &mut State, ctx: &ClientCtx, c: AgentCmd) -> Result<Str
         AgentCmd::Next => next(state, ctx),
         AgentCmd::Seen { target, all } => seen(state, ctx, &target, all),
         AgentCmd::New(c) => agent_new::run(state, ctx, c),
+        AgentCmd::Prompt(c) => agent_control::prompt(state, ctx, c),
+        AgentCmd::Read { target, lines } => agent_control::read(state, ctx, &target, lines),
+        AgentCmd::Explain { target } => agent_control::explain(state, ctx, &target),
     }
 }
 

@@ -23,6 +23,7 @@
 
 pub(crate) mod agent;
 mod agent_cmd;
+pub(crate) mod agent_control;
 pub(crate) mod agent_new;
 pub(crate) mod bindings;
 pub(crate) mod buffers;
@@ -279,6 +280,8 @@ pub(crate) fn read_only(parsed: &Result<Parsed, String>) -> bool {
                 | Command::SaveBuffer(_)
                 | Command::ListBuffers(_)
                 | Command::Agent(cmd::AgentCmd::List { .. })
+                | Command::Agent(cmd::AgentCmd::Read { .. })
+                | Command::Agent(cmd::AgentCmd::Explain { .. })
                 | Command::DisplayMessage(cmd::DisplayMessage { print: true, .. })
         )
     })

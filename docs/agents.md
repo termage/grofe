@@ -120,7 +120,9 @@ by session, two lines each. When panes are framed it sits in a frame like theirs
 selected row takes `mode-style`. It is drawn by grofe, not a pane, so it runs
 no process. It is per client and hidden until you toggle it (or set
 `show-on-attach`), and it hides itself while the terminal is narrower than
-`min-client-width`. Click a row to jump; `agent-sidebar focus` gives it the
+`min-client-width`. Each session starts with a header row that shows the most
+urgent state of its agents (blocked, then done, then working, then idle). Click
+an agent row to jump (a header jumps nowhere); `agent-sidebar focus` gives it the
 keys until `Escape`.
 
 ## The grid
@@ -246,6 +248,43 @@ says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
   `match` list (looking through `node`, `npx`, `uv` and similar launchers). A
   bell or an OSC 9/777 notification from an agent that sends no reports marks
   it unseen.
+
+- **The screen:** for a pane that has never had a report, grofe reads the last
+  `lines` lines of the screen once its output rests, and matches them against
+  the kind's detection file, `working` first, then `blocked`, then `idle`. A
+  screen that matches nothing changes nothing. Files for `claude`, `codex`,
+  `gemini`, `opencode` and `aider` are built in and only match obvious prompts.
+  `<config dir>/agents/<kind>.toml` replaces the built-in file for that kind:
+
+  ```toml
+  lines = 20                       # default
+  working = "esc to interrupt"     # a regex, or an array of them
+  blocked = ["Allow\\?", "\\[y/n\\]"]
+  idle = "^> $"
+  ```
+
+  A file with an invalid regex is skipped, the built-in file stays, and
+  `show-messages` names the file and key. A report, hook or OSC 7501 state
+  always beats the screen.
+
+`grofe agent explain <pane>` prints the kind, the state and where it came from
+(`report`, `osc`, `screen` with the file and the rule that matched, or `bell`).
+
+## Prompting and reading agents
+
+- `grofe agent prompt <pane> [--wait] [--until idle,blocked,done] [--timeout <s>] -- <text>`
+  types the text and Enter into an agent pane. With `--wait` it waits for the
+  agent's next change to one of the `--until` states (default
+  `idle,blocked,done`; any of `idle`, `working`, `blocked`, `done`, `error`) and
+  prints it. Exit 1 is a timeout (default one hour), exit 2 a pane that closed.
+  A pane that is not an agent, or an unknown `--until` state, is an error and
+  types nothing.
+- `grofe agent read <pane> [-n <lines>]` prints the last lines of a pane (50 by
+  default), from the alternate screen when the program is on it, else
+  scrollback and screen. `-n 0` prints nothing.
+- In Lua: `grofe.agent.prompt(pane, text, { ["until"] = "blocked", timeout_ms = 60000 }, fn)`
+  calls `fn(state)` when the state is reached, or `fn()` on a timeout or a
+  closed pane; `grofe.agent.read(pane, n)` returns the lines joined by `\n`.
 
 Agent text is shown as text: control characters are removed, and it can never
 run a command or start a status line style.

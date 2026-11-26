@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crate::cmd::expand;
 use crate::config::Resolved;
 use crate::protocol::ClientCtx;
-use crate::server::agents::{AgentState, Change, Report, ReportState, kinds};
+use crate::server::agents::{AgentState, Change, Report, ReportState, Source, kinds};
 use crate::server::dispatch::options::{FormatCtx, ServerVars};
 use crate::server::notify::{Raised, desktop};
 use crate::server::resume::Binding;
@@ -50,6 +50,11 @@ pub(crate) fn is_seen(state: &State, pane: PaneId) -> bool {
 /// foreground process, raises `agent-changed`, redraws, and sets the pane's
 /// resume when the session id changed.
 pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
+    apply_from(state, pane, r, Source::Report);
+}
+
+/// [`apply`] for a report that came from `source`.
+pub(crate) fn apply_from(state: &mut State, pane: PaneId, r: Report, source: Source) {
     if !state.agents_enabled || !state.model.panes.contains_key(&pane) {
         return;
     }
@@ -68,6 +73,7 @@ pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
     let seen = is_seen(state, pane);
     let before = state.agents.get(pane).map(|a| (a.state, a.since));
     let change = state.agents.apply(pane, r, seen, now);
+    state.agents.set_source(pane, source);
     // A record this report made had no state before it.
     let change = match (change, created) {
         (Some(c), true) => Some(Change { old: None, ..c }),
@@ -86,14 +92,26 @@ pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
     if change.session_changed && change.new.is_some() {
         set_resume(state, pane);
     }
-    events::emit_agent_changed(state, pane, &change);
+    announce(state, pane, &change, before, now);
+}
+
+/// Raises `agent-changed`, offers the change to the notification store and
+/// redraws. `before` is the record's state and `since` before the change.
+pub(crate) fn announce(
+    state: &mut State,
+    pane: PaneId,
+    change: &Change,
+    before: Option<(AgentState, Instant)>,
+    now: Instant,
+) {
+    events::emit_agent_changed(state, pane, change);
     let worked = match (change.old, before) {
         (Some(AgentState::Working), Some((AgentState::Working, since))) => {
             now.saturating_duration_since(since)
         }
         _ => Duration::ZERO,
     };
-    raise(state, pane, &change, worked, now);
+    raise(state, pane, change, worked, now);
     clients::mark_all_dirty(state);
 }
 
@@ -267,6 +285,12 @@ pub(crate) fn configure(state: &mut State, r: &Resolved) {
         }
     }
     state.agent_kinds = all;
+    let config_dir = super::options::config_env().config_dir;
+    let (files, errors) = crate::server::agents::detect::load(config_dir.as_deref());
+    state.agents.detect = files;
+    for e in errors {
+        clients::log_error(state, "agents", &e);
+    }
     super::notify::configure(state, r);
 }
 

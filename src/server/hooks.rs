@@ -1221,6 +1221,7 @@ pub(crate) fn run_pending(state: &mut State) {
     prune(state);
     crate::server::alerts::drain(state);
     state.events.panes_closed(&mut state.model);
+    crate::server::dispatch::agent_control::panes_closed(state);
     for (session, name) in std::mem::take(&mut state.model.closed_sessions) {
         crate::server::remote::session_closed(state, session);
         let closed = Event::SessionClosed {

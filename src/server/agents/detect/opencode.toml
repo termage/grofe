@@ -1,0 +1,4 @@
+# Built-in screen detection for opencode.
+lines = 20
+working = ["esc interrupt"]
+blocked = ["Permission required"]

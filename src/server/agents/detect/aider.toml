@@ -1,0 +1,5 @@
+# Built-in screen detection for aider. Its prompt is a line holding only
+# `>` (or a mode name before it).
+lines = 20
+blocked = ["\\(Y\\)es/\\(N\\)o", "\\[Yes\\]: *$"]
+idle = ["(?m)^(architect|ask|code|help)?> ?$"]

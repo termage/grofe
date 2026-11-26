@@ -1,5 +1,6 @@
-//! AC14, second half: session and window rows of the sidebar show the most
-//! urgent state of their panes (blocked > done > working > idle).
+//! AC14, second half: a session's header row in the sidebar shows the most
+//! urgent state of its agent panes (blocked > done > working > idle). Windows
+//! have no rows of their own; their roll-up is the `window_agent_state` format.
 
 use crate::harness::Harness;
 use crate::helpers::{Fx, start};
@@ -51,7 +52,7 @@ fn says(text: &str, row: &str, state: &str) -> bool {
 }
 
 #[test]
-fn session_and_window_rows_show_their_most_urgent_state() {
+fn the_session_row_shows_its_most_urgent_state() {
     let f = start(None);
     f.srv
         .cmd(&[
@@ -70,9 +71,11 @@ fn session_and_window_rows_show_their_most_urgent_state() {
     agent_in(&f, "zeta", "lint", "done");
     agent_in(&f, "zeta", "docs", "idle");
     let mut a = with_sidebar(&f);
-    a.wait_until("rows show their state", crate::helpers::WAIT, |t| {
-        says(t, "zeta", "blocked") && says(t, "lint", "done") && says(t, "docs", "idle")
-    });
+    a.wait_until(
+        "the session row shows its state",
+        crate::helpers::WAIT,
+        |t| says(t, "zeta", "blocked"),
+    );
     let text = a.text();
     for other in ["done", "working", "idle"] {
         assert!(

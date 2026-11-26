@@ -1,11 +1,13 @@
 //! Agent status: the per-pane store and the report rules (spec §2).
 
+pub(crate) mod detect;
 pub(crate) mod headless;
 mod history;
 pub(crate) mod kinds;
 pub(crate) mod osc;
 mod rank;
 mod text;
+pub(crate) mod waiters;
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
@@ -13,6 +15,7 @@ use std::time::Instant;
 use crate::server::resume::Binding;
 use crate::types::PaneId;
 
+pub(crate) use detect::Source;
 pub(crate) use rank::{Rank, rank};
 pub(crate) use text::{sanitize, valid_kind, valid_session_id};
 
@@ -83,6 +86,8 @@ pub(crate) struct Agent {
     pub binding: Option<Binding>,
     /// The messages reports carried, oldest first, up to `history::HISTORY_CAP`.
     pub history: VecDeque<String>,
+    /// What the state last came from; `None` for a record made by a scan.
+    pub source: Option<Source>,
 }
 
 impl Agent {
@@ -99,6 +104,7 @@ impl Agent {
             last_report: 0,
             binding,
             history: VecDeque::new(),
+            source: None,
         }
     }
 }
@@ -121,6 +127,16 @@ pub struct Agents {
     map: HashMap<PaneId, Agent>,
     /// The `system` jobs running that asked to show: not agents.
     pub(crate) jobs: Vec<headless::Job>,
+    /// Screen detection files by kind (see `detect::load`).
+    pub(crate) detect: HashMap<String, detect::DetectFile>,
+    /// `agent prompt --wait` calls still waiting.
+    pub(crate) waiters: Vec<waiters::Waiter>,
+    waiter_seq: u64,
+    /// Panes with output since their screens were last read, and when the
+    /// next read is due (see `agent_control::note_output`).
+    pub(crate) screen_pending: std::collections::BTreeSet<PaneId>,
+    pub(crate) screen_at: Option<Instant>,
+    pub(crate) screen_first: Option<Instant>,
 }
 
 impl Agents {
@@ -245,7 +261,50 @@ impl Agents {
         if msg.is_some() {
             a.msg = msg;
         }
+        if changed {
+            a.source = Some(Source::Bell);
+        }
         changed
+    }
+
+    pub(crate) fn set_source(&mut self, pane: PaneId, source: Source) {
+        if let Some(a) = self.map.get_mut(&pane) {
+            a.source = Some(source);
+        }
+    }
+
+    /// The state the screen shows (never for a record that has had a report,
+    /// which is fresher). `None` when nothing changed but the rule.
+    pub(crate) fn screen(
+        &mut self,
+        pane: PaneId,
+        state: AgentState,
+        source: Source,
+        seen: bool,
+        now: Instant,
+    ) -> Option<Change> {
+        let a = self.map.get_mut(&pane).filter(|a| !a.reported)?;
+        a.source = Some(source);
+        if a.state == state {
+            return None;
+        }
+        let old = a.state;
+        a.state = state;
+        a.since = now;
+        a.blocked = None;
+        a.msg = None;
+        match state {
+            AgentState::Working | AgentState::Idle => a.unseen = false,
+            _ if !seen => a.unseen = true,
+            _ => {}
+        }
+        Some(Change {
+            old: Some(old),
+            new: Some(state),
+            kind: a.kind.clone(),
+            session_changed: false,
+            msg: None,
+        })
     }
 
     pub(crate) fn remove(&mut self, pane: PaneId) -> Option<Agent> {

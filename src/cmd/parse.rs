@@ -28,6 +28,7 @@ use super::{
 };
 use crate::types::{CaptureBound, CaptureOpts, Dir, Edge, PaneId, SplitSize, WINDOW_MAXIMUM};
 
+mod agent_ctl;
 mod agent_new;
 
 /// `ParseError::Other` from any message.
@@ -777,7 +778,7 @@ pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
             }))
         }
         "new" => agent_new::parse(rest),
-        other => Err(perr(format!("agent: unknown subcommand {other}"))),
+        other => agent_ctl::parse(other, rest),
     }
 }
 

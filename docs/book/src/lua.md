@@ -129,6 +129,14 @@ converted with replacement characters.
 `grofe.agent.history(pane, n)` returns the last `n` messages the pane's agent reported, oldest
 first. Grofe keeps the last 50 per agent.
 
+`grofe.agent.read(pane, n)` returns the last `n` lines of the pane as one string, lines joined by
+`"\n"` (the alternate screen when the program is on it). `grofe.agent.prompt(pane, text, opts, fn)`
+types `text` and Enter into an agent pane and returns at once; `fn(state)` runs when the agent
+reaches a state in `opts["until"]` (a name, a comma list or a table; default `idle`, `blocked`,
+`done`), or `fn()` after `opts.timeout_ms` (default one hour) or when the pane closes. A pane that
+is not an agent, or an unknown state, raises an error. See
+[Prompting and reading agents](agents.md#prompting-and-reading-agents).
+
 ### Notifications
 
 `grofe.notify(text, { pane = ..., level = ... })` adds an entry to the notification tray (see

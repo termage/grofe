@@ -2,14 +2,38 @@
 
 use super::{AgentReport, Target};
 
-/// `agent report|list|next|seen` (grofe's own): native agent status.
+/// `agent report|list|next|seen|new|prompt|read|explain` (grofe's own): native agent status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentCmd {
     Report(AgentReport),
-    List { format: Option<String> },
+    List {
+        format: Option<String>,
+    },
     Next,
-    Seen { target: Target, all: bool },
+    Seen {
+        target: Target,
+        all: bool,
+    },
     New(AgentNew),
+    Prompt(AgentPrompt),
+    Read {
+        target: Target,
+        lines: Option<usize>,
+    },
+    Explain {
+        target: Target,
+    },
+}
+
+/// `agent prompt <pane> [--wait] [--until a,b] [--timeout s] -- <text>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPrompt {
+    pub target: Target,
+    pub text: String,
+    pub wait: bool,
+    /// State names; empty is `idle,blocked,done`.
+    pub until: Vec<String>,
+    pub timeout_secs: Option<u64>,
 }
 
 /// `agent new <kind> [-pPdwW] [-c dir] [-n name] [-b branch] [-e K=V]
