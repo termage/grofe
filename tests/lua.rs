@@ -69,7 +69,7 @@ fn init_binds_a_key_that_runs() {
 #[test]
 fn status_widget_updates_option() {
     let srv = with_init(
-        "grofe.every(100, function() grofe.system({'echo','hi'}, function(r) \
+        "grofe.every(100, function() grofe.system({'sh','-c','sleep 1'}, function(r) \
          grofe.cmd{'set-option','-g','@w', (r.stdout:gsub('%s+$',''))} end) end)\n",
     );
     srv.wait_for(
@@ -217,10 +217,10 @@ fn deferred_command_from_an_event_does_not_leak() {
 #[test]
 fn deferred_command_from_a_system_callback_does_not_leak() {
     let srv = with_init(
-        "grofe.system({'echo','hi'}, function(r) \
+        "grofe.system({'sh','-c','sleep 1'}, function(r) \
          grofe.cmd{'run-shell','echo leak; sleep 2'} grofe.cmd{'set','-g','@ran','1'} end)\n",
     );
-    std::thread::sleep(Duration::from_millis(700));
+    std::thread::sleep(Duration::from_millis(1500));
     let t = Instant::now();
     assert_eq!(
         ok(&srv, &["display-message", "-p", "hello"]).trim(),
