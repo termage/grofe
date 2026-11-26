@@ -4,7 +4,7 @@ Each tiled pane is a rounded tile with its own frame, its title drawn in the
 frame's top edge, and a cell of gap between tiles and around the outside:
 
 ```text
- ╭─ ( 1 ) nvim ──── ( z f x ) ─╮ ╭─ ( 2 ) zsh · ui ─ ( z f x ) ─╮
+ ╭─ ( 1 ) nvim ──── ( z f x ) ─╮ ╭─ ( 2 ) ~/ui ───── ( z f x ) ─╮
  │                             │ │                              │
  │                             │ ╰──────────────────────────────╯
  │                             │
@@ -15,8 +15,8 @@ frame's top edge, and a cell of gap between tiles and around the outside:
 
 The active pane's frame takes `pane-active-border-style` and the others
 `pane-border-style`. The title shows the pane's number and the title its
-program set; a pane with no title of its own shows its command and folder,
-such as `zsh · ui`.
+program set; a pane with no title of its own shows its working directory,
+with your home directory as `~`, such as `~/ui`.
 
 With `mouse` on, the end of the title holds three controls: `z` zooms the
 pane (`u` while zoomed), `f` floats it (`t` puts a floating pane back) and

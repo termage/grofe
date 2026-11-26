@@ -155,14 +155,15 @@ pub(crate) const PANE_BORDER_FORMAT: &str = "#{?pane_active,#[reverse],}#{pane_i
 /// control tab takes over (`render::frame_tab`), and with the pane index
 /// between the tab's `ends` (`render::tab_ends`) in place of reversed, so
 /// the two match. A pane whose title no program has set (empty, or the
-/// hostname tmux gives it) shows its command and folder instead.
+/// hostname tmux gives it) shows its working directory instead, with
+/// $HOME as `~` (`pane_current_path_home`).
 pub(crate) fn frame_title_format(ends: &str) -> String {
     let (l, r) = crate::server::render::tab_ends(ends);
     format!(
         "{l} #{{pane_index}} {r} \
          #{{?#{{||:#{{==:#{{pane_title}},}},#{{||:#{{==:#{{pane_title}},#{{host}}}},\
          #{{==:#{{pane_title}},#{{host_short}}}}}}}},\
-         #{{pane_current_command}} · #{{b:pane_current_path}},\"#{{pane_title}}\"}}"
+         #{{pane_current_path_home}},\"#{{pane_title}}\"}}"
     )
 }
 

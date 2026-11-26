@@ -64,6 +64,18 @@ impl<'a> ServerVars<'a> {
     }
 }
 
+/// `path` with a leading `home` directory written `~`; a sibling that only
+/// shares the prefix (`/Users/ab` under `/Users/a`) stays absolute.
+fn home_as_tilde(path: &str, home: &str) -> String {
+    let home = home.trim_end_matches('/');
+    match path.strip_prefix(home) {
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            format!("~{rest}")
+        }
+        _ => path.to_string(),
+    }
+}
+
 impl FormatVars for ServerVars<'_> {
     fn get(&self, name: &str) -> Option<String> {
         // The clock is the newest mode of a pane showing it.
@@ -110,6 +122,12 @@ impl FormatVars for ServerVars<'_> {
             "host_short" => {
                 let host = crate::server::passthrough::hostname();
                 Some(host.split('.').next().unwrap_or(host).to_string())
+            }
+            // grofe's own: the working directory with the server's $HOME as `~`.
+            "pane_current_path_home" => {
+                let path = self.get("pane_current_path")?;
+                let home = std::env::var("HOME").unwrap_or_default();
+                Some(home_as_tilde(&path, &home))
             }
             "pane_tty" => {
                 let p = self.state.model.panes.get(&self.pane)?;
@@ -369,5 +387,25 @@ impl<'a> ServerVars<'a> {
                 })
                 .collect(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tilde_tests {
+    use super::home_as_tilde;
+
+    #[test]
+    fn home_becomes_a_tilde() {
+        assert_eq!(home_as_tilde("/Users/a/x", "/Users/a"), "~/x");
+        assert_eq!(home_as_tilde("/Users/a", "/Users/a"), "~");
+        assert_eq!(home_as_tilde("/Users/a/x", "/Users/a/"), "~/x");
+    }
+
+    #[test]
+    fn only_a_whole_component_matches() {
+        assert_eq!(home_as_tilde("/Users/ab", "/Users/a"), "/Users/ab");
+        assert_eq!(home_as_tilde("/etc", "/Users/a"), "/etc");
+        assert_eq!(home_as_tilde("/etc", ""), "/etc");
+        assert_eq!(home_as_tilde("/etc", "/"), "/etc");
     }
 }

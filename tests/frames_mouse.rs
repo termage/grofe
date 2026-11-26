@@ -855,14 +855,12 @@ fn the_frame_tab_zooms_floats_and_closes() {
     assert!(ends.contains("( z f x )"), "{ends:?}");
     let index = var(&srv, "%0", "#{pane_index}");
     assert!(ends.contains(&format!("( {index} ) ")), "{ends:?}");
-    // No program set a title, so the frame shows the command and folder,
+    // No program set a title, so the frame shows the working directory,
     // not the hostname tmux defaults a title to.
-    let cmd = var(
-        &srv,
-        "%0",
-        "#{pane_current_command} · #{b:pane_current_path}",
-    );
-    assert!(ends.contains(&cmd), "{cmd:?} in {ends:?}");
+    // The frame is narrow, so only the start of the path fits.
+    let cwd = var(&srv, "%0", "#{pane_current_path_home}");
+    let head: String = cwd.chars().take(12).collect();
+    assert!(ends.contains(&head), "{cwd:?} in {ends:?}");
     // Zoom, then unzoom with the same control, now `u`.
     click(&mut a, (at, row));
     let zoomed = try_wait_until(|| var(&srv, "%0", "#{window_zoomed_flag}") == "1", WAIT);
