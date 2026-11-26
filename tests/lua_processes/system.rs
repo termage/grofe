@@ -106,3 +106,41 @@ fn timeout_kills_the_whole_process_group() {
     let _ = fs::remove_file(pidfile);
     assert_eq!(opt(&srv, "@r"), "timed");
 }
+
+#[test]
+fn timeout_covers_a_descendant_that_holds_the_pipes() {
+    let srv = server();
+    let pidfile = srv.home.join("holder.pid");
+    let code = format!(
+        "grofe.system({{'sh','-c','sleep 600 & echo $! > {}; echo hi'}}, \
+         function(r) {SET} r.code .. ':' .. r.stdout}} end, {{timeout_ms = 500}})",
+        pidfile.display()
+    );
+    lua_ok(&srv, &code);
+    assert_eq!(wait_opt(&srv, "@r"), "-1:hi");
+    let text = wait_for_file(&pidfile);
+    let pid = nix::unistd::Pid::from_raw(text.trim().parse().expect("pid"));
+    srv.wait_for(|| process_gone(pid), crate::support::WAIT)
+        .unwrap_or_else(|e| panic!("{e}: {pid} survived the timeout"));
+    let _ = fs::remove_file(pidfile);
+}
+
+#[test]
+fn cancel_stops_on_line() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        "j = grofe.system({'sh','-c','while true; do echo x; sleep 0.1; done'}, function() end, \
+         {timeout_ms = 60000, on_line = function(l) \
+         grofe.cmd{'set-option','-g','-a','@n','x'} end})",
+    );
+    wait_opt(&srv, "@n");
+    lua_ok(&srv, "grofe.cancel(j)");
+    let at_cancel = opt(&srv, "@n");
+    crate::common::quiet_period(std::time::Duration::from_millis(600));
+    // A line already queued may still land; the stream must not go on.
+    assert!(
+        opt(&srv, "@n").len() <= at_cancel.len() + 2,
+        "on_line kept running"
+    );
+}

@@ -68,7 +68,7 @@ fn next(state: &mut State, ctx: &ClientCtx) -> Result<String, String> {
         state
             .agents
             .get(*p)
-            .is_some_and(|a| rank(a) <= Rank::Unseen)
+            .is_some_and(|a| a.label.is_none() && rank(a) <= Rank::Unseen)
     });
     match target {
         Some(pane) => agent::jump(state, ctx, pane).map(|()| String::new()),

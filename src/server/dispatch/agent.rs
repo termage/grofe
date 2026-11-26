@@ -127,6 +127,9 @@ fn raise(state: &mut State, pane: PaneId, change: &Change, worked: Duration, now
         now,
     );
     if let Some(raised) = raised {
+        if let Some(label) = state.agents.get(pane).and_then(|a| a.label.clone()) {
+            state.notify.set_label(raised.id, &label);
+        }
         emit_notify(state, raised);
         deliver(state, raised);
         clients::mark_all_dirty(state);
@@ -274,6 +277,10 @@ pub(crate) fn configure(state: &mut State, r: &Resolved) {
 /// that holds the pane's window (linked windows included), else switches to
 /// the pane's session; then the window and pane are selected.
 pub(crate) fn jump(state: &mut State, ctx: &ClientCtx, pane: PaneId) -> Result<(), String> {
+    // A headless record has no pane: nothing to show.
+    if state.agents.is_headless(pane) {
+        return Ok(());
+    }
     let window = state
         .model
         .panes

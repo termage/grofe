@@ -22,6 +22,27 @@ pub enum Payload {
 
 pub(super) const CALLBACKS: &str = "grofe_callbacks";
 pub(super) const NEXT_ID: &str = "grofe_next_id";
+/// Per `system` callback id, the id of its `on_line` callback.
+pub(super) const LINES: &str = "grofe_lines";
+
+/// Forgets callback `id`, whose task is gone.
+pub fn release(rt: &Runtime, id: u32) {
+    let _ = rt
+        .lua()
+        .named_registry_value::<Table>(CALLBACKS)
+        .and_then(|t| t.set(id, Value::Nil));
+}
+
+/// Forgets the `on_line` callback of `system` callback `id`, if it has one.
+pub(super) fn free_line(lua: &Lua, id: u32) -> mlua::Result<()> {
+    let lines = lua.named_registry_value::<Table>(LINES)?;
+    if let Some(line) = lines.get::<Option<u32>>(id)? {
+        lua.named_registry_value::<Table>(CALLBACKS)?
+            .set(line, Value::Nil)?;
+        lines.set(id, Value::Nil)?;
+    }
+    Ok(())
+}
 
 /// Stores `f` under the next callback id, after `register` accepted that id.
 pub(super) fn add_callback(
@@ -60,6 +81,8 @@ fn run_callback(lua: &Lua, id: u32, payload: Payload) -> mlua::Result<()> {
             stdout,
             stderr,
         } => {
+            // Its lines were all delivered before this payload.
+            free_line(lua, id)?;
             let t = lua.create_table()?;
             t.set("code", code)?;
             t.set("stdout", stdout)?;
@@ -89,6 +112,7 @@ fn unregister_from(lua: &Lua, from: u32) {
     for id in (from..until).rev() {
         let undone = host_fn(lua, "cancel")
             .and_then(|cancel| cancel.call::<()>(id))
+            .and_then(|()| free_line(lua, id))
             .and_then(|()| {
                 lua.named_registry_value::<Table>(CALLBACKS)?
                     .set(id, Value::Nil)

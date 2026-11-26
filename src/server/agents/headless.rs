@@ -1,7 +1,9 @@
 //! Headless agent records: a `grofe.system` job that shows as an agent
-//! (sidebar, grid, tray, `agent list`) while it runs, with no pane behind it.
-//! The record lives in the agent store under a pane id no pane has; the
-//! surfaces ask `Agents::is_headless` where they would look the pane up.
+//! (sidebar, grid, `agent list`) while it runs, with no pane behind it. The
+//! record lives in the agent store under a pane id no pane has, only as long
+//! as the job runs; the surfaces ask `Agents::is_headless` where they would
+//! look the pane up. It never needs attention: it is not `unseen`, and the
+//! badge, the attention count and `agent next` skip it.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -47,10 +49,12 @@ pub(crate) fn start(state: &mut State, kind: &str, label: &str, running: AgentSt
     }
     let pane = state.agents.insert_headless(kind, label, Instant::now());
     agent::apply(state, pane, report(ReportState::Set(running), None));
+    state.agents.mark_seen(pane);
     pane
 }
 
-/// The job ended with `code`: `done` for 0, else `error`.
+/// The job ended with `code`: the tray hears `done` for 0, else `error` (the
+/// usual notification rules apply), and the record goes.
 pub(crate) fn finish(state: &mut State, pane: PaneId, code: i32) {
     if !state.agents.is_headless(pane) {
         return;
@@ -64,6 +68,7 @@ pub(crate) fn finish(state: &mut State, pane: PaneId, code: i32) {
         )
     };
     agent::apply(state, pane, r);
+    remove(state, pane);
 }
 
 /// Drops a headless record, as `agent-changed` with no new state.
@@ -82,25 +87,4 @@ pub(crate) fn remove(state: &mut State, pane: PaneId) {
     };
     events::emit_agent_changed(state, pane, &change);
     clients::mark_all_dirty(state);
-}
-
-/// Dismisses tray entry `id`; a finished headless record goes with the entry
-/// that reported it.
-pub(crate) fn dismiss(state: &mut State, id: u64) -> bool {
-    let pane = state
-        .notify
-        .items()
-        .iter()
-        .find(|n| n.id == id)
-        .map(|n| n.pane);
-    let found = state.notify.dismiss(id);
-    if let Some(pane) = pane
-        && state
-            .agents
-            .get(pane)
-            .is_some_and(|a| a.label.is_some() && a.state != AgentState::Working)
-    {
-        remove(state, pane);
-    }
-    found
 }

@@ -17,7 +17,7 @@ use super::listview::{ListAction, ListState};
 use super::notify::Notification;
 use super::render::{Overlay, OverlayCtx, Screen};
 use crate::cmd::expand;
-use crate::types::{ClientId, PaneId, Rect};
+use crate::types::{ClientId, Rect};
 
 /// Width and height of the tray, percent of the client.
 const WIDTH_PCT: u16 = 80;
@@ -49,10 +49,11 @@ pub fn client_gone(state: &mut State, id: ClientId) {
     state.trays.open.remove(&id);
 }
 
-fn target_label(state: &State, pane: PaneId) -> String {
-    if let Some(label) = state.agents.get(pane).and_then(|a| a.label.clone()) {
-        return label;
+fn target_label(state: &State, n: &Notification) -> String {
+    if let Some(label) = &n.label {
+        return label.clone();
     }
+    let pane = n.pane;
     if !state.model.panes.contains_key(&pane) {
         return pane.to_string();
     }
@@ -85,7 +86,7 @@ fn rows(state: &State) -> Rows {
             vec![
                 if n.read { " " } else { "●" }.to_string(),
                 age(n.at),
-                target_label(state, n.pane),
+                target_label(state, n),
                 n.kind.clone().unwrap_or_default(),
                 n.state.clone(),
                 n.msg.clone().unwrap_or_default(),
@@ -169,7 +170,7 @@ impl InputHook for TrayHook {
                 }
                 ListAction::Ctrl('x') => {
                     if let Some(id) = state.notify.items().get(st.selected).map(|n| n.id) {
-                        crate::server::agents::headless::dismiss(state, id);
+                        state.notify.dismiss(id);
                     }
                     Routed::Consumed
                 }
@@ -203,14 +204,16 @@ fn click(state: &mut State, size: (u16, u16), st: &mut ListState, m: &Mouse) {
     };
     st.selected = at;
     if usize::from(m.col) == x_column(&rows(state), a) {
-        crate::server::agents::headless::dismiss(state, id);
+        state.notify.dismiss(id);
     }
 }
 
 /// Jumps to the notification's pane and marks it read.
 fn enter(state: &mut State, client: ClientId, n: &Notification) {
     let ctx = state.clients.get(&client).map(|c| c.ctx.clone());
-    if let Some(ctx) = ctx
+    // A headless agent has no pane to jump to.
+    if n.label.is_none()
+        && let Some(ctx) = ctx
         && let Err(e) = agent::jump(state, &ctx, n.pane)
     {
         clients::show_message(state, client, &e);
@@ -247,6 +250,7 @@ mod tests {
     use crate::server::clients::AttachRequest;
     use crate::server::input::{Mods, parse_key};
     use crate::server::{dispatch, test_ctx, test_state};
+    use crate::types::PaneId;
     use std::time::Duration;
 
     // The Notifier (T1) is real code here; the clock is the only seam and

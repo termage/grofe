@@ -54,8 +54,10 @@ fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
         let mut all = Vec::new();
         if let Some(mut p) = pipe {
             let mut chunk = [0u8; 8192];
-            // Where the line being read starts in `all`.
+            // Where the line being read starts in `all`, and how far `all`
+            // has been searched for its end.
             let mut start = 0;
+            let mut scanned = 0;
             loop {
                 let n = match p.read(&mut chunk).await {
                     Ok(0) | Err(_) => break,
@@ -63,14 +65,17 @@ fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
                 };
                 all.extend_from_slice(&chunk[..n]);
                 while let Some((jobs, id)) = &lines
-                    && let Some(nl) = all[start..].iter().position(|b| *b == b'\n')
+                    && let Some(nl) = all[scanned..].iter().position(|b| *b == b'\n')
                 {
-                    let line = String::from_utf8_lossy(&all[start..start + nl]).into_owned();
-                    start += nl + 1;
+                    let end = scanned + nl;
+                    let line = String::from_utf8_lossy(&all[start..end]).into_owned();
+                    start = end + 1;
+                    scanned = start;
                     if jobs.send(post(*id, Payload::Line(line))).await.is_err() {
                         break;
                     }
                 }
+                scanned = all.len();
             }
             if let Some((jobs, id)) = &lines
                 && start < all.len()
@@ -84,12 +89,15 @@ fn read_lines<R: AsyncRead + Unpin + Send + 'static>(
 }
 
 /// Kills the child's process group when dropped (a cancelled job), unless
-/// the job ended on its own.
-struct Group(Option<i32>);
+/// the job ended on its own, and stops the tasks that serve the job.
+struct Group {
+    pgid: Option<i32>,
+    tasks: Vec<AbortHandle>,
+}
 
 impl Group {
     fn kill(&mut self) {
-        if let Some(pgid) = self.0.take() {
+        if let Some(pgid) = self.pgid.take() {
             let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pgid), Signal::SIGKILL);
         }
     }
@@ -98,8 +106,16 @@ impl Group {
 impl Drop for Group {
     fn drop(&mut self) {
         self.kill();
+        for t in &self.tasks {
+            t.abort();
+        }
     }
 }
+
+/// How long the pipes get to close after a timeout killed the group.
+// ponytail: a descendant that left the group (setsid) and holds a pipe keeps
+// it open; after this the output is given up on rather than awaited forever.
+const PIPE_GRACE: Duration = Duration::from_secs(2);
 
 async fn run_system(job: SystemJob, jobs: mpsc::Sender<Job>) -> Payload {
     let failed = |msg: String| Payload::System {
@@ -129,29 +145,51 @@ async fn run_system(job: SystemJob, jobs: mpsc::Sender<Job>) -> Payload {
         Ok(c) => c,
         Err(e) => return failed(format!("{prog}: {e}")),
     };
-    let mut group = Group(child.id().and_then(|p| i32::try_from(p).ok()));
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(job.timeout_ms);
+    let mut group = Group {
+        pgid: child.id().and_then(|p| i32::try_from(p).ok()),
+        tasks: Vec::new(),
+    };
     if let (Some(text), Some(mut pipe)) = (job.stdin, child.stdin.take()) {
         // Off this task: input bigger than the pipe waits for the child to read.
-        tokio::spawn(async move {
+        let writer = tokio::spawn(async move {
             let _ = pipe.write_all(text.as_bytes()).await;
         });
+        group.tasks.push(writer.abort_handle());
     }
-    let out_task = read_lines(child.stdout.take(), job.on_line.map(|id| (jobs, id)));
-    let err_task = read_all(child.stderr.take());
-    let timeout = Duration::from_millis(job.timeout_ms);
-    let code = match tokio::time::timeout(timeout, child.wait()).await {
-        Ok(Ok(status)) => status.code().unwrap_or(-1),
-        Ok(Err(_)) => -1,
+    let mut out_task = read_lines(child.stdout.take(), job.on_line.map(|id| (jobs, id)));
+    let mut err_task = read_all(child.stderr.take());
+    group.tasks.push(out_task.abort_handle());
+    group.tasks.push(err_task.abort_handle());
+    // One deadline over the exit and both pipes: a descendant that holds a
+    // pipe open outlives the child, and is as much the job as the child.
+    let mut code = None;
+    let ran = tokio::time::timeout_at(deadline, async {
+        code = Some(match child.wait().await {
+            Ok(status) => status.code().unwrap_or(-1),
+            Err(_) => -1,
+        });
+        let out = (&mut out_task).await.unwrap_or_default();
+        (out, (&mut err_task).await.unwrap_or_default())
+    })
+    .await;
+    let (code, stdout, stderr) = match ran {
+        Ok((out, err)) => (code.unwrap_or(-1), out, err),
         Err(_) => {
             group.kill();
             let _ = child.wait().await;
-            -1
+            let pipes = async {
+                let out = (&mut out_task).await.unwrap_or_default();
+                (out, (&mut err_task).await.unwrap_or_default())
+            };
+            let (out, err) = tokio::time::timeout(PIPE_GRACE, pipes)
+                .await
+                .unwrap_or_default();
+            (-1, out, err)
         }
     };
-    // It ended by itself: what it left running is its own business.
-    group.0 = None;
-    let stdout = out_task.await.unwrap_or_default();
-    let stderr = err_task.await.unwrap_or_default();
+    // Finished on its own: what it left running is its own business.
+    group.pgid = None;
     Payload::System {
         code,
         stdout,
@@ -160,6 +198,16 @@ async fn run_system(job: SystemJob, jobs: mpsc::Sender<Job>) -> Payload {
 }
 
 impl Async {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// Forgets the task of `id` without stopping it; whether there was one.
+    pub(crate) fn forget(&mut self, id: u32) -> bool {
+        self.tasks.remove(&id).is_some()
+    }
+
     fn track(&mut self, id: u32, handle: AbortHandle) {
         if let Some(old) = self.tasks.insert(id, handle) {
             old.abort();
@@ -191,15 +239,18 @@ impl Async {
         id: u32,
     ) -> Result<(), String> {
         let (tx, mut rx) = mpsc::channel(QUEUE);
-        events.subscribe(vec![name.to_string()], scope, tx)?;
+        events.subscribe_owned(vec![name.to_string()], scope, tx)?;
         let jobs = jobs.clone();
         let task = tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
                 let value = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
                 if jobs.send(post(id, Payload::Event(value))).await.is_err() {
-                    break;
+                    return;
                 }
             }
+            // The server dropped the subscription: its scope is gone.
+            let end: Job = Box::new(move |state| lua_host::forget_subscription(state, id));
+            let _ = jobs.send(end).await;
         });
         self.track(id, task.abort_handle());
         Ok(())
@@ -254,6 +305,26 @@ mod tests {
     async fn run(job: SystemJob) -> Payload {
         let (tx, _rx) = mpsc::channel::<Job>(16);
         run_system(job, tx).await
+    }
+
+    #[tokio::test]
+    async fn test_lines_split_across_chunks_are_joined() {
+        let (tx, mut rx) = mpsc::channel::<Job>(16);
+        let (mut w, r) = tokio::io::duplex(64);
+        let task = read_lines(Some(r), Some((tx, 1)));
+        for part in ["ab", "c\nd", "e\n\nf"] {
+            w.write_all(part.as_bytes()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        drop(w);
+        assert_eq!(task.await.unwrap(), "abc\nde\n\nf");
+        let mut state = crate::server::test_state();
+        let mut seen = 0;
+        while let Ok(job) = rx.try_recv() {
+            job(&mut state);
+            seen += 1;
+        }
+        assert_eq!(seen, 4);
     }
 
     #[tokio::test]

@@ -20,6 +20,7 @@ fn pane_output_only_when_named() {
         filters: vec![],
         scope: None,
         gone: false,
+        owned: false,
         tx: tx.clone(),
         dropped: 0,
     };
@@ -27,6 +28,7 @@ fn pane_output_only_when_named() {
         filters: names(&["*"]),
         scope: None,
         gone: false,
+        owned: false,
         tx: tx.clone(),
         dropped: 0,
     };
@@ -34,6 +36,7 @@ fn pane_output_only_when_named() {
         filters: names(&["pane-output"]),
         scope: None,
         gone: false,
+        owned: false,
         tx,
         dropped: 0,
     };

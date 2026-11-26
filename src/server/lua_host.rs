@@ -168,7 +168,9 @@ impl Host for StateHost<'_> {
             None => None,
         };
         self.async_
-            .subscribe(&mut self.state.events, &self.state.jobs, event, scope, id)
+            .subscribe(&mut self.state.events, &self.state.jobs, event, scope, id)?;
+        self.state.events.watch_panes(&self.state.model);
+        Ok(())
     }
 
     fn every(&mut self, ms: u64, id: u32) -> Result<(), String> {
@@ -192,11 +194,8 @@ impl Host for StateHost<'_> {
     }
 
     fn agent_history(&mut self, pane: &str, n: usize) -> Result<Vec<String>, String> {
-        let id = pane
-            .strip_prefix('%')
-            .and_then(|n| n.parse().ok())
-            .map(PaneId)
-            .ok_or_else(|| format!("not a pane id: {pane}"))?;
+        let target = cmd::target::parse_target(pane).map_err(|e| e.to_string())?;
+        let id = cmd::Resolve::resolve_pane(&self.state.model, &target, &self.ctx)?;
         Ok(self.state.agents.history(id, n))
     }
 
@@ -513,6 +512,16 @@ pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
 pub(crate) fn forget_headless(state: &mut State, id: u32) {
     if let Some(lua) = state.lua.as_mut() {
         lua.headless.remove(&id);
+    }
+}
+
+/// The subscription behind callback `id` ended on the server's side (its
+/// pane, window or session closed): its callback is freed.
+pub(crate) fn forget_subscription(state: &mut State, id: u32) {
+    if let Some(lua) = state.lua.as_mut()
+        && lua.async_.forget(id)
+    {
+        api::release(&lua.rt, id);
     }
 }
 

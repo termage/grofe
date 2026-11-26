@@ -78,3 +78,20 @@ fn history_zero_is_empty_and_large_n_returns_all() {
     assert_eq!(history(&srv, &id, 99), "h:m1|m2|m3");
     let _ = run_for_r;
 }
+
+#[test]
+fn history_with_a_bad_pane_is_an_error() {
+    let srv = server();
+    for pane in ["%9999", "nope:9.9"] {
+        let err = crate::support::lua(&srv, &format!("return grofe.agent.history('{pane}', 3)"))
+            .expect_err("no such pane");
+        assert!(err.contains("pane") || err.contains("find"), "{err}");
+    }
+}
+
+#[test]
+fn history_takes_any_pane_target() {
+    let srv = server();
+    seed(&srv);
+    assert_eq!(history(&srv, "main", 2), "h:m2|m3");
+}

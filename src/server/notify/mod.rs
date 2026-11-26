@@ -51,6 +51,9 @@ pub struct Notification {
     pub msg: Option<String>,
     pub at: Instant,
     pub read: bool,
+    /// What a headless agent was called: its notification outlives the
+    /// record, so the tray cannot look the name up.
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +131,7 @@ impl Notifier {
                 msg: msg.map(str::to_string),
                 at: now,
                 read: false,
+                label: None,
             },
         );
         self.items.truncate(self.cfg.history);
@@ -149,9 +153,17 @@ impl Notifier {
                 msg: Some(text.to_string()),
                 at: now,
                 read: false,
+                label: None,
             },
         );
         self.items.truncate(self.cfg.history);
+    }
+
+    /// Names notification `id` after a headless agent.
+    pub fn set_label(&mut self, id: u64, label: &str) {
+        if let Some(it) = self.items.iter_mut().find(|i| i.id == id) {
+            it.label = Some(label.to_string());
+        }
     }
 
     /// Marks the pane's notifications read; true if any changed.

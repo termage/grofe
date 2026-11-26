@@ -99,7 +99,7 @@ local conf = grofe.config("tool", "/path/in/a/repo") -- settings files, merged
 `grofe.every` and `grofe.system` are the only way to run things over time. Event names are the ones
 `grofe control` can subscribe to (see [protocol v1](https://github.com/termage/grofe/blob/main/docs/protocol-v1.md)); the callback receives the
 event as a table. `pane-created` and `pane-closed` carry the pane id as `pane`, and
-`agent-changed` carries the report's text as `msg`. Pass `{ pane = "%3" }` to `grofe.on` to hear
+`agent-changed` carries the report's text as `msg`, which is absent when the report had none. Pass `{ pane = "%3" }` to `grofe.on` to hear
 only events of that pane; an unknown pane raises an error, and the subscription ends when the
 pane closes.
 

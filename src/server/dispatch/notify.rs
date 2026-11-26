@@ -29,7 +29,7 @@ pub(crate) fn run(state: &mut State, _ctx: &ClientCtx, c: NotifyCmd) -> Result<S
             })
             .collect()),
         NotifyCmd::Dismiss(id) => {
-            if crate::server::agents::headless::dismiss(state, id) {
+            if state.notify.dismiss(id) {
                 Ok(String::new())
             } else {
                 Err(format!("no notification {id}"))

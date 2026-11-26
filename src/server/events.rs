@@ -29,7 +29,7 @@
 //! scope. A scope whose target has gone passes nothing more once the batch
 //! that removed it is delivered.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use tokio::sync::mpsc;
 
@@ -172,6 +172,9 @@ struct Subscriber {
     scope: Option<Scope>,
     /// The scope's target has gone: nothing passes any more.
     gone: bool,
+    /// Owned by Lua (`grofe.on`): dropped, not just muted, once `gone`, so its
+    /// forwarding task ends and the callback is freed.
+    owned: bool,
     tx: mpsc::Sender<Event>,
     /// Events that did not fit since the last `events-dropped` notice.
     dropped: u64,
@@ -241,8 +244,8 @@ pub struct Events {
     /// Each attached client's view as `pane-focus` last saw it.
     seen: BTreeMap<ClientId, Seen>,
     /// The panes the model had when `pane-created` and `pane-closed` last
-    /// looked, while someone names them.
-    panes: Option<BTreeSet<PaneId>>,
+    /// looked, with where each was, while someone names them.
+    panes: Option<BTreeMap<PaneId, Place>>,
 }
 
 impl Events {
@@ -272,12 +275,43 @@ impl Events {
                 filters: names,
                 scope,
                 gone: false,
+                owned: false,
                 tx,
                 dropped: 0,
             }),
         }
         self.update_tap();
         Ok(())
+    }
+
+    /// As [`Events::subscribe`], for a subscriber Lua owns: once its scope's
+    /// target has gone it is dropped (its queue closes).
+    pub(crate) fn subscribe_owned(
+        &mut self,
+        names: Vec<String>,
+        scope: Option<Scope>,
+        tx: mpsc::Sender<Event>,
+    ) -> Result<(), String> {
+        self.subscribe(names, scope, tx.clone())?;
+        if let Some(s) = self.subscribers.iter_mut().find(|s| s.tx.same_channel(&tx)) {
+            s.owned = true;
+        }
+        Ok(())
+    }
+
+    /// Takes the pane snapshot `pane-created` and `pane-closed` measure
+    /// against now, if a subscription names them and none is kept yet: a
+    /// command in the same chunk as the `subscribe` is then reported.
+    pub(crate) fn watch_panes(&mut self, model: &Model) {
+        if self.panes.is_none() && self.names_panes() {
+            self.panes = Some(pane_places(model));
+        }
+    }
+
+    fn names_panes(&self) -> bool {
+        self.subscribers
+            .iter()
+            .any(|s| !s.gone && (s.wants("pane-created") || s.wants("pane-closed")))
     }
 
     /// Whether some subscription names event `name` (a [`NAMED_ONLY`] one):
@@ -364,7 +398,8 @@ impl Events {
         for s in &mut self.subscribers {
             s.gone |= s.scope.is_some_and(|scope| !scope.alive(model));
         }
-        self.subscribers.retain(|s| !s.tx.is_closed());
+        self.subscribers
+            .retain(|s| !s.tx.is_closed() && !(s.gone && s.owned));
         if self.subscribers.len() != before {
             self.update_tap();
         }
@@ -375,21 +410,14 @@ impl Events {
     /// exit or restore made it. Nothing is kept while nobody names them, so a
     /// subscription reports from its first flush on.
     fn track_panes(&mut self, model: &Model) {
-        let wanted = self
-            .subscribers
-            .iter()
-            .any(|s| s.wants("pane-created") || s.wants("pane-closed"));
-        if !wanted {
+        if !self.names_panes() {
             self.panes = None;
             return;
         }
-        let now: BTreeSet<PaneId> = model.panes.keys().copied().collect();
+        let now = pane_places(model);
         if let Some(before) = self.panes.take() {
-            for pane in now.difference(&before) {
-                let Some(window) = model.panes.get(pane).map(|p| p.window) else {
-                    continue;
-                };
-                let Some(session) = model.windows.get(&window).map(|w| w.session) else {
+            for (pane, place) in now.iter().filter(|(p, _)| !before.contains_key(p)) {
+                let (Some(window), Some(session)) = (place.window, place.session) else {
                     continue;
                 };
                 let event = Event::PaneCreated {
@@ -399,8 +427,9 @@ impl Events {
                 };
                 self.emit(event);
             }
-            for pane in before.difference(&now) {
-                self.emit(Event::PaneClosed { pane: *pane });
+            // Where it was, so a window or session scope hears it too.
+            for (pane, place) in before.iter().filter(|(p, _)| !now.contains_key(p)) {
+                self.emit_at(Event::PaneClosed { pane: *pane }, *place);
             }
         }
         self.panes = Some(now);
@@ -416,6 +445,21 @@ impl Events {
     fn len(&self) -> usize {
         self.subscribers.len()
     }
+}
+
+/// Where each pane of the model is.
+fn pane_places(model: &Model) -> BTreeMap<PaneId, Place> {
+    model
+        .panes
+        .iter()
+        .map(|(id, p)| {
+            let place = Place {
+                window: Some(p.window),
+                session: model.windows.get(&p.window).map(|w| w.session),
+            };
+            (*id, place)
+        })
+        .collect()
 }
 
 /// `pane-focus`, the one emission site for it (spec §7.2): compares each

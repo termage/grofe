@@ -1,5 +1,5 @@
-use super::callbacks::{CALLBACKS, NEXT_ID, add_callback};
-pub use super::callbacks::{Payload, call, in_pack};
+use super::callbacks::{CALLBACKS, LINES, NEXT_ID, add_callback, free_line};
+pub use super::callbacks::{Payload, call, in_pack, release};
 use super::pack;
 use super::runtime::{LuaError, Runtime};
 use super::system;
@@ -70,6 +70,7 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     lua.set_named_registry_value(CALLBACKS, lua.create_table()?)?;
     lua.set_named_registry_value(PLUGINS, lua.create_table()?)?;
     lua.set_named_registry_value(NEXT_ID, 1u32)?;
+    lua.set_named_registry_value(LINES, lua.create_table()?)?;
     let g = lua.create_table()?;
     g.set("api", crate::pack::PLUGIN_API)?;
     g.set(
@@ -141,9 +142,12 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
                 .transpose()?;
             job.on_line = line_id;
             let id = add_callback(lua, f, |id| host.call((job.to_table(lua)?, id)));
-            if let (Err(_), Some(line)) = (&id, line_id) {
-                lua.named_registry_value::<Table>(CALLBACKS)?
-                    .set(line, Value::Nil)?;
+            match (&id, line_id) {
+                (Ok(id), Some(line)) => lua.named_registry_value::<Table>(LINES)?.set(*id, line)?,
+                (Err(_), Some(line)) => lua
+                    .named_registry_value::<Table>(CALLBACKS)?
+                    .set(line, Value::Nil)?,
+                _ => {}
             }
             id
         })?,
@@ -161,6 +165,7 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
         "cancel",
         lua.create_function(|lua, id: u32| {
             host_fn(lua, "cancel")?.call::<()>(id)?;
+            free_line(lua, id)?;
             lua.named_registry_value::<Table>(CALLBACKS)?
                 .set(id, Value::Nil)
         })?,

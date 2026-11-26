@@ -400,3 +400,74 @@ fn a_pack_and_init_require_from_their_own_folders_in_the_reload_order() {
     assert_eq!(global(&mut state, "@init"), "folder");
     assert_eq!(global(&mut state, "@runs"), "x");
 }
+
+#[tokio::test]
+async fn a_subscription_is_freed_when_its_pane_closes() {
+    let (mut state, mut rx) = crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
+    let ctx = test_ctx();
+    for words in [
+        &["new-session", "-d", "-s", "a", "sleep 600"][..],
+        &["new-window", "-t", "a", "sleep 600"][..],
+    ] {
+        let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        dispatch::run(&mut state, &ctx, &argv).unwrap();
+    }
+    let pane = state.model.panes.keys().copied().last().unwrap();
+    let code = format!("grofe.on('pane-closed', function() end, {{ pane = '{pane}' }})");
+    run_chunk(&mut state, &ctx, &code).unwrap();
+    assert_eq!(state.lua.as_ref().map(|l| l.async_.len()), Some(1));
+    let kill = ["kill-pane".to_string(), "-t".to_string(), pane.to_string()];
+    dispatch::run(&mut state, &ctx, &kill).unwrap();
+    state.events.flush(&state.model);
+    // The event, then the end of the subscription.
+    for _ in 0..2 {
+        let job = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        job(&mut state);
+    }
+    let lua = state.lua.as_ref().unwrap();
+    assert_eq!(lua.async_.len(), 0);
+    let callbacks: mlua::Table = lua
+        .rt
+        .lua()
+        .named_registry_value("grofe_callbacks")
+        .unwrap();
+    assert!(matches!(
+        callbacks.get::<mlua::Value>(1),
+        Ok(mlua::Value::Nil)
+    ));
+    assert!(!state.events.named("pane-closed"));
+}
+
+fn callback_freed(state: &State, id: u32) -> bool {
+    let lua = state.lua.as_ref().unwrap();
+    let callbacks: mlua::Table = lua
+        .rt
+        .lua()
+        .named_registry_value("grofe_callbacks")
+        .unwrap();
+    matches!(callbacks.get::<mlua::Value>(id), Ok(mlua::Value::Nil))
+}
+
+#[tokio::test]
+async fn the_on_line_callback_is_freed_when_the_job_ends_or_is_cancelled() {
+    let (mut state, mut rx) = crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
+    let ctx = test_ctx();
+    let code = "j = grofe.system({'sleep','30'}, function() end, {on_line = function() end})";
+    run_chunk(&mut state, &ctx, code).unwrap();
+    assert!(!callback_freed(&state, 1));
+    run_chunk(&mut state, &ctx, "grofe.cancel(j)").unwrap();
+    assert!(callback_freed(&state, 1) && callback_freed(&state, 2));
+
+    let code = "grofe.system({'true'}, function() end, {on_line = function() end})";
+    run_chunk(&mut state, &ctx, code).unwrap();
+    assert!(!callback_freed(&state, 3));
+    let job = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    job(&mut state);
+    assert!(callback_freed(&state, 3));
+}

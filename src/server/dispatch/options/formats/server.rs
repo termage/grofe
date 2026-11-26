@@ -271,7 +271,8 @@ impl<'a> ServerVars<'a> {
     pub(in crate::server::dispatch::options) fn agent_var(&self, name: &str) -> String {
         use crate::server::agents::{self, AgentState, Rank};
         let agents = &self.state.agents;
-        let needs_you = |a: &agents::Agent| agents::rank(a) <= Rank::Unseen;
+        // A headless agent (a job) never asks for you.
+        let needs_you = |a: &agents::Agent| a.label.is_none() && agents::rank(a) <= Rank::Unseen;
         let counts = |keep: &dyn Fn(&agents::Agent) -> bool| {
             agents.iter().filter(|(_, a)| keep(a)).count().to_string()
         };
@@ -291,7 +292,7 @@ impl<'a> ServerVars<'a> {
                 .filter_map(|(rank, option)| {
                     let n = agents
                         .iter()
-                        .filter(|(_, a)| agents::rank(a) == *rank)
+                        .filter(|(_, a)| a.label.is_none() && agents::rank(a) == *rank)
                         .count();
                     (n > 0).then(|| format!("{}{n}", glyph(option)))
                 })

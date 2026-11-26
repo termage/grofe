@@ -205,14 +205,18 @@ that directory is used.
 A Lua script can make a background job show as an agent, with no pane behind
 it: `grofe.system(argv, fn, { agent = { kind = "triage", label = "issue 7" } })`
 (see Running processes in the Lua scripting chapter). `kind` and `label` are
-required; `state` is the state while it runs (`working` by default). The job
-appears in `agent list`, the sidebar, the grid and the tray like any agent. It
-goes `done` when the process exits with 0 and `error` otherwise, and the tray
-entry says so.
+required; `state` is the state while it runs (`working` by default). While the
+job runs it appears in `agent list`, the sidebar and the grid, but it never
+needs you: it is not unseen, `agent next` skips it, and the badge and
+`#{agents_attention}` do not count it. It has no pane, so Enter on its row does
+nothing.
 
-A finished record stays until its tray entry is dismissed or the same label
-runs again. A headless record has no pane, so jumping to it does nothing.
-Cancelling the job with `grofe.cancel` removes it.
+The record lives only while the job runs. When the process exits (0 is `done`,
+anything else `error`), times out, is cancelled with `grofe.cancel`, or the
+config is reloaded, the record is removed. On exit or timeout the tray still
+gets its usual `done` or `error` entry, under the notification rules
+(`notifications.on` and the rest). Starting the same label again replaces a
+running record.
 
 ## How grofe learns an agent's state
 

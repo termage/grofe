@@ -64,3 +64,61 @@ fn pane_scoped_subscription_stops_after_the_pane_closes() {
     crate::common::quiet_period(std::time::Duration::from_millis(400));
     assert_eq!(opt(&srv, "@r"), format!("{a},"));
 }
+
+#[test]
+fn pane_scoped_subscription_to_an_unknown_pane_is_an_error() {
+    let srv = server();
+    let err = crate::support::lua(
+        &srv,
+        "grofe.on('pane-closed', function() end, {pane = '%9999'})",
+    )
+    .expect_err("no such pane");
+    assert!(err.contains("pane"), "{err}");
+}
+
+#[test]
+fn a_command_in_the_subscribing_chunk_is_reported_once() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        &format!(
+            "grofe.on('pane-created', function(p) {APPEND} end) \
+             grofe.cmd{{'new-window','-d','-t','main','cat'}}"
+        ),
+    );
+    let got = wait_opt(&srv, "@r");
+    crate::common::quiet_period(std::time::Duration::from_millis(400));
+    assert_eq!(opt(&srv, "@r"), got);
+    assert_eq!(got.matches(',').count(), 1, "{got}");
+}
+
+#[test]
+fn session_scoped_subscription_hears_a_closed_pane_of_its_session() {
+    let srv = server();
+    srv.cmd(&["new-session", "-d", "-s", "other", "cat"])
+        .expect("other");
+    let inside = srv
+        .cmd(&[
+            "new-window",
+            "-d",
+            "-t",
+            "other",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            "cat",
+        ])
+        .expect("window")
+        .trim()
+        .to_string();
+    let outside = new_pane(&srv);
+    lua_ok(
+        &srv,
+        &format!("grofe.on('pane-closed', function(p) {APPEND} end, {{pane = 'other'}})"),
+    );
+    srv.cmd(&["kill-pane", "-t", &outside])
+        .expect("kill outside");
+    stays_empty(&srv, "@r");
+    srv.cmd(&["kill-pane", "-t", &inside]).expect("kill inside");
+    assert_eq!(wait_opt(&srv, "@r"), format!("{inside},"));
+}
