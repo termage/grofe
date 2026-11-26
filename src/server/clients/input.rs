@@ -445,7 +445,7 @@ pub(super) fn route(state: &mut State, id: ClientId, input: Input, now: Instant)
                     == Some("key")
             {
                 let removed = state.model.remove_pane(pane);
-                state.events.panes_killed(removed);
+                state.events.panes_killed(&mut state.model, removed);
                 changed(state);
                 return;
             }

@@ -391,6 +391,9 @@ impl Model {
                 // A dead pane (`remain-on-exit`) has no process to show again.
                 if pane.dead.is_none() {
                     removed.extend(self.push_stash(pane, f));
+                } else {
+                    let place = self.place_of(&pane);
+                    self.closed_panes.push((pane.id, place));
                 }
             }
         }

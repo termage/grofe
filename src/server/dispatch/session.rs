@@ -339,7 +339,7 @@ pub fn kill_session(state: &mut State, ctx: &ClientCtx, c: KillSession) -> Resul
     };
     for session in doomed {
         let removed = state.model.remove_session(session);
-        state.events.panes_killed(removed);
+        state.events.panes_killed(&mut state.model, removed);
     }
     Ok(String::new())
 }

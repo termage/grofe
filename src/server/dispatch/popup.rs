@@ -192,7 +192,7 @@ pub(crate) fn new_pane(state: &mut State, ctx: &ClientCtx, c: NewPane) -> Result
         cell_px,
     )?;
     let Some(w) = state.model.windows.get_mut(&window) else {
-        state.model.panes.remove(&new);
+        state.model.take_panes(&[new], Some(session));
         return Err(format!("can't find window: {window}"));
     };
     let z = w.floating.iter().map(|f| f.z).max().unwrap_or(0) + 1;

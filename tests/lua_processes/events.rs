@@ -93,6 +93,24 @@ fn a_command_in_the_subscribing_chunk_is_reported_once() {
 }
 
 #[test]
+fn a_pane_created_and_killed_in_one_chunk_fires_both() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        "grofe.on('pane-created', function(p) \
+            grofe.cmd{'set-option','-g','-a','@r','c' .. p.pane .. ','} end) \
+         grofe.on('pane-closed', function(p) \
+            grofe.cmd{'set-option','-g','-a','@x','x' .. p.pane .. ','} end) \
+         local id = grofe.cmd{'new-window','-d','-t','main','-P','-F','#{pane_id}','cat'} \
+         grofe.cmd{'kill-pane','-t',(id:gsub('%s', ''))}",
+    );
+    let made = wait_opt(&srv, "@r");
+    let id = made.trim_start_matches('c').trim_end_matches(',');
+    assert!(id.starts_with('%'), "{made}");
+    assert_eq!(wait_opt(&srv, "@x"), format!("x{id},"));
+}
+
+#[test]
 fn session_scoped_subscription_hears_a_closed_pane_of_its_session() {
     let srv = server();
     srv.cmd(&["new-session", "-d", "-s", "other", "cat"])

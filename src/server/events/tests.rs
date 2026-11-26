@@ -450,3 +450,57 @@ async fn seen_marks_read() {
     mark_agents_seen(&mut state);
     assert!(state.notify.items()[0].read);
 }
+
+/// `pane-created` comes where the pane enters the model, so before the
+/// `window-created` of the command that made it; `pane-closed` follows the
+/// `pane-exited` of the kill that removed it. Both fire for a pane made and
+/// killed before any flush.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pane_created_and_closed_follow_the_model_in_order() {
+    use crate::server::{dispatch, test_ctx, test_state};
+    let mut state = test_state();
+    let ctx = test_ctx();
+    let run = |state: &mut State, words: &[&str]| {
+        let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        dispatch::run(state, &ctx, &argv).expect("command")
+    };
+    run(&mut state, &["new-session", "-d", "-s", "a", "sleep 600"]);
+    let (tx, mut rx) = mpsc::channel(16);
+    let all = names(&[
+        "pane-created",
+        "pane-closed",
+        "pane-exited",
+        "window-created",
+    ]);
+    state.events.subscribe(all, None, tx).expect("subscribe");
+    let made = run(
+        &mut state,
+        &[
+            "new-window",
+            "-d",
+            "-t",
+            "a",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            "sleep 600",
+        ],
+    );
+    let pane = made.trim().to_string();
+    run(&mut state, &["kill-pane", "-t", &pane]);
+    crate::server::hooks::run_pending(&mut state);
+    state.events.flush(&state.model);
+    let mut got = Vec::new();
+    while let Ok(e) = rx.try_recv() {
+        got.push(e.name());
+    }
+    assert_eq!(
+        got,
+        [
+            "pane-created",
+            "window-created",
+            "pane-exited",
+            "pane-closed"
+        ]
+    );
+}

@@ -444,6 +444,9 @@ pub struct Model {
     /// Sessions removed since `hooks::run_pending` last took them, as
     /// `(id, name)`, for the `session-closed` hook (TC.5).
     pub closed_sessions: Vec<(SessionId, String)>,
+    /// Panes that left the model since `Events::panes_closed` last took
+    /// them, with where each was: the `pane-closed` event.
+    pub(crate) closed_panes: Vec<(PaneId, Place)>,
     /// Sessions removed since `clients::changed` last looked, as
     /// `(name, detach-on-destroy)`: where their clients go
     /// (`server_destroy_session`).
@@ -827,6 +830,8 @@ impl Model {
         let mut removed = if taken.dead.is_none() {
             self.push_stash(taken, place)
         } else {
+            let at = self.place_of(&taken);
+            self.closed_panes.push((taken.id, at));
             Vec::new()
         };
         if last {
@@ -849,8 +854,9 @@ impl Model {
             let Some(old) = self.scratch.pop() else {
                 break;
             };
+            let place = self.place_of(&old.pane);
+            self.closed_panes.push((old.pane.id, place));
             if old.pane.dead.is_none() {
-                let place = self.place_of(&old.pane);
                 removed.push((old.pane.id, old.pane.uid.clone(), place));
             }
         }
@@ -899,7 +905,9 @@ impl Model {
         else {
             return false;
         };
-        self.scratch.remove(at);
+        let gone = self.scratch.remove(at);
+        let place = self.place_of(&gone.pane);
+        self.closed_panes.push((pane, place));
         true
     }
 
@@ -948,15 +956,16 @@ impl Model {
     /// `session` is the panes' session when their window is already gone.
     pub(crate) fn take_panes(&mut self, ids: &[PaneId], session: Option<SessionId>) -> Removed {
         let taken: Vec<Pane> = ids.iter().filter_map(|id| self.panes.remove(id)).collect();
-        taken
-            .into_iter()
-            .filter(|p| p.dead.is_none())
-            .map(|p| {
-                let mut place = self.place_of(&p);
-                place.session = place.session.or(session);
-                (p.id, p.uid, place)
-            })
-            .collect()
+        let mut removed = Removed::new();
+        for p in taken {
+            let mut place = self.place_of(&p);
+            place.session = place.session.or(session);
+            self.closed_panes.push((p.id, place));
+            if p.dead.is_none() {
+                removed.push((p.id, p.uid, place));
+            }
+        }
+        removed
     }
 
     /// Gives every pane in `window` its layout size, resizing the ptys whose

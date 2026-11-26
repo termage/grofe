@@ -117,7 +117,7 @@ pub fn new_window(state: &mut State, ctx: &ClientCtx, mut c: NewWindow) -> Resul
         replaced_current = state.model.sessions[&session].active == old;
         state.model.remove_link(session, old);
         let removed = state.model.close_orphans(&[old]);
-        state.events.panes_killed(removed);
+        state.events.panes_killed(&mut state.model, removed);
     }
     // As tmux: the windows in the way move up before the pane starts.
     if relative {
@@ -375,7 +375,7 @@ pub fn kill_window(state: &mut State, ctx: &ClientCtx, c: KillWindow) -> Result<
     };
     for w in doomed {
         let removed = state.model.remove_window(w);
-        state.events.panes_killed(removed);
+        state.events.panes_killed(&mut state.model, removed);
     }
     Ok(String::new())
 }

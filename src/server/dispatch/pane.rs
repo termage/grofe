@@ -98,11 +98,11 @@ fn split_window(state: &mut State, ctx: &ClientCtx, c: SplitWindow) -> Result<St
     crate::server::resume::spawned(state, new, Default::default());
     let model = &mut state.model;
     let Some(w) = model.windows.get_mut(&window) else {
-        model.panes.remove(&new);
+        model.take_panes(&[new], Some(session));
         return Err(format!("can't find window: {window}"));
     };
     if let Err(e) = w.layout.insert(w.area(), target, new, how) {
-        model.panes.remove(&new);
+        model.take_panes(&[new], Some(session));
         return Err(e.to_string());
     }
     let order = w.tiled_ids();
@@ -152,7 +152,7 @@ fn kill_pane(state: &mut State, ctx: &ClientCtx, c: KillPane) -> Result<String, 
     };
     for pane in doomed {
         let removed = state.model.remove_pane(pane);
-        state.events.panes_killed(removed);
+        state.events.panes_killed(&mut state.model, removed);
     }
     Ok(String::new())
 }

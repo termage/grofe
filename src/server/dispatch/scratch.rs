@@ -68,7 +68,7 @@ pub fn toggle(state: &mut State, ctx: &ClientCtx, c: ToggleScratchpad) -> Result
         .is_some_and(|f| f.scratch);
     if is_scratch {
         let removed = state.model.stash_pane(pane)?;
-        state.events.panes_killed(removed);
+        state.events.panes_killed(&mut state.model, removed);
         return Ok(String::new());
     }
     if let Some(newest) = state.model.scratch.first().map(|s| s.pane.id) {

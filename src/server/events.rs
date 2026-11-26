@@ -14,7 +14,10 @@
 //!
 //! **Where each event is emitted.** One site per event: `pane-exited` in
 //! `handle_pane_event` (a process exit) and [`Events::panes_killed`] (a
-//! kill), `pane-output` in `handle_pane_event`, `option-changed` in the
+//! kill), `pane-created` in `dispatch::spawn_pane_delayed` (the one place a
+//! pane enters the model), `pane-closed` in [`Events::panes_closed`] (the
+//! panes `Model::take_panes` and the scratchpad history dropped),
+//! `pane-output` in `handle_pane_event`, `option-changed` in the
 //! option and status-source code, `pane-died`, `session-created`,
 //! `session-closed`, `client-session-changed`, `client-resized` and the
 //! alerts in `server::hooks` beside the hook each fires, `pane-resized`,
@@ -241,9 +244,6 @@ pub struct Events {
     pending: Vec<(Event, Place)>,
     /// Each attached client's view as `pane-focus` last saw it.
     seen: BTreeMap<ClientId, Seen>,
-    /// The panes the model had when `pane-created` and `pane-closed` last
-    /// looked, with where each was, while someone names them.
-    panes: Option<BTreeMap<PaneId, Place>>,
 }
 
 impl Events {
@@ -353,8 +353,9 @@ impl Events {
         }
     }
 
-    /// Records `pane-exited` with a null status for panes a kill removed.
-    pub(crate) fn panes_killed(&mut self, removed: Removed) {
+    /// Records `pane-exited` with a null status for panes a kill removed,
+    /// then the `pane-closed` of every pane the model dropped.
+    pub(crate) fn panes_killed(&mut self, model: &mut Model, removed: Removed) {
         for (pane, uid, place) in removed {
             let event = Event::PaneExited {
                 pane,
@@ -363,13 +364,23 @@ impl Events {
             };
             self.emit_at(event, place);
         }
+        self.panes_closed(model);
+    }
+
+    /// Records `pane-closed` for each pane that left the model since the
+    /// last call (`Model::take_panes` and the scratchpad history note them),
+    /// where it was. Called right after a removal, and by
+    /// `hooks::run_pending` for the exits no kill command made.
+    pub(crate) fn panes_closed(&mut self, model: &mut Model) {
+        for (pane, place) in std::mem::take(&mut model.closed_panes) {
+            self.emit_at(Event::PaneClosed { pane }, place);
+        }
     }
 
     /// Queues every pending event to the subscribers that want it, in
     /// order, and forgets subscribers whose connection is gone. `model` is
     /// what `subscribe -t` limits are measured against.
     pub(crate) fn flush(&mut self, model: &Model) {
-        self.track_panes(model);
         let pending = std::mem::take(&mut self.pending);
         let before = self.subscribers.len();
         for (event, place) in &pending {
@@ -497,6 +508,5 @@ pub(crate) fn emit_agent_changed(state: &mut State, pane: PaneId, change: &agent
     crate::server::hooks::agent_changed(state, pane);
 }
 
-mod panes;
 #[cfg(test)]
 mod tests;

@@ -170,7 +170,6 @@ impl Host for StateHost<'_> {
         };
         self.async_
             .subscribe(&mut self.state.events, &self.state.jobs, event, scope, id)?;
-        self.state.events.watch_panes(&self.state.model);
         Ok(())
     }
 

@@ -361,7 +361,7 @@ fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, Str
                 ctx.dialect,
             );
             let live = state.model.live_panes();
-            state.events.panes_killed(live);
+            state.events.panes_killed(&mut state.model, live);
             state.exit = true;
             Ok(String::new())
         }
@@ -639,6 +639,12 @@ pub(crate) fn spawn_pane_delayed(
             handle,
         },
     );
+    // The one place a pane enters the model, so the one `pane-created`.
+    state.events.emit(crate::event::Event::PaneCreated {
+        pane: id,
+        window,
+        session,
+    });
     Ok(id)
 }
 

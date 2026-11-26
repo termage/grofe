@@ -1221,6 +1221,7 @@ pub(crate) fn pane_exited(state: &mut State, pane: PaneId, window: WindowId) {
 pub(crate) fn run_pending(state: &mut State) {
     prune(state);
     crate::server::alerts::drain(state);
+    state.events.panes_closed(&mut state.model);
     for (session, name) in std::mem::take(&mut state.model.closed_sessions) {
         crate::server::remote::session_closed(state, session);
         let closed = Event::SessionClosed {

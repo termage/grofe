@@ -98,8 +98,11 @@ local conf = grofe.config("tool", "/path/in/a/repo") -- settings files, merged
 
 `grofe.every` and `grofe.system` are the only way to run things over time. Event names are the ones
 `grofe control` can subscribe to (see [protocol v1](https://github.com/termage/grofe/blob/main/docs/protocol-v1.md)); the callback receives the
-event as a table. `pane-created` and `pane-closed` carry the pane id as `pane`, and
-`agent-changed` carries the report's text as `msg`, which is absent when the report had none. Pass `{ pane = "%3" }` to `grofe.on` to hear
+event as a table. `pane-created` and `pane-closed` carry the pane id as `pane`; they fire where a
+pane enters or leaves the server, in order with the other events of the command: a new pane's
+`pane-created` comes before that command's `window-created` and any `agent-changed` for the pane,
+and a kill's `pane-closed` after its `pane-exited`. `agent-changed`
+carries the report's text as `msg`, which is absent when the report had none. Pass `{ pane = "%3" }` to `grofe.on` to hear
 only events of that pane; an unknown pane raises an error, and the subscription ends when the
 pane closes.
 
@@ -119,7 +122,7 @@ pane closes.
   [Jobs shown as working rows](agents.md#jobs-shown-as-working-rows). `kind` and `label` are
   required.
 
-A bad option raises an error when `system` is called. Output that is not valid UTF-8 is
+A bad option, or a key that is not one of these, raises an error naming it when `system` is called. Output that is not valid UTF-8 is
 converted with replacement characters.
 
 `grofe.agent.history(pane, n)` returns the last `n` messages the pane's agent reported, oldest
