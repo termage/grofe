@@ -372,6 +372,9 @@ pub(crate) fn scan_pending(state: &mut State, now: Instant) {
     state.agents.scan.at = None;
     state.agents.scan.first = None;
     for pane in std::mem::take(&mut state.agents.scan.pending) {
+        if !state.agents.screen_judged(pane) {
+            continue;
+        }
         let Some(file) = state
             .agents
             .get(pane)

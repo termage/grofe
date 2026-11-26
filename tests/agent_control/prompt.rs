@@ -76,6 +76,11 @@ fn an_answer_before_the_first_read_still_ends_the_wait() {
     ]);
     assert_eq!(code(&out), Some(0), "{out:?}");
     assert_eq!(out.stdout.trim(), "idle");
+    assert!(
+        t.elapsed() >= Duration::from_millis(900),
+        "{:?}",
+        t.elapsed()
+    );
     assert!(t.elapsed() < Duration::from_secs(2), "{:?}", t.elapsed());
 }
 

@@ -247,16 +247,16 @@ impl Agents {
     /// judges the record.
     pub(crate) fn mark_working(&mut self, pane: PaneId, now: Instant) -> Option<Change> {
         let a = self.map.get_mut(&pane)?;
+        a.source = Some(Source::Prompt);
+        a.since = now;
         if a.state == AgentState::Working {
             return None;
         }
         let old = a.state;
         a.state = AgentState::Working;
-        a.since = now;
         a.unseen = false;
         a.blocked = None;
         a.msg = None;
-        a.source = Some(Source::Prompt);
         Some(Change {
             old: Some(old),
             new: Some(AgentState::Working),

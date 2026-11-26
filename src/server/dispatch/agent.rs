@@ -301,6 +301,14 @@ pub(crate) fn configure(state: &mut State, r: &Resolved) {
     let config_dir = super::options::config_env().config_dir;
     let (files, errors) = crate::server::agents::detect::load(config_dir.as_deref());
     state.agents.detect = files;
+    let enabled = state.agents_enabled;
+    let agents = &mut state.agents;
+    let judged: Vec<_> = agents.scan.prompted.keys().copied().collect();
+    for p in judged {
+        if !enabled || !agents.screen_judged(p) {
+            agents.scan.prompted.remove(&p);
+        }
+    }
     for e in errors {
         clients::log_error(state, "agents", &e);
     }

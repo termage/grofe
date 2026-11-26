@@ -186,6 +186,36 @@ mod tests {
     }
 
     #[test]
+    fn an_idle_rule_hit_waits_for_the_quiet_too() {
+        let t0 = Instant::now();
+        let mut ag = prompted("fake", t0);
+        assert!(ag.arm(PANE));
+        ag.output(PANE, t0 + Duration::from_millis(10));
+        let hit = Some((AgentState::Idle, "idle = READY>".to_string()));
+        assert_eq!(
+            ag.judge(PANE, hit, t0 + Duration::from_millis(500)),
+            Read::Later(t0 + Duration::from_millis(10) + PROMPT_QUIET)
+        );
+    }
+
+    #[test]
+    fn a_prompt_while_working_still_marks_the_source() {
+        let t0 = Instant::now();
+        let mut ag = prompted("fake", t0);
+        let src = Source::Screen {
+            file: "t".to_string(),
+            rule: "working".to_string(),
+        };
+        ag.screen(PANE, AgentState::Working, src, true, t0);
+        assert!(ag.mark_working(PANE, t0).is_none());
+        assert_eq!(
+            ag.get(PANE).and_then(|a| a.source.clone()),
+            Some(Source::Prompt)
+        );
+        assert!(ag.arm(PANE));
+    }
+
+    #[test]
     fn idle_after_one_second_of_quiet_with_no_rule_matching() {
         let t0 = Instant::now();
         let mut ag = prompted("fake", t0);
