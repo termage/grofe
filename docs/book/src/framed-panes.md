@@ -20,6 +20,12 @@ with your home directory as `~`, such as `~/ui`. The label is the
 `#{pane_current_path_home}` format variable, grofe's own: `#{pane_current_path}`
 with `$HOME` as `~`. A frame too narrow for the path shows only its start.
 
+To name a pane yourself, press `prefix e`, or choose Rename in the pane's
+menu (a right-click on it, or `prefix >` for the active pane). The prompt
+starts with the current title; the frame shows the new one. Both run
+`select-pane -T`, which expands `#` sequences in the name as formats, as
+tmux does, so type `##` for a literal `#`.
+
 Under grofe identity the default `pane-border-format` labels untitled panes
 this way everywhere, so `pane-border-status` lines on unframed panes show the
 directory too; tmux identity keeps tmux's hostname.
@@ -71,5 +77,6 @@ or any other frame edge resizes, as a border drag does in tmux.
 `prefix f` (or `F`) floats the active pane above the tiles at the size it
 had, shifted a little down and to the right; pressed on a floating pane it
 puts the pane back. The same actions are `float-pane` and `unfloat-pane`,
-Float and Unfloat in the right-click menu, and Ctrl-dragging a floating pane
-onto a tile docks it.
+Float and Unfloat in the pane menu (right-click, or `prefix >`), and
+Ctrl-dragging a floating pane onto a tile docks it. `prefix *` opens a new
+floating pane, as in tmux.

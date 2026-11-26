@@ -34,6 +34,7 @@ and then closes the menu.
 | `7` | Select window 7 | `select-window -t :7` | same |
 | `8` | Select window 8 | `select-window -t :8` | same |
 | `9` | Select window 9 | `select-window -t :9` | same |
+| `<` | Display window menu | `display-menu -T "#[align=centre]#{window_index}:#{window_name}" -x W -y W "#{?#{>:#{session_windows},1},,-}Swap Left" l "'swap-window' '-t' ':-1'" "#{?#{>:#{session_windows},1},,-}Swap Right" r "'swap-window' '-t' ':+1'" "#{?pane_marked_set,,-}Swap Marked" s "'swap-window'" '' Kill X "'kill-window'" Respawn R "'respawn-window' '-k'" "#{?pane_marked,Unmark,Mark}" m "'select-pane' '-m'" Rename n "'command-prompt' '-F' '-I' '#W' { 'rename-window' '-t' '#{window_id}' '%%' }" '' "New After" w "'new-window' '-a'" "New At End" W "'new-window'"` | same |
 | `M-n` | Select the next window with an alert | `next-window -a` | same |
 | `M-p` | Select the previous window with an alert | `previous-window -a` | same |
 | `c` | Create a new window | `new-window -c "#{pane_current_path}"` | same |
@@ -50,7 +51,9 @@ and then closes the menu.
 | `!` | Break pane to a new window | `break-pane` | same |
 | `"` | Split window vertically | `split-window -c "#{pane_current_path}"` | same |
 | `%` | Split window horizontally | `split-window -h -c "#{pane_current_path}"` | same |
+| `*` | New floating pane | `new-pane` | same |
 | `;` | Move to the previously active pane | `last-pane` | same |
+| `>` | Display pane menu | `display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -x P -y P "#{?pane_floating_flag,,Float}" f "'float-pane'" "#{?pane_floating_flag,Unfloat,}" f "'unfloat-pane'" '' "#{?pane_floating_flag,,Horizontal Split}" h "'split-window' '-h' '-c' '#{pane_current_path}'" "#{?pane_floating_flag,,Vertical Split}" v "'split-window' '-v' '-c' '#{pane_current_path}'" '' Rename n "'command-prompt' '-I' '##{pane_title}' 'select-pane -T \"%%%\"'" Kill X "'kill-pane'" "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z "'resize-pane' '-Z'"` | same |
 | `C-Down` | Resize the pane down | `resize-pane -D` | same |
 | `C-Left` | Resize the pane left | `resize-pane -L` | same |
 | `C-Right` | Resize the pane right | `resize-pane -R` | same |
@@ -59,6 +62,7 @@ and then closes the menu.
 | `Down` | Select the pane below the active pane | `select-pane -D` | same |
 | `F` | Float or unfloat the active pane | `if-shell -F "#{pane_floating_flag}" unfloat-pane float-pane` | grofe's own |
 | `Left` | Select the pane to the left of the active pane | `select-pane -L` | same |
+| `M` | Clear the marked pane | `select-pane -M` | same |
 | `M-Down` | Resize the pane down by 5 | `resize-pane -D 5` | same |
 | `M-Left` | Resize the pane left by 5 | `resize-pane -L 5` | same |
 | `M-Right` | Resize the pane right by 5 | `resize-pane -R 5` | same |
@@ -66,9 +70,12 @@ and then closes the menu.
 | `M-o` | Rotate through the panes in reverse | `rotate-window -D` | same |
 | `Right` | Select the pane to the right of the active pane | `select-pane -R` | same |
 | `Up` | Select the pane above the active pane | `select-pane -U` | same |
+| `e` | Rename the active pane | `command-prompt -I "#{pane_title}" "select-pane -T \"%%%\""` | grofe's own |
 | `f` | Float or unfloat the active pane | `if-shell -F "#{pane_floating_flag}" unfloat-pane float-pane` | tmux: Search for a pane |
+| `m` | Toggle the marked pane | `select-pane -m` | same |
 | `o` | Select the next pane | `select-pane -t :.+` | same |
 | `q` | Display pane numbers | `display-panes` | same |
+| `t` | Show a clock | `clock-mode` | same |
 | `x` | Kill the active pane | `confirm-before -p "kill-pane #{pane_index}? (y/n)" kill-pane` | same |
 | `z` | Zoom the active pane | `resize-pane -Z` | same |
 | `{` | Swap the active pane with the pane above | `swap-pane -U` | same |
