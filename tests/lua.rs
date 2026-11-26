@@ -146,79 +146,109 @@ fn deferred_command_from_a_timer_does_not_leak_into_the_next_reply() {
     );
 }
 
+/// Lua source that runs `body` once, from a timer.
+fn once(body: &str) -> String {
+    format!("local n = 0\ngrofe.every(50, function() n = n + 1 if n == 1 then {body} end end)\n")
+}
+
+fn opt(srv: &TestServer, name: &str) -> String {
+    ok(srv, &["display-message", "-p", &format!("#{{{name}}}")])
+        .trim()
+        .to_string()
+}
+
+/// A chain held behind a deferring command: the `if-shell` form reaches the
+/// hold (the string form splits on `;` into separate runs).
+fn chain(name: &str) -> String {
+    format!("grofe.cmd{{'if-shell','-F','1','run-shell \"sleep 0.3\" ; set -g @{name} 1'}}")
+}
+
 #[test]
 fn commands_chained_after_a_deferring_one_still_run() {
+    let srv = with_init(&once(&chain("x")));
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(opt(&srv, "@x"), "", "the chain ran before the shell ended");
+    srv.wait_for(|| opt(&srv, "@x") == "1", WAIT)
+        .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+}
+
+#[test]
+fn two_deferring_chains_in_one_callback_both_finish() {
+    let srv = with_init(&once(&format!("{} {}", chain("a"), chain("b"))));
+    srv.wait_for(|| opt(&srv, "@a") == "1" && opt(&srv, "@b") == "1", WAIT)
+        .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+}
+
+#[test]
+fn late_failures_of_a_timer_job_reach_show_messages() {
     let srv = with_init(
         "local n = 0\n\
          grofe.every(50, function() n = n + 1 if n == 1 then \
-         grofe.cmd('run-shell \\'sleep 0.3\\'; set -g @x 1') end end)\n",
+         grofe.cmd{'if-shell','-F','1','run-shell \"sleep 0.2\" ; select-window -t nosuchwin'} \
+         elseif n == 20 then grofe.cmd{'run-shell','exit 3'} end end)\n",
     );
-    srv.wait_for(
-        || {
-            srv.cmd(&["display-message", "-p", "#{@x}"])
-                .is_ok_and(|s| s.trim() == "1")
-        },
-        WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+    std::thread::sleep(Duration::from_millis(2000));
+    let msgs = ok(&srv, &["show-messages"]);
+    assert!(msgs.contains("nosuchwin"), "no chain failure in {msgs:?}");
+    assert!(msgs.contains("returned 3"), "no shell failure in {msgs:?}");
 }
 
 #[test]
 fn deferred_command_from_an_event_does_not_leak() {
     let srv = with_init(
         "grofe.on('option-changed', function(e) if e.name ~= '@t' then return end \
-         grofe.cmd{'run-shell','sleep 2'} grofe.cmd{'set','-g','@ran','1'} end)\n",
+         grofe.cmd{'run-shell','echo leak; sleep 2'} grofe.cmd{'set','-g','@ran','1'} end)\n",
     );
     // The event fires inside this request, which must not wait for the shell.
     let t = Instant::now();
     assert_eq!(ok(&srv, &["set", "-g", "@t", "1"]).trim(), "");
     assert!(t.elapsed() < Duration::from_secs(1), "set waited");
-    srv.wait_for(
-        || {
-            srv.cmd(&["show-options", "-gv", "@ran"])
-                .is_ok_and(|s| s.trim() == "1")
-        },
-        WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+    // No request in between: one would take a leaked reply itself.
+    std::thread::sleep(Duration::from_millis(700));
     let t = Instant::now();
     assert_eq!(
         ok(&srv, &["display-message", "-p", "hello"]).trim(),
         "hello"
     );
     assert!(t.elapsed() < Duration::from_secs(1), "reply was held");
+    assert_eq!(opt(&srv, "@ran"), "1");
 }
 
 #[test]
 fn deferred_command_from_a_system_callback_does_not_leak() {
     let srv = with_init(
         "grofe.system({'echo','hi'}, function(r) \
-         grofe.cmd{'run-shell','sleep 2'} grofe.cmd{'set','-g','@ran','1'} end)\n",
+         grofe.cmd{'run-shell','echo leak; sleep 2'} grofe.cmd{'set','-g','@ran','1'} end)\n",
     );
-    srv.wait_for(
-        || {
-            srv.cmd(&["show-options", "-gv", "@ran"])
-                .is_ok_and(|s| s.trim() == "1")
-        },
-        WAIT,
-    )
-    .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+    std::thread::sleep(Duration::from_millis(700));
     let t = Instant::now();
     assert_eq!(
         ok(&srv, &["display-message", "-p", "hello"]).trim(),
         "hello"
     );
     assert!(t.elapsed() < Duration::from_secs(1), "reply was held");
+    assert_eq!(opt(&srv, "@ran"), "1");
 }
 
 #[test]
 fn display_menu_from_a_timer_does_not_leak() {
-    let srv = with_init(
-        "local n = 0\n\
-         grofe.every(50, function() n = n + 1 if n == 1 then \
-         grofe.cmd{'display-menu','-t','main','Hi','h','display-message hi'} end end)\n",
-    );
+    let srv = with_init("");
     let _a = attach(&srv);
+    let client = ok(&srv, &["list-clients", "-F", "#{client_name}"])
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    ok(
+        &srv,
+        &[
+            "lua",
+            &format!(
+                "local n = 0 grofe.every(50, function() n = n + 1 if n == 1 then \
+             grofe.cmd{{'display-menu','-c','{client}','Hi','h','display-message hi'}} end end)"
+            ),
+        ],
+    );
     std::thread::sleep(Duration::from_millis(500));
     let t = Instant::now();
     assert_eq!(
@@ -226,6 +256,8 @@ fn display_menu_from_a_timer_does_not_leak() {
         "hello"
     );
     assert!(t.elapsed() < Duration::from_secs(1), "reply was held");
+    let msgs = ok(&srv, &["show-messages"]);
+    assert!(!msgs.contains("lua:"), "lua error in {msgs:?}");
 }
 
 #[test]
