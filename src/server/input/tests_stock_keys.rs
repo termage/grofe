@@ -62,11 +62,23 @@ fn prefix_greater_than_opens_grofe_s_pane_menu_on_the_active_pane() {
 }
 
 /// grofe identity's pane menu, on a right click and on `prefix >`,
-/// renames the pane: `n` prompts with its title and sets it.
+/// renames the pane: `n` prompts with its title and sets it, the answer
+/// kept as typed (`%%%`). The mouse's selects the pane clicked first.
 #[test]
 fn grofe_s_pane_menu_renames_the_pane() {
-    let rename = r###"Rename n { select-pane -t = ; command-prompt -I "##{pane_title}" { select-pane -T "%%" } }"###;
-    assert!(grofe_pane_menu().contains(rename), "{}", grofe_pane_menu());
+    let rename = r###"Rename n { command-prompt -I "##{pane_title}" "select-pane -T \"%%%\"" }"###;
+    let active = grofe_pane_menu_items(None);
+    assert!(active.contains(rename), "{active}");
+    assert!(
+        !active.contains("-t") && !active.contains("select-pane ;"),
+        "{active}"
+    );
+    let clicked = rename.replace("{ command-prompt", "{ select-pane -t = ; command-prompt");
+    assert!(
+        grofe_pane_menu().contains(&clicked),
+        "{}",
+        grofe_pane_menu()
+    );
     let t = default_bindings();
     let menu = t.exact(ROOT_TABLE, &k("MouseDown3Pane")).expect("menu");
     let parsed = crate::cmd::split_command_string(&grofe_pane_menu()).unwrap();
@@ -85,7 +97,7 @@ fn prefix_e_renames_the_active_pane_under_grofe_identity_only() {
             "command-prompt",
             "-I",
             "#{pane_title}",
-            "select-pane -T \"%%\""
+            "select-pane -T \"%%%\""
         ]
     );
     assert_eq!(e.desc.as_deref(), Some("Rename the active pane"));

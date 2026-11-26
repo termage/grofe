@@ -53,7 +53,7 @@ and then closes the menu.
 | `%` | Split window horizontally | `split-window -h -c "#{pane_current_path}"` | same |
 | `*` | New floating pane | `new-pane` | same |
 | `;` | Move to the previously active pane | `last-pane` | same |
-| `>` | Display pane menu | `display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -x P -y P "#{?pane_floating_flag,,Float}" f "'float-pane'" "#{?pane_floating_flag,Unfloat,}" f "'unfloat-pane'" '' "#{?pane_floating_flag,,Horizontal Split}" h "'split-window' '-h' '-c' '#{pane_current_path}'" "#{?pane_floating_flag,,Vertical Split}" v "'split-window' '-v' '-c' '#{pane_current_path}'" '' Rename n "'select-pane' ; 'command-prompt' '-I' '##{pane_title}' { 'select-pane' '-T' '%%' }" Kill X "'kill-pane'" "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z "'resize-pane' '-Z'"` | same |
+| `>` | Display pane menu | `display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -x P -y P "#{?pane_floating_flag,,Float}" f "'float-pane'" "#{?pane_floating_flag,Unfloat,}" f "'unfloat-pane'" '' "#{?pane_floating_flag,,Horizontal Split}" h "'split-window' '-h' '-c' '#{pane_current_path}'" "#{?pane_floating_flag,,Vertical Split}" v "'split-window' '-v' '-c' '#{pane_current_path}'" '' Rename n "'command-prompt' '-I' '##{pane_title}' 'select-pane -T \"%%%\"'" Kill X "'kill-pane'" "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z "'resize-pane' '-Z'"` | same |
 | `C-Down` | Resize the pane down | `resize-pane -D` | same |
 | `C-Left` | Resize the pane left | `resize-pane -L` | same |
 | `C-Right` | Resize the pane right | `resize-pane -R` | same |
@@ -70,7 +70,7 @@ and then closes the menu.
 | `M-o` | Rotate through the panes in reverse | `rotate-window -D` | same |
 | `Right` | Select the pane to the right of the active pane | `select-pane -R` | same |
 | `Up` | Select the pane above the active pane | `select-pane -U` | same |
-| `e` | Rename the active pane | `command-prompt -I "#{pane_title}" "select-pane -T \"%%\""` | grofe's own |
+| `e` | Rename the active pane | `command-prompt -I "#{pane_title}" "select-pane -T \"%%%\""` | grofe's own |
 | `f` | Float or unfloat the active pane | `if-shell -F "#{pane_floating_flag}" unfloat-pane float-pane` | tmux: Search for a pane |
 | `m` | Toggle the marked pane | `select-pane -m` | same |
 | `o` | Select the next pane | `select-pane -t :.+` | same |

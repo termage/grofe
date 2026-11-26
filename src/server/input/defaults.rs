@@ -14,16 +14,25 @@ pub(crate) fn default_bindings() -> KeyTables {
     let mut t = KeyTables::default();
     let argv = |words: &[&str]| vec![words.iter().map(|s| s.to_string()).collect()];
     for &(key, words, repeat, note) in PREFIX_ROWS {
-        bind(&mut t, key, argv(words), repeat, note, Dialect::Grofe);
+        bind(
+            &mut t,
+            PREFIX_TABLE,
+            key,
+            argv(words),
+            repeat,
+            Some(note),
+            Dialect::Grofe,
+        );
     }
     for n in 0..=9 {
         let target = format!(":{n}");
         bind(
             &mut t,
+            PREFIX_TABLE,
             &n.to_string(),
             argv(&["select-window", "-t", &target]),
             false,
-            &format!("Select window {n}"),
+            Some(&format!("Select window {n}")),
             Dialect::Grofe,
         );
     }
@@ -32,26 +41,27 @@ pub(crate) fn default_bindings() -> KeyTables {
         (COPY_MODE_TABLE, COPY_MODE_EMACS),
     ] {
         for (key, text) in rows {
-            put(&mut t, table, key, text);
+            put(&mut t, table, key, text, None, Dialect::Grofe);
         }
     }
     // FE.1: stock `o` and `<`. Their `:.+` and `:-1` offsets have no
     // native spelling, so they are tmux's rows, run through the front end.
-    for &(key, repeat, note, text) in TMUX_STOCK.iter().filter(|(k, ..)| ["o", "<"].contains(k)) {
-        bind_text(&mut t, key, text, repeat, note, Dialect::Tmux);
+    // Neither repeats.
+    for &(key, _, note, text) in TMUX_STOCK.iter().filter(|(k, ..)| ["o", "<"].contains(k)) {
+        put(&mut t, PREFIX_TABLE, key, text, Some(note), Dialect::Tmux);
     }
     // grofe identity's pane menu on the active pane, below it, as tmux's
-    // stock `>` places its own: its items lose the mouse's `-t =`.
+    // stock `>` places its own.
     let pane_menu = format!(
         "{GROFE_PANE_MENU_TITLE} -x P -y P {}",
-        GROFE_PANE_MENU_ITEMS.replace(" -t =", "")
+        grofe_pane_menu_items(None)
     );
-    bind_text(
+    put(
         &mut t,
+        PREFIX_TABLE,
         ">",
         &pane_menu,
-        false,
-        "Display pane menu",
+        Some("Display pane menu"),
         Dialect::Grofe,
     );
     // tmux 3.7b's stock mouse rows, in its dialect ([`NATIVE_STOCK_ROOT`]):
@@ -62,24 +72,24 @@ pub(crate) fn default_bindings() -> KeyTables {
             t.insert_stock_root(name, text);
         }
     }
-    // FR.4: grofe identity's pane menu, with Float and Unfloat; a server
-    // with tmux identity binds tmux's stock menu instead.
-    put(&mut t, ROOT_TABLE, "MouseDown3Pane", &grofe_pane_menu());
-    // FR.3: Ctrl and drag anywhere in a pane moves it, as dragging a
-    // framed tile's title does; grofe's own, so a tmux-identity server
-    // drops it and the key is unbound, as in tmux.
-    put(&mut t, ROOT_TABLE, "C-MouseDrag1Pane", "drag-pane -M");
-    // The float control of a framed title's tab (`render::frame_tab`);
-    // grofe's own, as the tab is.
-    put(
-        &mut t,
-        ROOT_TABLE,
-        "MouseDown1Control7",
-        GROFE_FLOAT_CONTROL,
-    );
-    // A click on the status line's agents badge opens the tray; any other
-    // click switches client, as tmux's stock row does.
-    put(&mut t, ROOT_TABLE, "MouseDown1Status", GROFE_STATUS_CLICK);
+    let mouse_menu = grofe_pane_menu();
+    for (key, text) in [
+        // FR.4: grofe identity's pane menu, with Float and Unfloat; a server
+        // with tmux identity binds tmux's stock menu instead.
+        ("MouseDown3Pane", mouse_menu.as_str()),
+        // FR.3: Ctrl and drag anywhere in a pane moves it, as dragging a
+        // framed tile's title does; grofe's own, so a tmux-identity server
+        // drops it and the key is unbound, as in tmux.
+        ("C-MouseDrag1Pane", "drag-pane -M"),
+        // The float control of a framed title's tab (`render::frame_tab`);
+        // grofe's own, as the tab is.
+        ("MouseDown1Control7", GROFE_FLOAT_CONTROL),
+        // A click on the status line's agents badge opens the tray; any
+        // other click switches client, as tmux's stock row does.
+        ("MouseDown1Status", GROFE_STATUS_CLICK),
+    ] {
+        put(&mut t, ROOT_TABLE, key, text, None, Dialect::Grofe);
+    }
     for (table, bindings) in t.tables.iter_mut() {
         for b in bindings.values_mut() {
             b.group = Some(default_group(table, &b.cmds).to_string());
@@ -88,39 +98,36 @@ pub(crate) fn default_bindings() -> KeyTables {
     t
 }
 
-/// Binds `cmds` to `key` in the prefix table as a default binding with its
-/// note, in `dialect`.
+/// Binds `cmds` to `key` in `table` as a default binding, with its note,
+/// in `dialect`.
 fn bind(
     t: &mut KeyTables,
+    table: &str,
     key: &str,
     cmds: Vec<Vec<String>>,
     repeat: bool,
-    note: &str,
+    note: Option<&str>,
     dialect: Dialect,
 ) {
     if let Ok(key) = parse_key(key) {
         let mut b = Binding::new(cmds, repeat, BindingSource::Default);
-        b.desc = Some(note.to_string());
+        b.desc = note.map(str::to_string);
         b.dialect = dialect;
-        t.insert(PREFIX_TABLE, key, b);
+        t.insert(table, key, b);
     }
 }
 
-/// [`bind`] for `text`, a command string.
-fn bind_text(t: &mut KeyTables, key: &str, text: &str, repeat: bool, note: &str, dialect: Dialect) {
+/// [`bind`] for `text`, a command string, that does not repeat.
+fn put(
+    t: &mut KeyTables,
+    table: &str,
+    key: &str,
+    text: &str,
+    note: Option<&str>,
+    dialect: Dialect,
+) {
     if let Ok(cmds) = crate::cmd::split_command_string(text) {
-        bind(t, key, cmds, repeat, note, dialect);
-    }
-}
-
-/// Binds `text`, a command string, to `key` in `table` as a default binding.
-fn put(t: &mut KeyTables, table: &str, key: &str, text: &str) {
-    if let (Ok(key), Ok(cmds)) = (parse_key(key), crate::cmd::split_command_string(text)) {
-        t.insert(
-            table,
-            key,
-            Binding::new(cmds, false, BindingSource::Default),
-        );
+        bind(t, table, key, cmds, false, note, dialect);
     }
 }
 
@@ -164,7 +171,7 @@ const PREFIX_ROWS: &[(&str, &[&str], bool, &str)] = &[
     ("t", &["clock-mode"], false, "Show a clock"),
     ("*", &["new-pane"], false, "New floating pane"),
     // grofe's own: tmux 3.7b binds no `e`.
-    ("e", &["command-prompt", "-I", "#{pane_title}", "select-pane -T \"%%\""], false, "Rename the active pane"),
+    ("e", &["command-prompt", "-I", "#{pane_title}", "select-pane -T \"%%%\""], false, "Rename the active pane"),
     // grofe's own: tmux 3.7b has no key for `kill-server`.
     ("Q", &["confirm-before", "-p", "kill-server: stop grofe and every session? (y/n)", "kill-server"], false, "Stop the server and every session"),
     // grofe's own: tmux 3.7b binds no `u`.
@@ -407,7 +414,8 @@ pub(crate) const GROFE_STATUS_CLICK: &str = r##"if-shell -F "#{==:#{mouse_status
 /// Float shows on a tiled pane and Unfloat on a floating one.
 pub(crate) fn grofe_pane_menu() -> String {
     format!(
-        r##"if-shell -F "#{{mouse_any_flag}}" {{ select-pane -t = ; send-keys -M }} {{ {GROFE_PANE_MENU_TITLE} {GROFE_PANE_MENU_ITEMS}}}"##
+        r##"if-shell -F "#{{mouse_any_flag}}" {{ select-pane -t = ; send-keys -M }} {{ {GROFE_PANE_MENU_TITLE} {} }}"##,
+        grofe_pane_menu_items(Some("="))
     )
 }
 
@@ -416,22 +424,30 @@ pub(crate) fn grofe_pane_menu() -> String {
 const GROFE_PANE_MENU_TITLE: &str =
     r##"display-menu -T "#[align=centre]#{pane_index} (#{pane_id})""##;
 
-/// The items of grofe identity's pane menu, each acting on the pane
-/// clicked (`-t =`); `prefix >` drops the targets for the active pane.
-/// Rename selects the pane and prompts with its title: `##` keeps the
-/// format for the prompt, as a menu expands its rows when it opens, and no
-/// `%N` pane id goes into the template, where `%1` is the answer.
-const GROFE_PANE_MENU_ITEMS: &str = concat!(
-    r##""#{?pane_floating_flag,,Float}" f { float-pane -t = } "##,
-    r##""#{?pane_floating_flag,Unfloat,}" f { unfloat-pane -t = } "##,
-    r##"'' "##,
-    r##""#{?pane_floating_flag,,Horizontal Split}" h { split-window -h -t = -c "#{pane_current_path}" } "##,
-    r##""#{?pane_floating_flag,,Vertical Split}" v { split-window -v -t = -c "#{pane_current_path}" } "##,
-    r##"'' "##,
-    r###"Rename n { select-pane -t = ; command-prompt -I "##{pane_title}" { select-pane -T "%%" } } "###,
-    r##"Kill X { kill-pane -t = } "##,
-    r##""#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z -t = } "##,
-);
+/// The items of grofe identity's pane menu, acting on `target` (`=`, the
+/// pane clicked), or on the active pane with none (`prefix >`). Rename
+/// selects the target and prompts with its title: `##` keeps the format
+/// for the prompt, as a menu expands its rows when it opens, no `%N` pane
+/// id goes into the template, where `%1` is the answer, and `%%%` keeps
+/// the answer as typed.
+pub(crate) fn grofe_pane_menu_items(target: Option<&str>) -> String {
+    let t = target.map(|t| format!(" -t {t}")).unwrap_or_default();
+    let select = target
+        .map(|t| format!("select-pane -t {t} ; "))
+        .unwrap_or_default();
+    [
+        format!(r##""#{{?pane_floating_flag,,Float}}" f {{ float-pane{t} }}"##),
+        format!(r##""#{{?pane_floating_flag,Unfloat,}}" f {{ unfloat-pane{t} }}"##),
+        "''".to_string(),
+        format!(r##""#{{?pane_floating_flag,,Horizontal Split}}" h {{ split-window -h{t} -c "#{{pane_current_path}}" }}"##),
+        format!(r##""#{{?pane_floating_flag,,Vertical Split}}" v {{ split-window -v{t} -c "#{{pane_current_path}}" }}"##),
+        "''".to_string(),
+        format!(r###"Rename n {{ {select}command-prompt -I "##{{pane_title}}" "select-pane -T \"%%%\"" }}"###),
+        format!("Kill X {{ kill-pane{t} }}"),
+        format!(r##""#{{?#{{>:#{{window_panes}},1}},,-}}#{{?window_zoomed_flag,Unzoom,Zoom}}" z {{ resize-pane -Z{t} }}"##),
+    ]
+    .join(" ")
+}
 
 /// The copy-mode key table with `mode-keys vi`.
 pub(crate) const COPY_MODE_VI_TABLE: &str = "copy-mode-vi";
