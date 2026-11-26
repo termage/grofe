@@ -129,3 +129,21 @@ fn lua_verb_returns_values() {
     let srv = TestServer::start();
     assert_eq!(ok(&srv, &["lua", "return 1 + 1"]).trim(), "2");
 }
+
+/// A deferring command run from a Lua timer must not leave its pending reply
+/// behind for the next client request to pick up.
+#[test]
+fn deferred_command_from_a_timer_does_not_leak_into_the_next_reply() {
+    let srv = with_init(
+        "local n = 0\n\
+         grofe.every(50, function() n = n + 1 if n == 1 then \
+         grofe.cmd{'run-shell','sleep 1'} end end)\n",
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    let t = Instant::now();
+    assert_eq!(
+        ok(&srv, &["display-message", "-p", "hello"]).trim(),
+        "hello"
+    );
+    assert!(t.elapsed() < Duration::from_millis(800), "reply was held");
+}
