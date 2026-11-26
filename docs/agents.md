@@ -214,9 +214,10 @@ the same label are two rows.
 The row lives only while that job runs. When the process exits (0 is `done`,
 anything else `error`), times out, is cancelled with `grofe.cancel`, or the
 config is reloaded, the row goes. On exit or timeout the tray gets a `done` or
-`error` entry under the job's label, under the notification rules
-(`notifications.on` and the rest; with no pane there is no seen check, rate
-limit or desktop message).
+`error` entry under the job's label. Only `notifications.enabled` gates it:
+`on` and `done-min-work` are about an agent's states and do not apply, and with
+no pane there is no seen check, rate limit or desktop message. An `error` entry
+says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
 
 ## How grofe learns an agent's state
 

@@ -429,10 +429,9 @@ mod tests {
     async fn enter_on_a_job_entry_marks_it_read() {
         let (mut state, client, _p1, _p2) = setup();
         let now = Instant::now();
-        let worked = Duration::from_secs(5);
         state
             .notify
-            .on_job_end("triage", "issue 7", "error", Some("exit 3"), worked, now);
+            .on_job_end("triage", "issue 7", "error", Some("exit 3"), now);
         let unread = |state: &mut State| {
             let argv = ["display-message", "-p", "#{notifications_unread}"];
             let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();

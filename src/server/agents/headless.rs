@@ -52,18 +52,24 @@ pub(crate) fn clear(state: &mut State) {
 }
 
 /// The job ended with `code`: it goes, and the tray hears `done` for 0, else
-/// `error` (the usual notification rules apply, bar those about a pane).
-pub(crate) fn finish(state: &mut State, generation: u64, id: u32, code: i32) {
+/// `error` with `cause` (a timeout or a failed spawn) or `exit N` as its text.
+/// Only the notifications' `enabled` gates the entry.
+pub(crate) fn finish(
+    state: &mut State,
+    generation: u64,
+    id: u32,
+    code: i32,
+    cause: Option<String>,
+) {
     let Some(job) = take(state, generation, id) else {
         return;
     };
-    let (new, msg) = match code {
-        0 => ("done", None),
-        c => ("error", Some(format!("exit {c}"))),
+    let (new, msg) = match (code, cause) {
+        (_, Some(cause)) => ("error", Some(cause)),
+        (0, None) => ("done", None),
+        (c, None) => ("error", Some(format!("exit {c}"))),
     };
-    let worked = job.started.elapsed();
-    let now = Instant::now();
     state
         .notify
-        .on_job_end(&job.kind, &job.label, new, msg.as_deref(), worked, now);
+        .on_job_end(&job.kind, &job.label, new, msg.as_deref(), Instant::now());
 }

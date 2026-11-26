@@ -43,7 +43,7 @@ mod tests {
             .position(|r| r.contains("triage · issue 7"))
             .expect("the job's row");
         assert!(l[at + 1].contains("working"), "{:?}", l[at + 1]);
-        headless::finish(&mut state, 1, 7, 0);
+        headless::finish(&mut state, 1, 7, 0, None);
         assert!(shown(&state).iter().all(|r| !r.contains("issue 7")));
     }
 }

@@ -1,7 +1,7 @@
 //! A2a bullet 4: `agent-changed` carries `msg`; `grofe.agent.history`.
 //! Assumed: history returns strings, oldest first.
 
-use crate::helpers::{opt, run_for_r, server, wait_opt};
+use crate::helpers::{opt, server, wait_opt};
 use crate::support::lua_ok;
 
 fn seed(srv: &crate::common::TestServer) -> String {
@@ -76,7 +76,6 @@ fn history_zero_is_empty_and_large_n_returns_all() {
     // An empty result sets "h:", which is non-empty, so wait_opt works.
     assert_eq!(history(&srv, &id, 0), "h:");
     assert_eq!(history(&srv, &id, 99), "h:m1|m2|m3");
-    let _ = run_for_r;
 }
 
 #[test]

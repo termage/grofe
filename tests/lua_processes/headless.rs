@@ -1,5 +1,5 @@
 //! A2a bullet 3: a `system` job shows as a `working` row in the sidebar and
-//! grid while it runs. It is not an agent, and `agent list` omits it. Assumed shape (open question): `opts.agent = {kind, label}`.
+//! grid while it runs. It is not an agent, and `agent list` omits it.
 
 use crate::harness;
 use crate::helpers::{server, stays_empty, wait_opt};
@@ -35,6 +35,47 @@ fn system_job_registers_and_leaves_working() {
     assert!(a.text().contains("working"), "{}", a.text());
     wait_opt(&srv, "@r");
     wait_gone(&mut a, "triage · issue 7");
+}
+
+#[test]
+fn a_clean_exit_leaves_a_done_entry_whatever_done_min_work_says() {
+    let srv = server();
+    lua_ok(&srv, &job("quick", "exit 0"));
+    srv.wait_for(
+        || notes(&srv).contains(" - triage done quick"),
+        crate::support::WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
+}
+
+#[test]
+fn a_timed_out_job_says_so_in_its_entry() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        "grofe.system({'sleep','30'}, function() end, \
+         {timeout_ms = 300, agent = {kind = 'triage', label = 'slow'}})",
+    );
+    srv.wait_for(
+        || notes(&srv).contains(" - triage error slow timed out after 300ms"),
+        crate::support::WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
+}
+
+#[test]
+fn a_job_that_cannot_start_gives_the_spawn_error_in_its_entry() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        "grofe.system({'/nonexistent/prog'}, function() end, \
+         {agent = {kind = 'triage', label = 'nostart'}})",
+    );
+    srv.wait_for(
+        || notes(&srv).contains(" - triage error nostart /nonexistent/prog:"),
+        crate::support::WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
 }
 
 #[test]

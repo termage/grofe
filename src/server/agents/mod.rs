@@ -1,6 +1,7 @@
 //! Agent status: the per-pane store and the report rules (spec §2).
 
 pub(crate) mod headless;
+mod history;
 pub(crate) mod kinds;
 pub(crate) mod osc;
 mod rank;
@@ -80,14 +81,9 @@ pub(crate) struct Agent {
     pub reported: bool,
     pub last_report: u64,
     pub binding: Option<Binding>,
-    /// The messages reports carried, oldest first, up to [`HISTORY_CAP`].
+    /// The messages reports carried, oldest first, up to `history::HISTORY_CAP`.
     pub history: VecDeque<String>,
 }
-
-/// Messages kept per agent for `grofe.agent.history`.
-// ponytail: 50 messages per agent, oldest dropped; no option, and a record
-// that is removed takes its history with it.
-const HISTORY_CAP: usize = 50;
 
 impl Agent {
     fn new(state: AgentState, now: Instant, binding: Option<Binding>) -> Agent {
@@ -182,10 +178,7 @@ impl Agents {
                 changed
             });
         if let Some(m) = reported.clone() {
-            if a.history.len() == HISTORY_CAP {
-                a.history.pop_front();
-            }
-            a.history.push_back(m);
+            history::push(&mut a.history, m);
         }
         let content_changed = blocked != a.blocked || msg != a.msg;
         a.blocked = blocked;
@@ -253,18 +246,6 @@ impl Agents {
             a.msg = msg;
         }
         changed
-    }
-
-    /// The last `n` messages of `pane`, oldest first.
-    pub(crate) fn history(&self, pane: PaneId, n: usize) -> Vec<String> {
-        let Some(a) = self.map.get(&pane) else {
-            return Vec::new();
-        };
-        a.history
-            .iter()
-            .skip(a.history.len().saturating_sub(n))
-            .cloned()
-            .collect()
     }
 
     pub(crate) fn remove(&mut self, pane: PaneId) -> Option<Agent> {
@@ -456,36 +437,6 @@ mod tests {
         assert_eq!(ag.iter().count(), 1);
         assert!(ag.remove(P).is_some());
         assert!(ag.remove(P).is_none());
-    }
-
-    #[test]
-    fn history_keeps_the_last_messages_up_to_the_cap() {
-        let mut ag = Agents::default();
-        let now = Instant::now();
-        for i in 1..=(HISTORY_CAP as u64 + 5) {
-            let mut r = set(AgentState::Working, i);
-            r.msg = Some(format!("m{i}"));
-            ag.apply(P, r, true, now);
-        }
-        assert_eq!(ag.history(P, 2), ["m54", "m55"]);
-        assert_eq!(ag.history(P, 999).len(), HISTORY_CAP);
-        assert_eq!(ag.history(P, 999)[0], "m6");
-        assert!(ag.history(PaneId(9), 3).is_empty());
-    }
-
-    #[test]
-    fn history_takes_every_report_that_carried_a_message() {
-        let mut ag = Agents::default();
-        let now = Instant::now();
-        let mut say = |state, ts, msg: Option<&str>| {
-            let mut r = set(state, ts);
-            r.msg = msg.map(String::from);
-            ag.apply(P, r, true, now)
-        };
-        say(AgentState::Working, 1, Some("A"));
-        say(AgentState::Done, 2, None);
-        say(AgentState::Working, 3, Some("A"));
-        assert_eq!(ag.history(P, 9), ["A", "A"]);
     }
 
     #[test]

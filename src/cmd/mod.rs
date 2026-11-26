@@ -7,6 +7,7 @@
 //! [`parse::parse`]: the CLI, key bindings, control mode and
 //! plugins all produce argv shaped like a shell command line.
 
+mod agent;
 pub(crate) mod format;
 pub(crate) mod keys;
 pub mod parse;
@@ -15,6 +16,7 @@ mod parse_pin;
 mod table;
 pub mod target;
 
+pub use agent::{AgentCmd, AgentNew};
 pub use format::{
     FormatVars, Inner, LoopItem, LoopKind, LoopSort, NameKind, NoVars, SortOrder, all_variables,
     expand, expand_time, expand_traced,
@@ -711,36 +713,6 @@ pub struct PaneSetResume {
     pub expect: Option<String>,
     /// The resume; `argv[0]` is resolved to an absolute path by the server.
     pub argv: Vec<String>,
-}
-
-/// `agent report|list|next|seen` (grofe's own): native agent status.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AgentCmd {
-    Report(AgentReport),
-    List { format: Option<String> },
-    Next,
-    Seen { target: Target, all: bool },
-    New(AgentNew),
-}
-
-/// `agent new <kind> [-pPdwW] [-c dir] [-n name] [-b branch] [-e K=V]
-/// [-- command...]`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentNew {
-    pub kind: String,
-    pub split: bool,
-    pub cwd: Option<String>,
-    pub name: Option<String>,
-    /// `-w` is `Some(true)`, `-W` is `Some(false)`, neither is `None`.
-    pub worktree: Option<bool>,
-    pub branch: Option<String>,
-    pub detached: bool,
-    /// `-P`: print the new pane's id.
-    pub print: bool,
-    /// `-e`: variables for the new pane's environment.
-    pub env: Vec<(String, String)>,
-    /// The words after `--`: run instead of the kind's command.
-    pub command: Vec<String>,
 }
 
 /// `agent-sidebar on|off|toggle|focus`.

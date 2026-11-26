@@ -31,6 +31,9 @@ fn err(e: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(e.to_string())
 }
 
+/// The keys `grofe.system` takes in its options table.
+const OPTS: [&str; 6] = ["cwd", "env", "stdin", "on_line", "timeout_ms", "agent"];
+
 fn agent_of(t: Table) -> mlua::Result<AgentRecord> {
     for pair in t.pairs::<Value, Value>() {
         let (k, _) = pair?;
@@ -69,6 +72,19 @@ pub fn read(argv: Vec<String>, opts: Option<Table>) -> mlua::Result<(SystemJob, 
     let Some(o) = opts else {
         return Ok((job, None));
     };
+    for pair in o.pairs::<Value, Value>() {
+        let (k, _) = pair?;
+        match &k {
+            Value::String(s) if OPTS.contains(&&*s.to_str()?) => {}
+            other => {
+                return Err(err(format!(
+                    "grofe.system: unknown option {}; options are {}",
+                    other.to_string()?,
+                    OPTS.join(", ")
+                )));
+            }
+        }
+    }
     job.cwd = o.get("cwd")?;
     job.stdin = o.get("stdin")?;
     if let Some(ms) = o.get::<Option<u64>>("timeout_ms")? {

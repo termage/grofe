@@ -117,18 +117,18 @@ impl Notifier {
     }
 
     /// A job that showed as `kind` called `label` ended in `new` (`done` or
-    /// `error`): the same rules as [`Notifier::on_change`], minus the ones
-    /// about a pane (seen, rate limit, desktop).
+    /// `error`). Only `enabled` gates it: the job's end is the news, so
+    /// `on` and `done-min-work` (about an agent's states) do not apply, nor
+    /// the pane rules (seen, rate limit, desktop).
     pub fn on_job_end(
         &mut self,
         kind: &str,
         label: &str,
         new: &str,
         msg: Option<&str>,
-        worked: Duration,
         now: Instant,
     ) {
-        if self.wanted(new, false, worked) {
+        if self.cfg.enabled {
             self.push(None, "", Some(kind), new, msg, Some(label), now);
         }
     }

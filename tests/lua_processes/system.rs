@@ -144,3 +144,14 @@ fn cancel_stops_on_line() {
         "on_line kept running"
     );
 }
+
+#[test]
+fn an_unknown_option_is_an_error_naming_the_key() {
+    let srv = server();
+    let err = lua(
+        &srv,
+        "grofe.system({'true'}, function() end, {timeout = 5})",
+    )
+    .expect_err("unknown option");
+    assert!(err.contains("unknown option timeout"), "{err}");
+}

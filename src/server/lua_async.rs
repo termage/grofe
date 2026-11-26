@@ -43,10 +43,10 @@ fn post(generation: u64, id: u32, payload: Payload) -> Job {
 
 /// The job that ends a `system` run: the job's list entry ends (and the tray
 /// hears of it), then the callback runs.
-fn finished(generation: u64, id: u32, payload: Payload) -> Job {
+fn finished(generation: u64, id: u32, payload: Payload, cause: Option<String>) -> Job {
     guarded(generation, move |state| {
         if let Payload::System { code, .. } = &payload {
-            headless::finish(state, generation, id, *code);
+            headless::finish(state, generation, id, *code, cause);
         }
         lua_host::call_job(state, id, payload)
     })
@@ -133,11 +133,20 @@ impl Drop for Group {
 // it open; after this the output is given up on rather than awaited forever.
 const PIPE_GRACE: Duration = Duration::from_secs(2);
 
-async fn run_system(job: SystemJob, generation: u64, jobs: mpsc::Sender<Job>) -> Payload {
-    let failed = |msg: String| Payload::System {
-        code: -1,
-        stdout: String::new(),
-        stderr: msg,
+/// Runs `job`: what the callback gets, and the cause when the job did not
+/// run to its own exit (a failed spawn, a timeout), for its tray entry.
+async fn run_system(
+    job: SystemJob,
+    generation: u64,
+    jobs: mpsc::Sender<Job>,
+) -> (Payload, Option<String>) {
+    let failed = |msg: String| {
+        let payload = Payload::System {
+            code: -1,
+            stdout: String::new(),
+            stderr: msg.clone(),
+        };
+        (payload, Some(msg))
     };
     let Some((prog, args)) = job.argv.split_first() else {
         return failed("empty argv".into());
@@ -192,6 +201,7 @@ async fn run_system(job: SystemJob, generation: u64, jobs: mpsc::Sender<Job>) ->
         (out, (&mut err_task).await.unwrap_or_default())
     })
     .await;
+    let mut cause = None;
     let (code, stdout, stderr) = match ran {
         Ok((out, err)) => (code.unwrap_or(-1), out, err),
         Err(_) => {
@@ -204,16 +214,18 @@ async fn run_system(job: SystemJob, generation: u64, jobs: mpsc::Sender<Job>) ->
             let (out, err) = tokio::time::timeout(PIPE_GRACE, pipes)
                 .await
                 .unwrap_or_default();
+            cause = Some(format!("timed out after {}ms", job.timeout_ms));
             (-1, out, err)
         }
     };
     // Finished on its own: what it left running is its own business.
     group.pgid = None;
-    Payload::System {
+    let payload = Payload::System {
         code,
         stdout,
         stderr,
-    }
+    };
+    (payload, cause)
 }
 
 impl Async {
@@ -303,8 +315,8 @@ impl Async {
         let jobs = jobs.clone();
         let generation = self.generation;
         let task = tokio::spawn(async move {
-            let payload = run_system(job, generation, jobs.clone()).await;
-            let _ = jobs.send(finished(generation, id, payload)).await;
+            let (payload, cause) = run_system(job, generation, jobs.clone()).await;
+            let _ = jobs.send(finished(generation, id, payload, cause)).await;
         });
         self.track(id, task.abort_handle());
     }
@@ -340,7 +352,7 @@ mod tests {
 
     async fn run(job: SystemJob) -> Payload {
         let (tx, _rx) = mpsc::channel::<Job>(16);
-        run_system(job, 0, tx).await
+        run_system(job, 0, tx).await.0
     }
 
     #[tokio::test]

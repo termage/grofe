@@ -124,10 +124,9 @@ mod tests {
     #[test]
     fn a_job_entry_has_no_pane_and_its_label_in_the_text() {
         let mut s = test_state();
-        let worked = Duration::from_secs(5);
         let now = Instant::now();
         s.notify
-            .on_job_end("triage", "issue 7", "error", Some("exit 3"), worked, now);
+            .on_job_end("triage", "issue 7", "error", Some("exit 3"), now);
         let out = run(&mut s, &test_ctx(), NotifyCmd::List).unwrap();
         assert_eq!(out, "1 - triage error issue 7 exit 3\n");
     }

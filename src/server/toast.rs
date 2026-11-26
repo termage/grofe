@@ -369,12 +369,11 @@ mod tests {
     async fn click_on_a_job_entry_marks_it_read() {
         let (mut state, client, _p1, _p2, _out) = setup();
         state.notify.cfg.toast = vec!["error".to_string()];
-        let worked = Duration::from_secs(5);
         let end = |state: &mut State| {
             let now = Instant::now();
             state
                 .notify
-                .on_job_end("triage", "issue 7", "error", Some("exit 3"), worked, now);
+                .on_job_end("triage", "issue 7", "error", Some("exit 3"), now);
         };
         end(&mut state);
         let unread = |state: &mut State| {
