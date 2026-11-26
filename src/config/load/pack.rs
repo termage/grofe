@@ -5,6 +5,7 @@
 use toml::de::{DeTable, DeValue};
 
 use super::{Loader, closest, entries};
+use crate::lua::json::de_to_json;
 use crate::pack::spec::{Spec, name_of, normalize_src};
 
 use super::FileCtx;
@@ -50,9 +51,8 @@ impl Loader {
                     enabled = *b;
                     Ok(())
                 }
-                ("options", DeValue::Table(o)) => {
-                    options = json_table(o);
-                    Ok(())
+                ("options", v @ DeValue::Table(_)) => {
+                    de_to_json(v).map(|j| options = j.as_object().cloned().unwrap_or_default())
                 }
                 ("src" | "name" | "rev" | "enabled" | "options", other) => {
                     Err(format!("wrong type, found {}", other.type_str()))
@@ -91,30 +91,6 @@ impl Loader {
             Some(old) => *old = spec,
             None => self.pack.push(spec),
         }
-    }
-}
-
-fn json_table(t: &DeTable) -> serde_json::Map<String, serde_json::Value> {
-    t.iter()
-        .map(|(k, v)| (k.get_ref().to_string(), json_value(v.get_ref())))
-        .collect()
-}
-
-fn json_value(v: &DeValue) -> serde_json::Value {
-    use serde_json::Value as J;
-    match v {
-        DeValue::String(s) => J::String(s.to_string()),
-        DeValue::Integer(i) => i64::from_str_radix(i.as_str(), i.radix()).map_or(J::Null, J::from),
-        DeValue::Float(f) => f
-            .as_str()
-            .parse::<f64>()
-            .ok()
-            .and_then(serde_json::Number::from_f64)
-            .map_or(J::Null, J::Number),
-        DeValue::Boolean(b) => J::Bool(*b),
-        DeValue::Datetime(d) => J::String(d.to_string()),
-        DeValue::Array(items) => J::Array(items.iter().map(|i| json_value(i.get_ref())).collect()),
-        DeValue::Table(t) => J::Object(json_table(t)),
     }
 }
 

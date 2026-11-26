@@ -14,8 +14,12 @@ struct Manifest {
     min_api: Option<u32>,
     /// The earlier spelling of `min_api`.
     api: Option<u32>,
-    #[serde(default)]
-    options: toml::Table,
+    #[serde(default = "empty_options")]
+    options: toml::Value,
+}
+
+fn empty_options() -> toml::Value {
+    toml::Value::Table(toml::Table::new())
 }
 
 impl Manifest {
@@ -48,8 +52,12 @@ fn read_manifest(dir: &Path) -> Result<Option<Manifest>, String> {
 
 /// The pack's `[options]` defaults as JSON; `{}` without a manifest.
 pub(crate) fn default_options(dir: &Path) -> Result<serde_json::Value, String> {
-    let table = read_manifest(dir)?.map(|m| m.options).unwrap_or_default();
-    serde_json::to_value(table).map_err(|e| e.to_string())
+    match read_manifest(dir)? {
+        Some(m) if !m.options.is_table() => Err(format!("{}: options must be a table", m.name)),
+        Some(m) => crate::lua::json::toml_to_json(&m.options)
+            .map_err(|e| format!("{}: options: {e}", m.name)),
+        None => Ok(serde_json::json!({})),
+    }
 }
 
 /// Classify a plugin directory and refuse a Luau pack that needs a newer

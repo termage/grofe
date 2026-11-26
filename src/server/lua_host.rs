@@ -3,6 +3,7 @@
 //! so the host can hold `&mut State`; a call that finds it taken is nested.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -11,7 +12,7 @@ use crate::lua::api::{self, Host, Payload};
 use crate::lua::runtime::{Limits, LuaError, Runtime};
 use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
-use crate::server::input::{Binding, BindingSource, parse_key};
+use crate::server::input::{Binding, BindingSource, Key, parse_key};
 use crate::server::lua_async::Async;
 use crate::server::{State, clients, dispatch, prompt};
 
@@ -20,6 +21,14 @@ const PLUGIN: &str = "lua";
 pub struct LuaHost {
     rt: Runtime,
     async_: Async,
+    /// Per bind id, the key it took and what held that key before.
+    replaced: HashMap<u32, Replaced>,
+}
+
+struct Replaced {
+    table: String,
+    key: Key,
+    previous: Option<Binding>,
 }
 
 thread_local! {
@@ -68,6 +77,7 @@ impl Drop for InCall {
 struct StateHost<'a> {
     state: &'a mut State,
     async_: &'a mut Async,
+    replaced: &'a mut HashMap<u32, Replaced>,
     ctx: ClientCtx,
 }
 
@@ -123,7 +133,18 @@ impl Host for StateHost<'_> {
         let mut b = Binding::new(lua_call(id), repeat, BindingSource::Plugin(PLUGIN.into()));
         b.shown = desc.clone();
         b.desc = desc;
-        self.state.registry.key_tables.insert(table, key, b);
+        let tables = &mut self.state.registry.key_tables;
+        let previous = tables.exact(table, &key).cloned();
+        tables.insert(table, key, b);
+        let table = table.to_string();
+        self.replaced.insert(
+            id,
+            Replaced {
+                table,
+                key,
+                previous,
+            },
+        );
         Ok(())
     }
 
@@ -156,7 +177,9 @@ impl Host for StateHost<'_> {
 
     fn cancel(&mut self, id: u32) {
         self.async_.cancel(id);
-        unbind_where(self.state, |b| b.cmds == lua_call(id));
+        if let Some(r) = self.replaced.remove(&id) {
+            restore_key(self.state, id, r);
+        }
     }
 
     fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String> {
@@ -164,7 +187,8 @@ impl Host for StateHost<'_> {
             Some(p) => cmd::target::parse_target(p).map_err(|e| e.to_string())?,
             None => cmd::target::Target::Current,
         };
-        let pane = cmd::Resolve::resolve_pane(&self.state.model, &target, &self.ctx)?;
+        let pane = cmd::Resolve::resolve_pane(&self.state.model, &target, &self.ctx)
+            .map_err(|e| format!("no pane to notify for: {e}"))?;
         let uid = match self.state.model.panes.get(&pane) {
             Some(p) => p.uid.clone(),
             None => return Err(format!("no pane {pane}")),
@@ -203,6 +227,7 @@ fn with_host<R>(
             LuaHost {
                 rt,
                 async_: Async::default(),
+                replaced: HashMap::new(),
             }
         }
     };
@@ -211,6 +236,7 @@ fn with_host<R>(
         &mut StateHost {
             state,
             async_: &mut lua.async_,
+            replaced: &mut lua.replaced,
             ctx,
         },
     );
@@ -235,6 +261,21 @@ pub(crate) fn reset(state: &mut State) {
     }
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
+}
+
+/// Takes bind `id` off its key, if it still holds it, and puts back what
+/// the key had before.
+fn restore_key(state: &mut State, id: u32, r: Replaced) {
+    let tables = &mut state.registry.key_tables;
+    if tables
+        .exact(&r.table, &r.key)
+        .is_some_and(|b| b.cmds == lua_call(id))
+    {
+        tables.unbind(&r.table, &r.key);
+        if let Some(previous) = r.previous {
+            tables.insert(&r.table, r.key, previous);
+        }
+    }
 }
 
 /// Removes every key binding `drop_it` accepts.
@@ -300,8 +341,12 @@ pub(crate) fn load_pack(
     with_host(state, client_less_ctx(), |rt, host| {
         api::enter(rt, host, name, |lua| {
             pack::register(lua, name, dir, options)?;
-            let value = api::in_pack(lua, name, || {
-                lua.load(&src).set_name(name).eval::<mlua::Value>()
+            let env = pack::env_of(lua, name)?;
+            let value = api::in_pack(lua, || {
+                lua.load(&src)
+                    .set_name(name)
+                    .set_environment(env)
+                    .eval::<mlua::Value>()
             })?;
             api::set_plugin(rt, name, value).map_err(mlua::Error::external)
         })

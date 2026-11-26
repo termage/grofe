@@ -29,12 +29,16 @@ pub fn config_dir(lua: &Lua) -> mlua::Result<Option<PathBuf>> {
 /// runs loads from the pack's folder, any other from the config folder.
 pub fn install(lua: &Lua) -> mlua::Result<()> {
     let f = lua.create_function(|lua, name: String| {
-        let dir = match pack::current_dir(lua)? {
-            Some(dir) => dir,
-            None => config_dir(lua)?
-                .ok_or_else(|| err(format!("require: no config folder to load '{name}' from")))?,
+        let (dir, env) = match pack::current_dir(lua)? {
+            Some(dir) => (dir, pack::current_env(lua)?),
+            None => {
+                let dir = config_dir(lua)?.ok_or_else(|| {
+                    err(format!("require: no config folder to load '{name}' from"))
+                })?;
+                (dir, None)
+            }
         };
-        require(lua, &dir, &name)
+        require(lua, &dir, &name, env)
     })?;
     lua.globals().set("require", f)
 }
@@ -88,7 +92,7 @@ fn candidates(dir: &Path, rel: &str) -> [PathBuf; 4] {
     ]
 }
 
-fn require(lua: &Lua, dir: &Path, name: &str) -> mlua::Result<Value> {
+fn require(lua: &Lua, dir: &Path, name: &str, env: Option<Table>) -> mlua::Result<Value> {
     let rel = relative(name).map_err(err)?;
     // One module name in two folders is two modules.
     let key = dir.join(&rel).to_string_lossy().into_owned();
@@ -111,7 +115,11 @@ fn require(lua: &Lua, dir: &Path, name: &str) -> mlua::Result<Value> {
     };
     let src = std::fs::read(file).map_err(|e| err(format!("require: {}: {e}", file.display())))?;
     loading.set(key.as_str(), true)?;
-    let result = lua.load(src).set_name(name).eval::<Value>();
+    let mut chunk = lua.load(src).set_name(name);
+    if let Some(env) = env {
+        chunk = chunk.set_environment(env);
+    }
+    let result = chunk.eval::<Value>();
     loading.set(key.as_str(), Value::Nil)?;
     let value = match result? {
         Value::Nil => Value::Boolean(true),

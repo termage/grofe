@@ -580,3 +580,153 @@ fn options_called_outside_a_pack_raises() {
     let e = lua(&srv, "return grofe.options()").expect_err("no pack, no options");
     assert!(!e.contains("nil value"), "grofe.options must exist: {e}");
 }
+
+#[test]
+fn a_pack_function_called_from_user_init_acts_as_its_pack() {
+    let init = "return { setup = function()\n\
+        grofe.store.set('k', 'v')\n\
+        grofe.every(50, function() error('late-boom') end)\n\
+        return grofe.store.get('k') .. '|' .. tostring(#grofe.pack_dir() > 0)\n\
+        end }\n";
+    let srv = with_packs(
+        &[Pack {
+            name: "late",
+            files: &[
+                ("grofe-plugin.toml", &manifest("late", "")),
+                ("init.luau", init),
+            ],
+            entry: "",
+        }],
+        Some("grofe.cmd{'set-option','-g','@got', grofe.plugin('late').setup()}\n"),
+    );
+    let got = |n: &str| srv.cmd(&["show-options", "-gqv", n]).unwrap_or_default();
+    assert_eq!(got("@got").trim(), "v|true", "{}", messages(&srv));
+    srv.wait_for(|| messages(&srv).contains("late-boom"), WAIT)
+        .unwrap_or_else(|e| panic!("{e}; messages:\n{}", messages(&srv)));
+    let m = messages(&srv);
+    assert!(
+        m.lines()
+            .any(|l| l.contains("late-boom") && l.contains("pack late")),
+        "{m}"
+    );
+}
+
+#[test]
+fn a_pack_callback_can_use_the_store() {
+    let init = "grofe.store.set('x', 'kept')\n\
+        grofe.every(50, function() grofe.cmd{'set-option','-g','@cb', grofe.store.get('x')} end)\n";
+    let srv = with_packs(
+        &[Pack {
+            name: "cbstore",
+            files: &[
+                ("grofe-plugin.toml", &manifest("cbstore", "")),
+                ("init.luau", init),
+            ],
+            entry: "",
+        }],
+        None,
+    );
+    srv.wait_for(
+        || {
+            srv.cmd(&["show-options", "-gqv", "@cb"])
+                .is_ok_and(|s| s.trim() == "kept")
+        },
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}; messages:\n{}", messages(&srv)));
+}
+
+#[test]
+fn pack_only_functions_raise_outside_a_pack() {
+    let srv = TestServer::start();
+    for code in [
+        "return grofe.pack_dir()",
+        "return grofe.store.get('k')",
+        "grofe.store.set('k', 1)",
+        "grofe.store.delete('k')",
+    ] {
+        let e = lua(&srv, code).expect_err(code);
+        assert!(e.contains("outside a pack"), "{code}: {e}");
+    }
+}
+
+#[test]
+fn notify_rejects_an_unknown_level_and_a_missing_pane() {
+    let srv = TestServer::start();
+    let e = lua(&srv, "grofe.notify('x', {level = 'loud'})").expect_err("bad level");
+    assert!(e.contains("level"), "{e}");
+    let e = lua(&srv, "grofe.notify('x')").expect_err("no pane at all");
+    assert!(e.contains("pane"), "{e}");
+    assert_eq!(srv.cmd(&["notify", "list"]).expect("list").trim(), "");
+}
+
+#[test]
+fn config_refuses_odd_and_reserved_names() {
+    let srv = TestServer::start();
+    for name in ["../x", "a/b", "config", "pack-lock", ""] {
+        let e = lua(&srv, &format!("return grofe.config('{name}')")).expect_err(name);
+        assert!(!e.contains("nil value"), "{name}: {e}");
+    }
+}
+
+#[test]
+fn options_from_the_entry_merge_into_a_nested_manifest_table_key_by_key() {
+    let srv = with_packs(
+        &[Pack {
+            name: "nest",
+            files: &[
+                (
+                    "grofe-plugin.toml",
+                    &manifest("nest", "[options.deep]\nflag = \"d\"\nkeep = \"k\"\n"),
+                ),
+                (
+                    "init.luau",
+                    "local o = grofe.options().deep\nreturn { v = o.flag .. '|' .. o.keep .. '|' .. o.added }\n",
+                ),
+            ],
+            entry: "options = { deep = { flag = \"over\", added = \"a\" } }\n",
+        }],
+        None,
+    );
+    assert_eq!(lua_ok(&srv, "return grofe.plugin('nest').v"), "over|k|a");
+}
+
+#[test]
+fn json_holes_become_null_and_round_trip() {
+    let srv = TestServer::start();
+    assert_eq!(
+        lua_ok(&srv, "return grofe.json.encode({1, nil, 3})"),
+        "[1,null,3]"
+    );
+    assert_eq!(
+        lua_ok(
+            &srv,
+            "return grofe.json.encode(grofe.json.decode('[1,null,3]'))"
+        ),
+        "[1,null,3]"
+    );
+}
+
+#[test]
+fn a_failed_pack_gives_back_the_key_it_replaced() {
+    let init =
+        "grofe.bind('prefix', 'c', function() end, {desc = 'stolen-key'})\nerror('after-bind')\n";
+    let srv = with_packs(
+        &[Pack {
+            name: "thief",
+            files: &[
+                ("grofe-plugin.toml", &manifest("thief", "")),
+                ("init.luau", init),
+            ],
+            entry: "",
+        }],
+        None,
+    );
+    let keys = srv.cmd(&["list-keys", "-T", "prefix"]).expect("list-keys");
+    assert!(!keys.contains("stolen-key"), "{keys}");
+    assert!(
+        keys.lines()
+            .any(|l| l.split_whitespace().any(|w| w == "c") && l.contains("new-window")),
+        "the default c binding is back:\n{keys}"
+    );
+}

@@ -4,12 +4,15 @@
 use mlua::{Lua, Table};
 use std::path::{Path, PathBuf};
 
-use super::json::{from_json, merge};
+use super::json::{from_json, merge, toml_to_json};
 use super::require;
 
 fn err(e: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(e.to_string())
 }
+
+/// Files in the config folder that grofe itself reads.
+const RESERVED: [&str; 2] = ["config", "pack-lock"];
 
 pub fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     g.set(
@@ -17,6 +20,9 @@ pub fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
         lua.create_function(|lua, (name, dir): (String, Option<String>)| {
             if name.is_empty() || name.contains(['/', '\\']) || name.contains("..") {
                 return Err(err(format!("grofe.config: {name:?} is not a usable name")));
+            }
+            if RESERVED.contains(&name.as_str()) {
+                return Err(err(format!("grofe.config: {name:?} is grofe's own file")));
             }
             let file = format!("{name}.toml");
             let mut merged = serde_json::json!({});
@@ -45,9 +51,9 @@ fn read(path: &Path) -> mlua::Result<serde_json::Value> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(serde_json::json!({})),
         Err(e) => return Err(err(format!("{}: {e}", path.display()))),
     };
-    let table: toml::Table =
+    let value: toml::Value =
         toml::from_str(&text).map_err(|e| err(format!("{}: {e}", path.display())))?;
-    serde_json::to_value(table).map_err(err)
+    toml_to_json(&value).map_err(|e| err(format!("{}: {e}", path.display())))
 }
 
 #[cfg(test)]

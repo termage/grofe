@@ -57,24 +57,41 @@ fn number(n: f64) -> mlua::Result<J> {
         .ok_or_else(|| err("NaN and infinity cannot be JSON"))
 }
 
+/// Longest array a sparse table may make, holes included.
+const MAX_ARRAY: usize = 100_000;
+
+/// A table whose keys are all positive integers is an array (holes are
+/// null), one with string keys an object; an empty table is `{}`.
 fn table_to_json(t: &Table, depth: usize) -> mlua::Result<J> {
-    let len = t.raw_len();
-    if len > 0 && t.pairs::<Value, Value>().count() == len {
-        let items: mlua::Result<Vec<J>> = t
-            .sequence_values::<Value>()
-            .map(|v| to_json_at(&v?, depth + 1))
-            .collect();
-        return items.map(J::Array);
-    }
+    let mut items: Vec<(usize, J)> = Vec::new();
     let mut map = serde_json::Map::new();
     for pair in t.pairs::<Value, Value>() {
         let (k, v) = pair?;
-        let Value::String(k) = k else {
-            return Err(err("an object needs string keys"));
-        };
-        map.insert(k.to_str()?.to_string(), to_json_at(&v, depth + 1)?);
+        let v = to_json_at(&v, depth + 1)?;
+        match k {
+            Value::String(k) => {
+                map.insert(k.to_str()?.to_string(), v);
+            }
+            Value::Integer(i) if i >= 1 => items.push((i as usize, v)),
+            Value::Number(n) if n >= 1.0 && n.fract() == 0.0 => items.push((n as usize, v)),
+            _ => return Err(err("a table needs string keys or positive integer keys")),
+        }
     }
-    Ok(J::Object(map))
+    if !items.is_empty() && !map.is_empty() {
+        return Err(err("a table cannot mix string and integer keys"));
+    }
+    if items.is_empty() {
+        return Ok(J::Object(map));
+    }
+    let len = items.iter().map(|(i, _)| *i).max().unwrap_or(0);
+    if len > MAX_ARRAY {
+        return Err(err("a sparse table is too long to be an array"));
+    }
+    let mut array = vec![J::Null; len];
+    for (i, v) in items {
+        array[i - 1] = v;
+    }
+    Ok(J::Array(array))
 }
 
 pub fn from_json(lua: &Lua, v: &J) -> mlua::Result<Value> {
@@ -100,6 +117,56 @@ pub fn from_json(lua: &Lua, v: &J) -> mlua::Result<Value> {
     })
 }
 
+/// A parsed TOML value as JSON. A datetime is its text; a number JSON
+/// cannot hold (beyond `i64`, infinite, NaN) is an error, not null.
+pub fn toml_to_json(v: &toml::Value) -> Result<J, String> {
+    use toml::Value as T;
+    Ok(match v {
+        T::String(s) => J::String(s.clone()),
+        T::Integer(i) => J::from(*i),
+        T::Float(f) => float(*f)?,
+        T::Boolean(b) => J::Bool(*b),
+        T::Datetime(d) => J::String(d.to_string()),
+        T::Array(items) => J::Array(items.iter().map(toml_to_json).collect::<Result<_, _>>()?),
+        T::Table(t) => J::Object(
+            t.iter()
+                .map(|(k, v)| Ok((k.clone(), toml_to_json(v)?)))
+                .collect::<Result<_, String>>()?,
+        ),
+    })
+}
+
+/// [`toml_to_json`] for a value still carrying its source spans.
+pub fn de_to_json(v: &toml::de::DeValue) -> Result<J, String> {
+    use toml::de::DeValue as D;
+    Ok(match v {
+        D::String(s) => J::String(s.to_string()),
+        D::Integer(i) => i64::from_str_radix(i.as_str(), i.radix())
+            .map(J::from)
+            .map_err(|_| format!("{} does not fit in 64 bits", i.as_str()))?,
+        D::Float(f) => float(f.as_str().parse::<f64>().map_err(|e| e.to_string())?)?,
+        D::Boolean(b) => J::Bool(*b),
+        D::Datetime(d) => J::String(d.to_string()),
+        D::Array(items) => J::Array(
+            items
+                .iter()
+                .map(|i| de_to_json(i.get_ref()))
+                .collect::<Result<_, _>>()?,
+        ),
+        D::Table(t) => J::Object(
+            t.iter()
+                .map(|(k, v)| Ok((k.get_ref().to_string(), de_to_json(v.get_ref())?)))
+                .collect::<Result<_, String>>()?,
+        ),
+    })
+}
+
+fn float(f: f64) -> Result<J, String> {
+    serde_json::Number::from_f64(f)
+        .map(J::Number)
+        .ok_or_else(|| format!("{f} cannot be used as a number here"))
+}
+
 /// `over` laid on `base`: objects merge key by key, anything else replaces.
 pub fn merge(base: &mut J, over: J) {
     match (base, over) {
@@ -121,6 +188,30 @@ pub fn merge(base: &mut J, over: J) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn test_toml_converts_datetimes_and_refuses_unrepresentable_numbers() {
+        let t: toml::Value = toml::from_str("d = 1979-05-27\nn = 3\n[t]\nf = 1.5").unwrap();
+        assert_eq!(
+            toml_to_json(&t),
+            Ok(json!({"d": "1979-05-27", "n": 3, "t": {"f": 1.5}}))
+        );
+        let inf: toml::Value = toml::from_str("x = inf").unwrap();
+        assert!(toml_to_json(&inf).is_err());
+        let de = toml::de::DeTable::parse("x = nan\n").unwrap();
+        assert!(de_to_json(&toml::de::DeValue::Table(de.into_inner())).is_err());
+        let de = toml::de::DeTable::parse("x = 0xFFFFFFFFFFFFFFFFF\n").unwrap();
+        assert!(de_to_json(&toml::de::DeValue::Table(de.into_inner())).is_err());
+    }
+
+    #[test]
+    fn test_holes_are_null_and_round_trip() {
+        let lua = Lua::new();
+        let t: Value = lua.load("return {1, nil, 3}").eval().unwrap();
+        assert_eq!(to_json(&t).unwrap(), json!([1, null, 3]));
+        let back = from_json(&lua, &json!([1, null, 3])).unwrap();
+        assert_eq!(to_json(&back).unwrap(), json!([1, null, 3]));
+    }
 
     #[test]
     fn test_merge_nests_and_replaces() {
