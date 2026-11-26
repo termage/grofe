@@ -365,7 +365,7 @@ pub(super) const BUILTINS: &[Builtin] = builtins! {
     { "pane-border-style", Kind::String, Window, "default", "Style of the borders or frames of inactive panes."; toml = "pane-border.style" }
     // tmux 3.7b's: yellow in a mode, red while panes are synchronized.
     { "pane-active-border-style", Kind::String, Window, "#{?pane_in_mode,fg=yellow,#{?synchronize-panes,fg=red,fg=green}}", "Style of the active pane's border or frame."; toml = "pane-border.active-style" }
-    { "pane-border-format", Kind::String, Window, PANE_BORDER_FORMAT, "Format of the pane status line shown in a border, and of a frame's title when it is changed from the default."; toml = "pane-border.format" }
+    { "pane-border-format", Kind::String, Window, PANE_BORDER_FORMAT, "Format of the pane status line shown in a border, and of a frame's title when it is changed from the default. Under grofe identity the default shows an untitled pane's working directory, with $HOME as ~, in place of the host name."; toml = "pane-border.format" }
     // B1c: tmux 3.7b's names, values, window scope and defaults
     // (options-table.c). `pane-border-status` makes the panes along the
     // top or bottom edge give up a row to a title line.

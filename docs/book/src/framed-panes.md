@@ -16,7 +16,13 @@ frame's top edge, and a cell of gap between tiles and around the outside:
 The active pane's frame takes `pane-active-border-style` and the others
 `pane-border-style`. The title shows the pane's number and the title its
 program set; a pane with no title of its own shows its working directory,
-with your home directory as `~`, such as `~/ui`.
+with your home directory as `~`, such as `~/ui`. The label is the
+`#{pane_current_path_home}` format variable, grofe's own: `#{pane_current_path}`
+with `$HOME` as `~`. A frame too narrow for the path shows only its start.
+
+Under grofe identity the default `pane-border-format` labels untitled panes
+this way everywhere, so `pane-border-status` lines on unframed panes show the
+directory too; tmux identity keeps tmux's hostname.
 
 With `mouse` on, the end of the title holds three controls: `z` zooms the
 pane (`u` while zoomed), `f` floats it (`t` puts a floating pane back) and
