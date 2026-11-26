@@ -1,5 +1,5 @@
 //! Timers, event subscriptions and child processes for Lua callbacks. Each
-//! runs off the actor and posts a `Job` that calls `lua_host::call`.
+//! runs off the actor and posts a `Job` that calls `lua_host::call_job`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ pub(crate) struct Async {
 }
 
 fn post(id: u32, payload: Payload) -> Job {
-    Box::new(move |state| lua_host::call(state, id, payload))
+    Box::new(move |state| lua_host::call_job(state, id, payload))
 }
 
 fn read_all<R: AsyncRead + Unpin + Send + 'static>(pipe: Option<R>) -> JoinHandle<String> {

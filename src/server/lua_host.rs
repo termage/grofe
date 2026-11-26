@@ -216,8 +216,14 @@ fn with_client_less_host<R>(
     if let Some(reply) = state.deferred_reply.take()
         && let Ok(rt) = tokio::runtime::Handle::try_current()
     {
+        let jobs = state.jobs.clone();
         rt.spawn(async move {
-            let _ = reply.await;
+            if let Ok(Err(failure)) = reply.await {
+                let job: crate::server::Job = Box::new(move |state| {
+                    log(state, format!("lua: {}", failure.out.trim_end()));
+                });
+                let _ = jobs.send(job).await;
+            }
         });
     }
     result
@@ -348,6 +354,16 @@ pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result
 }
 
 pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
+    let r = with_host(state, client_less_ctx(), |rt, host| {
+        api::call(rt, host, id, payload)
+    });
+    if let Err(e) = r {
+        log_error(state, &e);
+    }
+}
+
+/// [`call`] for a timer, event or child-process callback: no request owns it.
+pub(crate) fn call_job(state: &mut State, id: u32, payload: Payload) {
     let r = with_client_less_host(state, |rt, host| api::call(rt, host, id, payload));
     if let Err(e) = r {
         log_error(state, &e);

@@ -165,14 +165,77 @@ fn commands_chained_after_a_deferring_one_still_run() {
 
 #[test]
 fn deferred_command_from_an_event_does_not_leak() {
-    let srv =
-        with_init("grofe.on('window-renamed', function() grofe.cmd{'run-shell','sleep 2'} end)\n");
-    ok(&srv, &["rename-window", "-t", "main", "w"]);
-    std::thread::sleep(Duration::from_millis(500));
+    let srv = with_init(
+        "grofe.on('option-changed', function(e) if e.name ~= '@t' then return end \
+         grofe.cmd{'run-shell','sleep 2'} grofe.cmd{'set','-g','@ran','1'} end)\n",
+    );
+    // The event fires inside this request, which must not wait for the shell.
+    let t = Instant::now();
+    assert_eq!(ok(&srv, &["set", "-g", "@t", "1"]).trim(), "");
+    assert!(t.elapsed() < Duration::from_secs(1), "set waited");
+    srv.wait_for(
+        || {
+            srv.cmd(&["show-options", "-gv", "@ran"])
+                .is_ok_and(|s| s.trim() == "1")
+        },
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+    let t = Instant::now();
     assert_eq!(
         ok(&srv, &["display-message", "-p", "hello"]).trim(),
         "hello"
     );
+    assert!(t.elapsed() < Duration::from_secs(1), "reply was held");
+}
+
+#[test]
+fn deferred_command_from_a_system_callback_does_not_leak() {
+    let srv = with_init(
+        "grofe.system({'echo','hi'}, function(r) \
+         grofe.cmd{'run-shell','sleep 2'} grofe.cmd{'set','-g','@ran','1'} end)\n",
+    );
+    srv.wait_for(
+        || {
+            srv.cmd(&["show-options", "-gv", "@ran"])
+                .is_ok_and(|s| s.trim() == "1")
+        },
+        WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}; log:\n{}", srv.log()));
+    let t = Instant::now();
+    assert_eq!(
+        ok(&srv, &["display-message", "-p", "hello"]).trim(),
+        "hello"
+    );
+    assert!(t.elapsed() < Duration::from_secs(1), "reply was held");
+}
+
+#[test]
+fn display_menu_from_a_timer_does_not_leak() {
+    let srv = with_init(
+        "local n = 0\n\
+         grofe.every(50, function() n = n + 1 if n == 1 then \
+         grofe.cmd{'display-menu','-t','main','Hi','h','display-message hi'} end end)\n",
+    );
+    let _a = attach(&srv);
+    std::thread::sleep(Duration::from_millis(500));
+    let t = Instant::now();
+    assert_eq!(
+        ok(&srv, &["display-message", "-p", "hello"]).trim(),
+        "hello"
+    );
+    assert!(t.elapsed() < Duration::from_secs(1), "reply was held");
+}
+
+#[test]
+fn key_bound_run_shell_output_is_shown() {
+    let srv = with_init(
+        "grofe.bind('prefix', 'r', function() grofe.cmd{'run-shell','echo bound-out'} end)\n",
+    );
+    let mut a = attach(&srv);
+    a.send("\x02r");
+    a.wait_for("bound-out");
 }
 
 /// A server whose init runs a deferring command at the top level.
@@ -182,7 +245,7 @@ fn init_with_run_shell() -> TestServer {
     fs::create_dir_all(&dir).expect("mkdir config");
     fs::write(
         dir.join("init.luau"),
-        "grofe.cmd{'run-shell','echo from-init; sleep 0.5'}\n",
+        "grofe.cmd{'run-shell','echo from-init; sleep 3'}\n",
     )
     .expect("write init.luau");
     srv
@@ -191,6 +254,7 @@ fn init_with_run_shell() -> TestServer {
 #[test]
 fn top_level_run_shell_in_init_does_not_hijack_the_first_reply() {
     let srv = init_with_run_shell();
+    let t = Instant::now();
     let out = ok(
         &srv,
         &["new-session", "-d", "-s", "main", "-P", "-F", "#{pane_id}"],
@@ -199,15 +263,17 @@ fn top_level_run_shell_in_init_does_not_hijack_the_first_reply() {
         out.trim().starts_with('%') && !out.contains("from-init"),
         "got {out:?}"
     );
+    assert!(t.elapsed() < Duration::from_secs(1), "start waited");
 }
 
 #[test]
 fn reload_with_a_run_shell_init_gets_its_own_reply() {
     let srv = init_with_run_shell();
     ok(&srv, &["new-session", "-d", "-s", "main", "cat"]);
-    std::thread::sleep(Duration::from_millis(800));
+    let t = Instant::now();
     let out = ok(&srv, &["reload"]);
     assert!(!out.contains("from-init"), "got {out:?}");
+    assert!(t.elapsed() < Duration::from_secs(1), "reload waited");
     assert_eq!(
         ok(&srv, &["display-message", "-p", "hello"]).trim(),
         "hello"
