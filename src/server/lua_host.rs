@@ -79,6 +79,8 @@ struct StateHost<'a> {
     async_: &'a mut Async,
     replaced: &'a mut HashMap<u32, Replaced>,
     ctx: ClientCtx,
+    /// No request owns this call: see [`with_client_less_host`].
+    client_less: bool,
 }
 
 /// What a key bound by `grofe.bind` runs for callback `id`.
@@ -105,7 +107,12 @@ fn log(state: &mut State, line: String) {
 
 impl Host for StateHost<'_> {
     fn run(&mut self, argv: Vec<String>) -> Result<String, String> {
-        dispatch::run_split(self.state, &self.ctx, &argv)
+        let had_held = self.state.held.is_some();
+        let result = dispatch::run_split(self.state, &self.ctx, &argv);
+        if self.client_less {
+            keep_replies(self.state, had_held);
+        }
+        result
     }
 
     fn expand(&mut self, format: &str, target: Option<&str>) -> Result<String, String> {
@@ -223,6 +230,7 @@ impl Host for StateHost<'_> {
 fn with_host<R>(
     state: &mut State,
     ctx: ClientCtx,
+    client_less: bool,
     f: impl FnOnce(&Runtime, &mut dyn Host) -> Result<R, LuaError>,
 ) -> Result<R, LuaError> {
     let fail = |m: &str| LuaError {
@@ -251,12 +259,58 @@ fn with_host<R>(
             async_: &mut lua.async_,
             replaced: &mut lua.replaced,
             ctx,
+            client_less,
         },
     );
     if state.lua.is_none() {
         state.lua = Some(lua);
     }
     result
+}
+
+/// [`with_host`] for work no client request owns (timers, events, system
+/// callbacks, init, packs): each command's deferred reply is kept (see
+/// [`keep_replies`]) instead of left for the next request.
+fn with_client_less_host<R>(
+    state: &mut State,
+    f: impl FnOnce(&Runtime, &mut dyn Host) -> Result<R, LuaError>,
+) -> Result<R, LuaError> {
+    with_host(state, client_less_ctx(), true, f)
+}
+
+/// After one command of client-less work: what it held back, and the reply
+/// it will give later, would be taken by the next request (or by the request
+/// `reload` loads init in) as its own. Each gets a task that keeps it alive,
+/// so the held rest still runs, and logs a failure nobody else would show.
+fn keep_replies(state: &mut State, had_held: bool) {
+    if !had_held && let Some(held) = state.held.take() {
+        dispatch::client::hold_rest(state, &client_less_ctx(), held, String::new(), None, None);
+    }
+    if let Some(reply) = state.deferred_reply.take()
+        && let Ok(rt) = tokio::runtime::Handle::try_current()
+    {
+        let jobs = state.jobs.clone();
+        rt.spawn(async move {
+            if let Ok(Err(f)) = reply.await {
+                let mut text = [f.err.trim_end(), f.out.trim_end()]
+                    .iter()
+                    .filter(|t| !t.is_empty())
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if text.is_empty() {
+                    match f.status {
+                        Some(code) => text = format!("returned {code}"),
+                        None => return,
+                    }
+                }
+                let job: crate::server::Job = Box::new(move |state| {
+                    log(state, format!("lua: {text}"));
+                });
+                let _ = jobs.send(job).await;
+            }
+        });
+    }
 }
 
 fn log_error(state: &mut State, e: &LuaError) {
@@ -316,7 +370,7 @@ pub fn reset_at(state: &mut State, config_dir: &Path) {
 }
 
 fn set_folder(state: &mut State, config_dir: &Path) {
-    let r = with_host(state, client_less_ctx(), |rt, _| {
+    let r = with_client_less_host(state, |rt, _| {
         require::set_dir(rt.lua(), config_dir).map_err(|e| LuaError {
             who: "require".into(),
             message: e.to_string(),
@@ -353,7 +407,7 @@ pub(crate) fn load_pack(
     }
     let file = init_file(dir).ok_or_else(|| format!("{name}: no init.luau"))?;
     let src = std::fs::read_to_string(&file).map_err(|e| format!("{name}: {e}"))?;
-    with_host(state, client_less_ctx(), |rt, host| {
+    with_client_less_host(state, |rt, host| {
         api::enter(rt, host, name, |lua| {
             pack::register(lua, name, dir, options)?;
             let env = pack::env_of(lua, name)?;
@@ -397,7 +451,7 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
         Ok(s) => s,
         Err(e) => return log(state, format!("lua: {who}: {e}")),
     };
-    let r = with_host(state, client_less_ctx(), |rt, host| {
+    let r = with_client_less_host(state, |rt, host| {
         api::enter(rt, host, &who, |lua| {
             require::set_dir(lua, config_dir)?;
             lua.load(&src).set_name(&who).exec()
@@ -409,7 +463,7 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
 }
 
 pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result<String, String> {
-    with_host(state, ctx.clone(), |rt, host| {
+    with_host(state, ctx.clone(), false, |rt, host| {
         api::enter(rt, host, "lua", |lua| {
             let values = lua.load(src).set_name("lua").eval::<mlua::MultiValue>()?;
             let parts: Result<Vec<String>, _> = values.iter().map(|v| v.to_string()).collect();
@@ -420,9 +474,17 @@ pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result
 }
 
 pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
-    let r = with_host(state, client_less_ctx(), |rt, host| {
+    let r = with_host(state, client_less_ctx(), false, |rt, host| {
         api::call(rt, host, id, payload)
     });
+    if let Err(e) = r {
+        log_error(state, &e);
+    }
+}
+
+/// [`call`] for a timer, event or child-process callback: no request owns it.
+pub(crate) fn call_job(state: &mut State, id: u32, payload: Payload) {
+    let r = with_client_less_host(state, |rt, host| api::call(rt, host, id, payload));
     if let Err(e) = r {
         log_error(state, &e);
     }
