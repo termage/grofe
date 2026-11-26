@@ -273,18 +273,22 @@ says why: `exit N`, `timed out after Nms`, or the text of the failed spawn.
 ## Prompting and reading agents
 
 - `grofe agent prompt <pane> [--wait] [--until idle,blocked,done] [--timeout <s>] -- <text>`
-  types the text and Enter into an agent pane. With `--wait` it waits for the
+  types the text and Enter into an agent pane, and into that pane only. The text
+  is untrusted, so control characters other than newline and tab are removed.
+  A pane with bracketed paste on gets the text as one paste; otherwise newlines
+  and tabs become spaces. With `--wait` it waits for the
   agent's next change to one of the `--until` states (default
   `idle,blocked,done`; any of `idle`, `working`, `blocked`, `done`, `error`) and
-  prints it. Exit 1 is a timeout (default one hour), exit 2 a pane that closed.
-  A pane that is not an agent, or an unknown `--until` state, is an error and
-  types nothing.
+  prints it. Exit 1 is a timeout (default one hour), exit 2 a pane that
+  closed or an agent that left its pane. A pane that is not an agent, takes no
+  input, or an unknown `--until` state, is an error and types nothing.
 - `grofe agent read <pane> [-n <lines>]` prints the last lines of a pane (50 by
   default), from the alternate screen when the program is on it, else
   scrollback and screen. `-n 0` prints nothing.
 - In Lua: `grofe.agent.prompt(pane, text, { ["until"] = "blocked", timeout_ms = 60000 }, fn)`
-  calls `fn(state)` when the state is reached, or `fn()` on a timeout or a
-  closed pane; `grofe.agent.read(pane, n)` returns the lines joined by `\n`.
+  calls `fn(state)` when the state is reached, or `fn()` on a timeout, a
+  closed pane or an agent that left; `grofe.agent.read(pane, n)` returns the
+  lines joined by `\n` (50 lines without `n`).
 
 Agent text is shown as text: control characters are removed, and it can never
 run a command or start a status line style.

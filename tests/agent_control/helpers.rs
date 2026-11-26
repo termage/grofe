@@ -102,6 +102,51 @@ impl Fx {
         self.agent_of("fake")
     }
 
+    /// An agent pane whose program takes raw input (with bracketed paste on
+    /// when asked) and writes every byte it gets to the returned file.
+    pub(crate) fn raw_agent(&self, bracketed: bool) -> (String, PathBuf) {
+        let dir = self.srv.home.join("raw");
+        fs::create_dir_all(&dir).expect("raw dir");
+        let (script, out) = (dir.join("fake-agent"), dir.join("bytes"));
+        let paste = if bracketed {
+            "printf '\\033[?2004h'\n"
+        } else {
+            ""
+        };
+        let text = format!(
+            "#!/bin/sh\n{paste}stty raw -echo\necho 'READY>'\ncat > '{}'\n",
+            out.display()
+        );
+        fs::write(&script, text).expect("write raw script");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+        let id = self
+            .srv
+            .cmd(&[
+                "agent",
+                "new",
+                "fake",
+                "-P",
+                "-d",
+                "--",
+                script.to_str().expect("utf8"),
+            ])
+            .unwrap_or_else(|e| panic!("agent new: {e}; log:\n{}", self.srv.log()))
+            .trim()
+            .to_string();
+        self.srv
+            .wait_for(|| self.srv.capture(&id).contains("READY>"), WAIT)
+            .unwrap_or_else(|e| panic!("{e}: raw agent never showed its prompt"));
+        (id, out)
+    }
+
+    /// What the raw agent got, once `want` bytes of it are there.
+    pub(crate) fn raw_bytes(&self, out: &std::path::Path, want: usize) -> Vec<u8> {
+        self.srv
+            .wait_for(|| fs::read(out).is_ok_and(|b| b.len() >= want), WAIT)
+            .unwrap_or_else(|e| panic!("{e}: got {:?}", fs::read(out)));
+        fs::read(out).expect("read bytes")
+    }
+
     pub(crate) fn agent_of(&self, kind: &str) -> String {
         let id = self
             .srv

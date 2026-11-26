@@ -31,6 +31,23 @@ fn most_urgent(ranks: impl Iterator<Item = Rank>) -> Rank {
     ranks.min_by_key(|r| urgency(*r)).unwrap_or(Rank::Idle)
 }
 
+/// `selected`, or the nearest row that is no header: the first one in the
+/// direction of `down`, else the first one in the other.
+pub(super) fn off_header(rows: &[Row], selected: usize, down: bool) -> usize {
+    let at = selected.min(rows.len().saturating_sub(1));
+    if rows.get(at).is_none_or(|r| r.header.is_none()) {
+        return at;
+    }
+    let after = (at + 1..rows.len()).find(|i| rows[*i].header.is_none());
+    let before = (0..at).rev().find(|i| rows[*i].header.is_none());
+    let (first, second) = if down {
+        (after, before)
+    } else {
+        (before, after)
+    };
+    first.or(second).unwrap_or(at)
+}
+
 /// A header's name line (after the glyph) and its detail line.
 pub(super) fn entry(h: &Header, row: &Row) -> (Rank, String, String) {
     let word = match h.rank {

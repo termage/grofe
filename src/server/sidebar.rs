@@ -323,8 +323,11 @@ impl InputHook for SidebarHook {
             }
             Input::Key(key) if is_focused(state, client) => {
                 let (inside, rows, mut list) = list_for(state)?;
+                list.selected = headers::off_header(&rows, list.selected, true);
+                let from = list.selected;
                 let action = list.on_key(key, rows.len(), false);
-                list.selected = list.selected.min(rows.len().saturating_sub(1));
+                let to = list.selected.min(rows.len().saturating_sub(1));
+                list.selected = headers::off_header(&rows, to, to >= from);
                 list.top = first(rows.len(), &list, inside.height());
                 let picked = (action == ListAction::Enter)
                     .then(|| rows.get(list.selected).map(|r| r.pane))
@@ -446,7 +449,7 @@ impl Overlay for SidebarOverlay {
             .get(&client)
             .map(|e| e.list.clone())
             .unwrap_or_default();
-        list.selected = list.selected.min(rows.len() - 1);
+        list.selected = headers::off_header(&rows, list.selected, true);
         let h = inside.height();
         let from = first(rows.len(), &list, h);
         for (k, row) in rows.iter().enumerate().skip(from) {
@@ -780,15 +783,17 @@ mod tests {
         press(&mut state, client, "Down");
         let s = screen(&state, client, 160);
         let blue = status::parse_style("bg=blue").bg;
-        for y in [5, 6] {
+        // The selection starts on the first agent, so one Down reaches the
+        // second, past the header of session a.
+        for y in [11, 12] {
             for x in 128..158 {
                 assert_eq!(cell(&s, x, y).bg, blue, "({x}, {y})");
             }
         }
-        for y in [2, 3, 4, 7, 8] {
+        for y in [2, 3, 4, 5, 6, 8, 9, 14] {
             assert_ne!(cell(&s, 140, y).bg, blue, "row {y}");
         }
-        assert_ne!(cell(&s, 127, 5).bg, blue, "frame keeps its style");
+        assert_ne!(cell(&s, 127, 11).bg, blue, "frame keeps its style");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -908,7 +913,18 @@ mod tests {
             press(&mut state, client, "Down"),
             Some(Routed::Consumed)
         ));
+        // The first row is a header: the selection starts on the agent below
+        // it, and Down steps over the next header.
+        assert_eq!(state.sidebars.clients[&client].list.selected, 3);
+        press(&mut state, client, "Up");
         assert_eq!(state.sidebars.clients[&client].list.selected, 1);
+        press(&mut state, client, "Up");
+        assert_eq!(
+            state.sidebars.clients[&client].list.selected, 1,
+            "no row above"
+        );
+        press(&mut state, client, "Down");
+        assert_eq!(state.sidebars.clients[&client].list.selected, 3);
         assert!(matches!(
             press(&mut state, client, "x"),
             Some(Routed::Consumed)
@@ -923,8 +939,6 @@ mod tests {
         assert_eq!(reserved(&state, client, 160), 33);
         // Enter jumps to the selected row (p0, blocked, fourth in the list).
         set(&mut state, client, SidebarOp::Focus).expect("focus");
-        press(&mut state, client, "Down");
-        press(&mut state, client, "Down");
         press(&mut state, client, "Enter");
         let window = state.model.panes[&p[0]].window;
         let session = state.clients[&client].session;

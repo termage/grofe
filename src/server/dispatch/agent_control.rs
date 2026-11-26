@@ -4,14 +4,13 @@
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
-use crate::cmd::{AgentPrompt, Command, PanePart, PaneRef, Resolve, SendKeys, SendKeysItem};
-use crate::cmd::{SessionRef, Target, WindowRef};
-use crate::lua::api::Payload;
+use crate::cmd::{AgentPrompt, Resolve, Target};
+use crate::lua::api::{Payload, PromptJob};
 use crate::protocol::{ClientCtx, Failure};
-use crate::server::agents::waiters::{Reply, Waiter};
+use crate::server::agents::waiters::{Reply, Timer, Waiter};
 use crate::server::agents::{AgentState, Source};
 use crate::server::pane::CaptureExtra;
-use crate::server::{State, lua_async, lua_host};
+use crate::server::{State, clients, lua_async, lua_host};
 use crate::types::{CaptureBound, CaptureOpts, PaneId};
 
 use super::agent;
@@ -27,15 +26,10 @@ const DEFAULT_UNTIL: [AgentState; 3] = [AgentState::Idle, AgentState::Blocked, A
 enum Outcome {
     Reached(AgentState),
     Timeout,
+    /// The pane is gone.
     Closed,
-}
-
-fn pane_target(pane: PaneId) -> Target {
-    Target::Pane(PaneRef {
-        session: SessionRef::Current,
-        window: WindowRef::Current,
-        pane: PanePart::Id(pane),
-    })
+    /// The agent left; the pane is still open.
+    Left,
 }
 
 fn state_named(name: &str) -> Option<AgentState> {
@@ -69,27 +63,41 @@ fn agent_pane(state: &State, ctx: &ClientCtx, target: &Target) -> Result<PaneId,
     Ok(pane)
 }
 
-/// Types `text` and Enter into `pane`, through `send-keys`.
-fn type_text(state: &mut State, ctx: &ClientCtx, pane: PaneId, text: &str) -> Result<(), String> {
-    let keys = SendKeys {
-        target: pane_target(pane),
-        items: vec![
-            SendKeysItem::Literal(text.to_string()),
-            SendKeysItem::Key("Enter".to_string()),
-        ],
-        command: false,
-        count: None,
-        format: false,
-        reset: false,
-        client_key: false,
-        client: None,
-        mouse: false,
+/// `text` without control characters, newline and tab apart: the text is
+/// untrusted (issue comments), and an escape or a ^C typed into an agent is
+/// not text.
+fn clean(text: &str) -> String {
+    text.chars()
+        .filter(|c| matches!(c, '\n' | '\t') || !c.is_control())
+        .collect()
+}
+
+/// Types `text` and Enter into `pane` and no other pane (synchronize-panes
+/// does not copy it): one bracketed paste when the pane has that on, else
+/// the text on one line.
+fn type_text(state: &State, pane: PaneId, text: &str) -> Result<(), String> {
+    let p = state
+        .model
+        .panes
+        .get(&pane)
+        .filter(|_| clients::takes_input(state, pane))
+        .ok_or_else(|| format!("pane {pane} takes no input"))?;
+    let text = clean(text);
+    let modes = p.handle.modes();
+    let mut bytes = if modes.bracketed_paste {
+        crate::server::input::encode_paste(text.as_bytes(), true, true, &modes)
+    } else {
+        text.replace(['\n', '\t'], " ").into_bytes()
     };
-    super::route(state, ctx, Command::SendKeys(keys)).map(|_| ())
+    bytes.push(b'\r');
+    p.handle
+        .enqueue_input(bytes)
+        .map_err(|_| format!("input queue full for pane {pane}"))
 }
 
 /// Ends a wait with `outcome`.
 fn settle(state: &mut State, w: Waiter, outcome: Outcome) {
+    drop(w.timer);
     match w.reply {
         Reply::Cli(tx) => {
             let failed = |err: String, status| {
@@ -103,6 +111,7 @@ fn settle(state: &mut State, w: Waiter, outcome: Outcome) {
                 Outcome::Reached(s) => Ok(format!("{}\n", s.as_str())),
                 Outcome::Timeout => failed("timed out waiting for the agent".to_string(), 1),
                 Outcome::Closed => failed(format!("pane {} closed", w.pane), 2),
+                Outcome::Left => failed(format!("agent left pane {}", w.pane), 2),
             });
         }
         Reply::Lua { generation, id } => {
@@ -114,6 +123,7 @@ fn settle(state: &mut State, w: Waiter, outcome: Outcome) {
                 lua_host::call_once(state, id, payload)
             });
             if state.jobs.try_send(job).is_err() {
+                lua_host::release_once(state, generation, id);
                 lua_host::log(
                     state,
                     "lua: grofe.agent.prompt: job queue full, callback dropped".into(),
@@ -132,7 +142,7 @@ pub(crate) fn state_changed(state: &mut State, pane: PaneId, new: Option<AgentSt
     for w in done {
         let outcome = match new {
             Some(s) => Outcome::Reached(s),
-            None => Outcome::Closed,
+            None => Outcome::Left,
         };
         settle(state, w, outcome);
     }
@@ -165,11 +175,12 @@ fn wait(state: &mut State, pane: PaneId, until: Vec<AgentState>, timeout: Durati
     let jobs = state.jobs.clone();
     // Without a runtime (a unit test) nothing times out.
     if let Ok(rt) = tokio::runtime::Handle::try_current() {
-        rt.spawn(async move {
+        let task = rt.spawn(async move {
             tokio::time::sleep(timeout).await;
             let job: crate::server::Job = Box::new(move |state| expire(state, token));
             let _ = jobs.send(job).await;
         });
+        state.agents.set_timer(token, Timer(task.abort_handle()));
     }
 }
 
@@ -178,7 +189,7 @@ fn wait(state: &mut State, pane: PaneId, until: Vec<AgentState>, timeout: Durati
 pub(crate) fn prompt(state: &mut State, ctx: &ClientCtx, c: AgentPrompt) -> Result<String, String> {
     let until = parse_until(&c.until)?;
     let pane = agent_pane(state, ctx, &c.target)?;
-    type_text(state, ctx, pane, &c.text)?;
+    type_text(state, pane, &c.text)?;
     if c.wait {
         let timeout = c.timeout_secs.map_or(DEFAULT_TIMEOUT, Duration::from_secs);
         let tx = super::defer_reply(state);
@@ -193,18 +204,16 @@ pub(crate) fn prompt(state: &mut State, ctx: &ClientCtx, c: AgentPrompt) -> Resu
 pub(crate) fn prompt_lua(
     state: &mut State,
     ctx: &ClientCtx,
-    pane: &str,
-    text: &str,
-    until: &[String],
-    timeout_ms: Option<u64>,
-    reply: (u64, u32),
+    req: &PromptJob,
+    (generation, id): (u64, u32),
 ) -> Result<(), String> {
-    let until = parse_until(until)?;
-    let target = crate::cmd::target::parse_target(pane).map_err(|e| e.to_string())?;
+    let until = parse_until(&req.until)?;
+    let target = crate::cmd::target::parse_target(&req.pane).map_err(|e| e.to_string())?;
     let pane = agent_pane(state, ctx, &target)?;
-    type_text(state, ctx, pane, text)?;
-    let timeout = timeout_ms.map_or(DEFAULT_TIMEOUT, Duration::from_millis);
-    let (generation, id) = reply;
+    type_text(state, pane, &req.text)?;
+    let timeout = req
+        .timeout_ms
+        .map_or(DEFAULT_TIMEOUT, Duration::from_millis);
     wait(state, pane, until, timeout, Reply::Lua { generation, id });
     Ok(())
 }
@@ -231,14 +240,27 @@ pub(crate) fn read_lines(state: &State, pane: PaneId, n: usize) -> Result<String
         .panes
         .get(&pane)
         .ok_or_else(|| format!("can't find pane: {pane}"))?;
-    let opts = CaptureOpts {
-        start: Some(CaptureBound::HistoryStart),
-        end: Some(CaptureBound::VisibleEnd),
-        escapes: false,
-    };
-    let all = p.handle.capture_rows(&opts, false, false, false, extra());
-    let lines: Vec<&str> = all.trim_end().lines().collect();
-    Ok(lines[lines.len().saturating_sub(n)..].join("\n"))
+    if n == 0 {
+        return Ok(String::new());
+    }
+    // Reads from `want` lines above the screen (a bound clamps to the
+    // history), and from twice as far when blank lines at the bottom left
+    // fewer than `n`.
+    let (mut want, mut prev) = (n, None);
+    loop {
+        let opts = CaptureOpts {
+            start: Some(CaptureBound::Line(-i32::try_from(want).unwrap_or(i32::MAX))),
+            end: Some(CaptureBound::VisibleEnd),
+            escapes: false,
+        };
+        let all = p.handle.capture_rows(&opts, false, false, false, extra());
+        let lines: Vec<&str> = all.trim_end().lines().collect();
+        if lines.len() >= n || prev.as_ref() == Some(&all) {
+            return Ok(lines[lines.len().saturating_sub(n)..].join("\n"));
+        }
+        prev = Some(all);
+        want = want.saturating_mul(2);
+    }
 }
 
 fn extra() -> CaptureExtra {

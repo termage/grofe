@@ -209,8 +209,8 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     )?;
     agent.set(
         "read",
-        lua.create_function(|lua, (pane, n): (String, f64)| {
-            let n = n.max(0.0) as usize;
+        lua.create_function(|lua, (pane, n): (String, Option<f64>)| {
+            let n = n.map_or(50, |n| n.max(0.0) as usize);
             host_fn(lua, "agent_read")?.call::<String>((pane, n))
         })?,
     )?;

@@ -82,7 +82,7 @@ fn lua_read_returns_the_last_lines() {
         &f.srv,
         &format!(
             "local r = grofe.agent.read('{pane}', 3); \
-             if type(r) == 'table' then r = table.concat(r, '\\n') end; \
+             assert(type(r) == 'string', type(r)); \
              grofe.cmd{{'set-option', '-g', '@r', (r:gsub('%s+', ' '))}}"
         ),
     );
@@ -90,4 +90,28 @@ fn lua_read_returns_the_last_lines() {
         .wait_for(|| opt_r(&f.srv).contains("line 50"), WAIT)
         .unwrap_or_else(|e| panic!("{e}: @r = {:?}", opt_r(&f.srv)));
     assert!(!opt_r(&f.srv).contains("line 40"), "{:?}", opt_r(&f.srv));
+}
+
+#[test]
+fn lua_read_of_a_missing_pane_errors() {
+    let (f, _pane) = printed_lines();
+    let err = f
+        .srv
+        .cmd(&["lua", "grofe.agent.read('%9999', 3)"])
+        .expect_err("a missing pane is an error");
+    assert!(err.contains("9999"), "{err}");
+}
+
+#[test]
+fn lua_read_without_n_gives_fifty_lines() {
+    let (f, pane) = printed_lines();
+    lua(
+        &f.srv,
+        &format!(
+            "local _, n = grofe.agent.read('{pane}'):gsub('\\n', '\\n'); \
+             grofe.cmd{{'set-option', '-g', '@r', tostring(n)}}"
+        ),
+    );
+    // 50 lines are 49 newlines between them.
+    assert_eq!(opt_r(&f.srv), "49");
 }

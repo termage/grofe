@@ -744,8 +744,7 @@ pub(super) fn pane_set_resume(flags: &Args) -> Result<Command, ParseError> {
     }))
 }
 
-/// `agent report|list|next|seen` (grofe's own). The report's long flags
-/// take values, which `tokenize` does not do, so `report` is read by hand.
+/// `agent` (grofe's own); `report` has long flags with values, so it is read by hand.
 pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
     let (sub, rest) = flags
         .argv

@@ -53,6 +53,11 @@ pub(crate) fn apply(state: &mut State, pane: PaneId, r: Report) {
     apply_from(state, pane, r, Source::Report);
 }
 
+/// [`apply`] for a report that came from an OSC sequence.
+pub(crate) fn apply_osc(state: &mut State, pane: PaneId, r: Report) {
+    apply_from(state, pane, r, Source::Osc);
+}
+
 /// [`apply`] for a report that came from `source`.
 pub(crate) fn apply_from(state: &mut State, pane: PaneId, r: Report, source: Source) {
     if !state.agents_enabled || !state.model.panes.contains_key(&pane) {
@@ -73,7 +78,9 @@ pub(crate) fn apply_from(state: &mut State, pane: PaneId, r: Report, source: Sou
     let seen = is_seen(state, pane);
     let before = state.agents.get(pane).map(|a| (a.state, a.since));
     let change = state.agents.apply(pane, r, seen, now);
-    state.agents.set_source(pane, source);
+    if change.is_some() || created {
+        state.agents.set_source(pane, source);
+    }
     // A record this report made had no state before it.
     let change = match (change, created) {
         (Some(c), true) => Some(Change { old: None, ..c }),

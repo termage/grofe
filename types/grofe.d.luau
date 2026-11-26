@@ -28,7 +28,7 @@ export type HeadlessAgent = {
 
 export type PromptOptions = {
 	-- states that end the wait; default { "idle", "blocked", "done" }
-	["until"]: string?,
+	["until"]: (string | { string })?,
 	timeout_ms: number?,
 }
 
@@ -53,7 +53,7 @@ declare grofe: {
 	cancel: (id: number) -> (),
 	agent: {
 		history: (pane: string, n: number) -> { string },
-		prompt: (pane: string, text: string, opts: PromptOptions?, fn: ((state: string?) -> ())?) -> (),
+		prompt: (pane: string, text: string, opts: PromptOptions?, fn: (state: string?) -> ()) -> number,
 		read: (pane: string, n: number?) -> string,
 	},
 	log: (msg: string) -> (),

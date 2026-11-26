@@ -209,15 +209,7 @@ impl Host for StateHost<'_> {
 
     fn agent_prompt(&mut self, req: PromptJob, id: u32) -> Result<(), String> {
         let reply = (self.async_.generation(), id);
-        dispatch::agent_control::prompt_lua(
-            self.state,
-            &self.ctx,
-            &req.pane,
-            &req.text,
-            &req.until,
-            req.timeout_ms,
-            reply,
-        )
+        dispatch::agent_control::prompt_lua(self.state, &self.ctx, &req, reply)
     }
 
     fn cancel(&mut self, id: u32) {
@@ -555,6 +547,18 @@ pub(crate) fn call_job(state: &mut State, id: u32, payload: Payload) {
 pub(crate) fn call_once(state: &mut State, id: u32, payload: Payload) {
     call_job(state, id, payload);
     if let Some(lua) = state.lua.as_ref() {
+        api::release(&lua.rt, id);
+    }
+}
+
+/// Frees callback `id` of runtime `generation` when its [`call_once`] job
+/// could not be queued.
+pub(crate) fn release_once(state: &State, generation: u64, id: u32) {
+    if let Some(lua) = state
+        .lua
+        .as_ref()
+        .filter(|l| l.async_.generation() == generation)
+    {
         api::release(&lua.rt, id);
     }
 }

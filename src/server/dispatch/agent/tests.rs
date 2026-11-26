@@ -44,6 +44,39 @@ async fn report_creates_record() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_report_that_changes_nothing_keeps_the_source() {
+    let (mut state, pane) = state_with_pane();
+    apply(
+        &mut state,
+        pane,
+        report(ReportState::Set(AgentState::Done), 1),
+    );
+    assert_eq!(
+        state.agents.get(pane).and_then(|a| a.source.clone()),
+        Some(Source::Report)
+    );
+    apply_osc(
+        &mut state,
+        pane,
+        report(ReportState::Set(AgentState::Done), 2),
+    );
+    assert_eq!(
+        state.agents.get(pane).and_then(|a| a.source.clone()),
+        Some(Source::Report),
+        "the same state again says nothing new"
+    );
+    apply_osc(
+        &mut state,
+        pane,
+        report(ReportState::Set(AgentState::Idle), 3),
+    );
+    assert_eq!(
+        state.agents.get(pane).and_then(|a| a.source.clone()),
+        Some(Source::Osc)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn report_sets_resume_from_session_id() {
     let (mut state, pane) = state_with_pane();
     let mut r = report(ReportState::Set(AgentState::Done), 1);
