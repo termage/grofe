@@ -113,7 +113,9 @@ a desktop message by itself.
 `grofe.json.encode(value)` returns JSON text. A table holding `1..n` becomes an array, any
 other table an object with string keys, and an empty table is `{}`. Functions, userdata and
 NaN raise an error, as does a table nested deeper than 64 levels (which also catches a table
-that contains itself). `grofe.json.decode(text)` returns the value, or raises on invalid
+that contains itself). A table of more than 100,000 values in total (a subtable shared in
+several places counts once per reference), or a sparse array longer than 100,000, also raises an
+error, in `grofe.json.encode` and in `grofe.store.set`. `grofe.json.decode(text)` returns the value, or raises on invalid
 text; JSON `null` becomes `nil`.
 
 ### Settings files

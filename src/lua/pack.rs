@@ -221,10 +221,16 @@ fn write_durably(path: &Path, text: &str) -> std::io::Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos());
     let tmp = path.with_extension(format!("{}.{nanos}.tmp", std::process::id()));
-    let mut file = std::fs::File::create(&tmp)?;
-    file.write_all(text.as_bytes())?;
-    sync(&file)?;
-    std::fs::rename(&tmp, path)?;
+    let put = || -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        sync(&file)?;
+        std::fs::rename(&tmp, path)
+    };
+    if let Err(e) = put() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     match path.parent() {
         Some(dir) => sync(&std::fs::File::open(dir)?),
         None => Ok(()),
