@@ -217,6 +217,9 @@ fn enter(state: &mut State, client: ClientId, n: &Notification) {
     };
     if n.reply {
         state.notify.read(n.id);
+        if !state.model.panes.contains_key(&pane) {
+            return clients::show_message(state, client, &format!("pane {pane} closed"));
+        }
         return ask_reply(state, client, pane, &target_label(state, n));
     }
     let ctx = state.clients.get(&client).map(|c| c.ctx.clone());

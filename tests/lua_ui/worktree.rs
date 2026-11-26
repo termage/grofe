@@ -212,3 +212,45 @@ fn the_picker_groups_worktrees_too() {
     });
     assert_grouped(&a.text());
 }
+
+/// A grouped row is its branch, then the `agent-sidebar-format` label, so a
+/// pane option such as `@issue` shows in the sidebar and the picker.
+fn tag_and_format(srv: &TestServer) {
+    for (name, issue) in [("aa-wt1", "ENG-1"), ("cc-wt2", "ENG-2")] {
+        let pane = srv
+            .cmd(&["display-message", "-p", "-t", name, "#{pane_id}"])
+            .expect("pane")
+            .trim()
+            .to_string();
+        srv.cmd(&["set-option", "-p", "-t", &pane, "@issue", issue])
+            .expect("tag pane");
+    }
+    srv.cmd(&["set-option", "-g", "agent-sidebar-format", "#{@issue}"])
+        .expect("set format");
+}
+
+#[test]
+fn the_sidebar_row_is_the_branch_then_the_formatted_label() {
+    let r = repos();
+    let srv = server();
+    sessions(&srv, &r);
+    tag_and_format(&srv);
+    let mut a = attach(&srv, 160, 40);
+    press(&mut a, "b");
+    a.wait_until("rows", WAIT, |t| {
+        t.contains("feat-a · ENG-1") && t.contains("feat-b · ENG-2")
+    });
+}
+
+#[test]
+fn the_picker_row_is_the_branch_then_the_formatted_label() {
+    let r = repos();
+    let srv = server();
+    sessions(&srv, &r);
+    tag_and_format(&srv);
+    let mut a = attach(&srv, 160, 40);
+    press(&mut a, "U");
+    a.wait_until("rows", WAIT, |t| {
+        t.contains("feat-a · ENG-1") && t.contains("feat-b · ENG-2")
+    });
+}

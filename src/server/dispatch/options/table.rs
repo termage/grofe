@@ -331,7 +331,7 @@ pub(super) const BUILTINS: &[Builtin] = builtins! {
     { "agent-glyph-working", Kind::String, Session, "●", "Glyph for a working agent, in the window list." }
     { "notify-muted-glyph", Kind::String, Session, "🔕", "Glyph the agents badge shows while notifications are muted." }
     { "agent-blocked-border-style", Kind::String, Session, "fg=yellow", "Border style of a pane whose agent is waiting on you, active or not." }
-    { "agent-sidebar-format", Kind::String, Session, "#{window_name}", "Format of an agent's row label in the agent sidebar, expanded for the agent's pane; a worktree session's row shows its branch instead." }
+    { "agent-sidebar-format", Kind::String, Session, "#{window_name}", "Format of an agent's row label in the agent sidebar and, for a worktree session, in the agent picker, expanded for the agent's pane; a worktree session's row is its branch, then this label." }
     { "agent-grid-format", Kind::String, Session, "#{session_name}:#{window_index}.#{pane_index}", "Format of an agent tile's label in the agent grid, expanded for the agent's pane." }
     // Where the command prompt opens: on the status line, as tmux's, or as
     // a box in the middle of the window.

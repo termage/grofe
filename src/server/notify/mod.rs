@@ -105,15 +105,15 @@ impl Notifier {
         let toast = cfg.toast.iter().any(|s| s == new) && !muted;
         let desktop = cfg.desktop.iter().any(|s| s == new) && !muted && configured_kind;
         let min_interval = cfg.min_interval;
-        if let Some(it) = self
-            .items
-            .iter_mut()
-            .find(|it| it.pane == Some(pane) && now.saturating_duration_since(it.at) < min_interval)
-        {
+        // A script's reply entry keeps its text; a change raises a new one.
+        if let Some(it) = self.items.iter_mut().find(|it| {
+            it.pane == Some(pane)
+                && !it.reply
+                && now.saturating_duration_since(it.at) < min_interval
+        }) {
             it.state = new.to_string();
             it.msg = msg.map(str::to_string);
             it.read = false;
-            it.reply = false;
             return None;
         }
         let id = self.push(Some(pane), uid, kind, new, msg, None, now);
@@ -402,6 +402,19 @@ mod tests {
         assert_eq!(n.unread(), 1);
         assert_eq!(n.items()[0].msg.as_deref(), Some("hello"));
         assert_eq!(n.items()[0].state, "warn");
+    }
+
+    #[test]
+    fn a_reply_entry_is_not_coalesced_into() {
+        let mut n = Notifier::default();
+        let t = Instant::now();
+        n.post(PaneId(1), "u1", "warn", "which one?", true, t);
+        let r = raise(&mut n, 1, "blocked", 5, false, t + s(1));
+        assert!(r.is_some());
+        assert_eq!(n.items().len(), 2);
+        let posted = &n.items()[1];
+        assert_eq!(posted.msg.as_deref(), Some("which one?"));
+        assert!(posted.reply);
     }
 
     #[test]

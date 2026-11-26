@@ -90,7 +90,7 @@ fn header(state: &State, label: String, panes: impl Iterator<Item = PaneId>) -> 
 /// Agents grouped by session, the client's own session first, then by the
 /// most urgent agent in each; a header row opens each group, urgency order
 /// inside it; jobs last. Sessions in a git worktree of one repo share a
-/// header named after the repo, and their rows say their branch.
+/// header named after the repo, and their rows lead with their branch.
 pub(super) fn rows(state: &State, client: ClientId) -> Vec<Row> {
     let own = state
         .clients
@@ -147,8 +147,8 @@ pub(super) fn rows(state: &State, client: ClientId) -> Vec<Row> {
 }
 
 /// The rows of a session's agents: labelled by their window, after the
-/// session's name when it is not the client's own, or by `branch` (and the
-/// window, when the session has several).
+/// session's name when it is not the client's own, or by `branch` then the
+/// window.
 fn entries<'a>(
     state: &'a State,
     s: &'a Session,
@@ -163,8 +163,7 @@ fn entries<'a>(
     s.panes.iter().map(move |&pane| {
         let window = agent::pane_format(state, pane, "agent-sidebar-format");
         let label = match branch {
-            Some(b) if s.panes.len() > 1 => format!("{b}:{window}"),
-            Some(b) => b.to_string(),
+            Some(b) => format!("{b} · {window}"),
             None => format!("{prefix}{window}"),
         };
         Row {

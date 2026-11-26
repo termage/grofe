@@ -446,7 +446,9 @@ fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, Str
         Command::DragPane(_) => server::mouse::drag_pane(state),
         Command::Lua { src } => server::lua_host::run_chunk(state, ctx, &src),
         Command::LuaCall { id } => {
-            server::lua_host::call_for(state, ctx, id, crate::lua::api::Payload::None);
+            // Only a client's key binding is a key press; a CLI call has none.
+            let press = ctx.client.map(|_| ctx);
+            server::lua_host::call_for(state, press, id, crate::lua::api::Payload::None);
             Ok(String::new())
         }
         Command::PlacePane(c) => popup::place_pane(state, ctx, c),

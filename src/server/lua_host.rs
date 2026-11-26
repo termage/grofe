@@ -424,6 +424,7 @@ pub(crate) fn reset(state: &mut State) {
     }
     headless::clear(state);
     dispatch::agent_control::clear_lua(state);
+    crate::server::picker::chooser::clear(state);
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
 }
@@ -572,13 +573,13 @@ pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result
 }
 
 /// Runs callback `id` for key press `press` (a binding's, or the one a chooser or
-/// prompt it opened answers to): `grofe.context()` reports it.
-pub(crate) fn call_for(state: &mut State, press: &ClientCtx, id: u32, payload: Payload) {
+/// prompt it opened answers to; none for a CLI call): `grofe.context()` reports it.
+pub(crate) fn call_for(state: &mut State, press: Option<&ClientCtx>, id: u32, payload: Payload) {
     let r = with_press(
         state,
         client_less_ctx(),
         false,
-        Some(press.clone()),
+        press.cloned(),
         |rt, host| api::call(rt, host, id, payload),
     );
     if let Err(e) = r {
@@ -623,7 +624,7 @@ pub(crate) fn call_once(state: &mut State, id: u32, payload: Payload) {
 
 /// [`call`] for a callback that runs once: it is freed after.
 pub(crate) fn call_once_for(state: &mut State, press: &ClientCtx, id: u32, payload: Payload) {
-    call_for(state, press, id, payload);
+    call_for(state, Some(press), id, payload);
     if let Some(lua) = state.lua.as_ref() {
         api::release(&lua.rt, id);
     }

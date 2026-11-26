@@ -102,7 +102,7 @@ grofe only: tmux does not have this option.
 
 ## agent-sidebar-format
 
-Format of an agent's row label in the agent sidebar, expanded for the agent's pane; a worktree session's row shows its branch instead.
+Format of an agent's row label in the agent sidebar and, for a worktree session, in the agent picker, expanded for the agent's pane; a worktree session's row is its branch, then this label.
 
 - **TOML key**: `agent-sidebar-format` (string)
 - **Scope**: session

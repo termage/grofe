@@ -44,7 +44,8 @@ export type NotifyOptions = {
 	reply: boolean?,
 }
 
-export type ChooseItem = string | { label: string, value: any }
+-- fn gets `value`, or the label when a table has no value
+export type ChooseItem = string | { label: string, value: any? }
 
 export type ChooseOptions = {
 	title: string?,

@@ -377,7 +377,12 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
                         let label = label.ok_or_else(|| {
                             err(format!("grofe.choose: item {} has no string label", n + 1))
                         })?;
-                        (label, t.get::<Value>("value")?)
+                        // No `value` gives the label itself, so `fn(nil)` only means cancel.
+                        let value = match t.get::<Value>("value")? {
+                            Value::Nil => Value::String(lua.create_string(&label)?),
+                            v => v,
+                        };
+                        (label, value)
                     }
                     _ => {
                         return Err(err(format!(

@@ -1,9 +1,10 @@
 //! `grofe.choose(items, fn, {title?, preview?})`.
 
+use crate::helpers::opt;
 use crate::helpers::{
     DOWN, ESC, STORE_ARG, assert_api, attach, bind, press, r_stays_unset, server, wait_r,
 };
-use crate::support::{WAIT, lua};
+use crate::support::{WAIT, lua, lua_ok};
 
 fn bind_choose(srv: &crate::common::TestServer, items: &str, opts: &str) {
     bind(
@@ -159,4 +160,75 @@ fn bad_arguments_are_errors() {
             .map(|s| s.trim().to_string()),
         Ok("up".into())
     );
+}
+
+/// A table item with no `value` gives its label to `fn`, so `nil` only
+/// means cancel.
+#[test]
+fn table_item_without_value_returns_its_label() {
+    let srv = server();
+    bind_choose(&srv, "{{label = 'Only Label'}}", "");
+    let mut a = attach(&srv, 100, 30);
+    press(&mut a, "j");
+    a.wait_for("Only Label");
+    a.send("\r");
+    assert_eq!(wait_r(&srv), "[Only Label]");
+}
+
+/// A chooser opened over another (from a timer, on one client) answers the
+/// first with nil; the second is still open and answers on its own.
+#[test]
+fn a_replaced_chooser_answers_nil() {
+    let srv = server();
+    let mut a = attach(&srv, 100, 30);
+    lua_ok(
+        &srv,
+        "local id; id = grofe.every(50, function() grofe.cancel(id) \
+         grofe.choose({'first'}, function(v) grofe.cmd{'set-option','-g','@one', v == nil and 'NIL' or v} end) \
+         grofe.choose({'second'}, function(v) grofe.cmd{'set-option','-g','@two', v == nil and 'NIL' or v} end) \
+         end)",
+    );
+    a.wait_for("second");
+    srv.wait_for(|| opt(&srv, "@one") == "NIL", WAIT)
+        .unwrap_or_else(|e| {
+            panic!(
+                "{e}: first got {:?}; log:\n{}",
+                opt(&srv, "@one"),
+                srv.log()
+            )
+        });
+    assert_eq!(opt(&srv, "@two"), "");
+    a.send("\r");
+    srv.wait_for(|| opt(&srv, "@two") == "second", WAIT)
+        .unwrap_or_else(|e| panic!("{e}: log:\n{}", srv.log()));
+}
+
+/// A client that detaches takes its chooser with it, and the callback gets nil.
+#[test]
+fn detaching_answers_nil() {
+    let srv = server();
+    bind_choose(&srv, "{'alpha','beta'}", "");
+    let mut a = attach(&srv, 100, 30);
+    press(&mut a, "j");
+    a.wait_for("alpha");
+    let client = srv
+        .cmd(&["list-clients", "-F", "#{client_name}"])
+        .expect("list-clients");
+    srv.cmd(&["detach-client", "-t", client.trim()])
+        .expect("detach-client");
+    assert_eq!(wait_r(&srv), "NIL");
+}
+
+/// A reload ends the runtime the callback lives in: the chooser closes and
+/// nothing is called.
+#[test]
+fn reload_closes_the_chooser_unanswered() {
+    let srv = server();
+    bind_choose(&srv, "{'alpha','beta'}", "");
+    let mut a = attach(&srv, 100, 30);
+    press(&mut a, "j");
+    a.wait_for("alpha");
+    srv.cmd(&["reload"]).expect("reload");
+    a.wait_until("chooser closed", WAIT, |t| !t.contains("beta"));
+    r_stays_unset(&srv);
 }

@@ -162,7 +162,7 @@ their pane as before.
 `grofe.choose(items, fn, opts)` opens the fuzzy chooser on the client of the key press and calls
 `fn(item)` with the pick, or `fn(nil)` on `Escape`. `items` is a list of strings, or of tables
 `{ label, value }`: the label is shown and `fn` gets the `value` (the string itself for a
-string item). An empty list calls `fn(nil)` at once, without a chooser. A list with anything else in it, or a missing
+string item, and the `label` for a table with no `value`, so `nil` only ever means cancel). An empty list calls `fn(nil)` at once, without a chooser. A list with anything else in it, or a missing
 `label`, raises an error. Options: `title` (shown on the box) and `preview`, a function from an
 item to the text shown under the list for the selected row. Previews are worked out for all
 items when the chooser opens. Typing filters; `Enter` with no match does nothing.
@@ -173,7 +173,7 @@ call waits: the script goes on, and the callback runs later.
 
 `grofe.context()` returns `{ client, pane, cwd }`: the client's name, the pane id and the pane's
 directory for the key press that runs the callback, and for a chooser or input callback that press
-opened. Outside one (a pack loading, a timer, an event, the `lua` command) the fields are `nil`. A
+opened. Outside one (a pack loading, a timer, an event, the `lua` command, `lua-call` from the shell) the fields are `nil`. A
 chooser or prompt opened from a callback with no key press shows on the most recently active
 client.
 

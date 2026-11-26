@@ -134,7 +134,7 @@ A format that does not parse shows as the text it is.
 
 Sessions whose directory is in a git worktree sit under one header row named
 after the main repo's directory, in the sidebar and in the picker, and each row
-shows its branch instead of its window. A session in the main checkout joins
+shows its branch, then its label (`agent-sidebar-format`, so `#{@issue}` shows). A session in the main checkout joins
 them when its repo has a worktree session. A plain repo, or a directory outside
 git, keeps its own rows. Grofe finds the repo from the worktree's `.git` file
 and `commondir`, as `git rev-parse --git-common-dir` does, and remembers it per

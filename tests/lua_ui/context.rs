@@ -121,3 +121,21 @@ fn pack_load_has_nil_fields() {
         .unwrap_or_else(|e| panic!("{e}: init never ran; log:\n{}", srv.log()));
     assert_eq!(crate::helpers::opt(&srv, "@r"), "nil|nil|nil");
 }
+
+/// `lua-call` from the CLI is no key press: only a client's key binding
+/// passes one.
+#[test]
+fn cli_lua_call_has_nil_fields() {
+    let srv = crate::helpers::server();
+    assert_api(&srv, "context");
+    bind(&srv, "h", &format!("{SHOW_LOCAL} {}", set_r("s")));
+    let keys = srv.cmd(&["list-keys", "-T", "prefix"]).expect("list-keys");
+    let id = keys
+        .lines()
+        .find_map(|l| l.split("lua-call ").nth(1))
+        .and_then(|s| s.split_whitespace().next())
+        .map(str::to_string)
+        .unwrap_or_else(|| panic!("no lua-call binding:\n{keys}"));
+    srv.cmd(&["lua-call", &id]).expect("lua-call");
+    assert_eq!(wait_r(&srv), "nil|nil|nil");
+}

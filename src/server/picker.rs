@@ -203,7 +203,7 @@ fn view(state: &State, query: &str) -> View {
         };
     }
     // Sessions in worktrees of one repo gather under a header row with the
-    // repo's name; their rows say the branch.
+    // repo's name; their rows lead with the branch, then the row label.
     let infos: Vec<_> = found.iter().map(|p| worktree::of_pane(state, *p)).collect();
     let (mut panes, mut cols) = (Vec::new(), Vec::new());
     for block in worktree::arrange(&infos) {
@@ -218,7 +218,8 @@ fn view(state: &State, query: &str) -> View {
         for n in members {
             let mut row = found_cols[n].clone();
             if let Some(i) = infos[n].as_ref().filter(|i| i.linked) {
-                row[2].clone_from(&i.branch);
+                let label = agent::pane_format(state, found[n], "agent-sidebar-format");
+                row[2] = format!("{} · {label}", i.branch);
             }
             panes.push(Some(found[n]));
             cols.push(row);

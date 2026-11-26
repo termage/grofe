@@ -149,3 +149,23 @@ fn reply_text_is_sanitised() {
         "control characters reached the pane: {got:?}"
     );
 }
+
+/// An entry whose pane has closed has nobody to answer: Enter says so and
+/// asks for nothing.
+#[test]
+fn enter_on_a_reply_entry_of_a_closed_pane_says_so_and_asks_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (srv, pane, _w, _file) = with_listener(&dir);
+    lua_ok(
+        &srv,
+        &format!("grofe.notify('Need answer', {{pane = '{pane}', reply = true}})"),
+    );
+    srv.cmd(&["kill-pane", "-t", &pane]).expect("kill-pane");
+    let mut a = attach(&srv, 100, 30);
+    open_tray(&mut a);
+    a.wait_for("Need answer");
+    a.send("\r");
+    a.wait_for(&format!("pane {pane} closed"));
+    quiet_period(std::time::Duration::from_millis(300));
+    assert!(!a.text().contains("Reply to"), "a prompt opened");
+}

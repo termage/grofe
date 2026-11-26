@@ -11,7 +11,7 @@ use crate::server::listdraw::{Rows, centred, draw_list, put_text};
 use crate::server::listview::{ListAction, ListState, filter};
 use crate::server::render::Screen;
 use crate::server::status::Style;
-use crate::server::{State, clients, lua_host};
+use crate::server::{State, clients, lua_async, lua_host};
 use crate::types::{ClientId, Rect};
 
 /// Size of the box, percent of the client.
@@ -56,10 +56,19 @@ pub(crate) fn open(
     clients::mark_dirty(state, client);
 }
 
-/// A detached client takes its chooser with it; its callback is not called.
+/// A detached client takes its chooser with it; its callback gets nothing.
 pub(super) fn client_gone(state: &mut State, client: ClientId) {
     if let Some(c) = state.pickers.choosers.open.remove(&client) {
-        lua_host::release_once(state, c.generation, c.id);
+        answer(state, c, None);
+    }
+}
+
+/// A reload ends the runtime the open choosers' callbacks live in, so they
+/// close unanswered and their callbacks go with it.
+pub(crate) fn clear(state: &mut State) {
+    let open = std::mem::take(&mut state.pickers.choosers.open);
+    for client in open.into_keys() {
+        clients::mark_dirty(state, client);
     }
 }
 
@@ -67,12 +76,23 @@ pub(super) fn is_open(state: &State, client: ClientId) -> bool {
     state.pickers.choosers.open.contains_key(&client)
 }
 
-/// Calls the callback with row `pick` (0-based) or nothing, when its runtime
-/// is still the one running.
-fn answer(state: &mut State, c: Choice, pick: Option<usize>) {
-    if lua_host::is_current(state, c.generation) {
-        let pick = pick.map(|i| i + 1);
-        lua_host::call_once_for(state, &c.press, c.id, Payload::Pick(pick));
+/// Queues the callback's call with row `pick` (0-based) or nothing, for
+/// whichever answer ends the chooser (pick, cancel, replaced, detached). It
+/// never runs inline, as the runtime may be out of `state` right now; if the
+/// queue is full the callback is freed unanswered.
+fn answer(state: &State, c: Choice, pick: Option<usize>) {
+    let Choice {
+        generation,
+        id,
+        press,
+        ..
+    } = c;
+    let pick = pick.map(|i| i + 1);
+    let job = lua_async::guarded(generation, move |state| {
+        lua_host::call_once_for(state, &press, id, Payload::Pick(pick));
+    });
+    if state.jobs.try_send(job).is_err() {
+        lua_host::release_once(state, generation, id);
     }
 }
 
