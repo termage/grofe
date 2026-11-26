@@ -28,6 +28,7 @@ pub(crate) fn git(dir: &Path, args: &[&str]) {
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         // Temp repos get no hooks from the user's template directory.
         .env("GIT_TEMPLATE_DIR", "")
         .output()

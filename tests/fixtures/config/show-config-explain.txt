@@ -128,6 +128,10 @@ notify-muted-glyph = "🔕"
   set by built-in defaults
 agent-blocked-border-style = "fg=yellow"
   set by built-in defaults
+agent-sidebar-format = "#{window_name}"
+  set by built-in defaults
+agent-grid-format = "#{session_name}:#{window_index}.#{pane_index}"
+  set by built-in defaults
 prompt-position = "status"
   set by built-in defaults
 status.lines = 2

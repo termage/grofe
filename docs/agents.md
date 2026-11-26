@@ -107,7 +107,8 @@ search and goes back to the groups; `Escape` again closes the menu.
 `session:window.pane`, kind, last message and directory, and a live preview of
 the selected pane below it. Type to filter. `Enter` jumps, `C-x` kills the pane
 (it asks first), `C-y` copies the pane's target, `C-s` marks it seen, `Escape`
-closes.
+closes. Sessions in git worktrees of one repo sit under a row named after the repo, each
+row showing its branch (see [Worktrees](#worktrees-in-the-sidebar-and-picker)).
 
 Jumping keeps you in your session when the pane's window is in it, and
 switches session otherwise.
@@ -125,6 +126,21 @@ urgent state of its agents (blocked, then done, then working, then idle). Click
 an agent row to jump (a header jumps nowhere); `agent-sidebar focus` gives it the
 keys until `Escape`.
 
+A row's label is the option `agent-sidebar-format` (default `#{window_name}`),
+expanded for the agent's pane, so `#{@issue}` or any other pane option can show.
+A format that does not parse shows as the text it is.
+
+### Worktrees in the sidebar and picker
+
+Sessions whose directory is in a git worktree sit under one header row named
+after the main repo's directory, in the sidebar and in the picker, and each row
+shows its branch instead of its window. A session in the main checkout joins
+them when its repo has a worktree session. A plain repo, or a directory outside
+git, keeps its own rows. Grofe finds the repo from the worktree's `.git` file
+and `commondir`, as `git rev-parse --git-common-dir` does, and remembers it per
+directory; only the branch is read again, so a `git checkout` shows at once. A
+directory that becomes a repo later is seen after a restart.
+
 ## The grid
 
 `prefix O` shows every agent at once, one framed tile each. The title sits in
@@ -135,7 +151,9 @@ window's `pane-border-lines` and `pane-border-style`; the selected tile takes
 `pane-active-border-style`. Tiles sit in as many columns of `tile-width` as
 fit, one cell apart and widened to fill the screen, so none is cut at the
 edge; rows scroll to keep the selection in view. It is read only: arrows
-move, typing filters, `Enter` jumps, `Escape` closes.
+move, typing filters, `Enter` jumps, `Escape` closes. The label after the glyph
+is the option `agent-grid-format` (default `#{session_name}:#{window_index}.#{pane_index}`),
+expanded for the agent's pane.
 
 ## Notifications
 
@@ -147,6 +165,10 @@ a notification and is skipped.
 - **Tray:** the last `history` notifications (default 10). `prefix y` opens
   it: `Enter` jumps, `C-x` dismisses one, `C-l` clears all. From the shell:
   `grofe notify list`, `grofe notify dismiss <id>`, `grofe notify clear`.
+  An entry a script posted with `grofe.notify(text, { pane = ..., reply = true })`
+  asks for a line on `Enter` instead of jumping, and types it into that agent
+  as `agent prompt` does (control characters removed, that pane only); `Escape`
+  sends nothing.
 - **Status badge:** the default status line shows a badge such as `⏸2 ✓1`
   when something needs you; click it to open the tray. Window tabs get the
   agent glyph, and a blocked pane's border turns yellow.

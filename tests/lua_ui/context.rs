@@ -104,6 +104,19 @@ fn timer_callback_has_nil_fields() {
 #[test]
 fn pack_load_has_nil_fields() {
     let srv = with_init(&format!("{SHOW_LOCAL} {}", set_r("s")));
+    // `display-message` (the `opt` reader) needs a session to run in.
+    srv.cmd(&[
+        "new-session",
+        "-d",
+        "-s",
+        "main",
+        "-x",
+        "80",
+        "-y",
+        "24",
+        "cat",
+    ])
+    .expect("new-session");
     srv.wait_for(|| !crate::helpers::opt(&srv, "@r").is_empty(), WAIT)
         .unwrap_or_else(|e| panic!("{e}: init never ran; log:\n{}", srv.log()));
     assert_eq!(crate::helpers::opt(&srv, "@r"), "nil|nil|nil");

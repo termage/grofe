@@ -91,6 +91,9 @@ grofe.cancel(id)                             -- stop a timer, binding, event or 
 grofe.log("text")                            -- write to the server log
 local cfg = grofe.plugin("my-plugin")        -- what that plugin's init.luau returned
 grofe.notify("build finished", { level = "warn", pane = "%3" }) -- a tray entry
+grofe.choose({ "a", { label = "B", value = 2 } }, function(v) end) -- fuzzy chooser
+grofe.input("Name: ", function(text) end)    -- one line of text, nil on Escape
+local c = grofe.context()                    -- client, pane and cwd of the key press
 local text = grofe.json.encode({ a = { 1, 2 } })  -- '{"a":[1,2]}'
 local value = grofe.json.decode(text)             -- back to a table
 local conf = grofe.config("tool", "/path/in/a/repo") -- settings files, merged
@@ -148,6 +151,31 @@ entry belongs to the active pane. A tray entry always belongs to a pane (the tra
 so with no pane given and no session, or with an unknown pane, the call raises an error. `level` is `"info"`
 (default), `"warn"` or `"error"` and is shown as the entry's state. It never raises a toast or
 a desktop message by itself.
+
+`grofe.notify` also takes `reply = true`: `Enter` on that tray entry asks for a line (as
+`grofe.input` does) and types it into the entry's pane the way `agent prompt` does (control
+characters removed, that pane only), and `Escape` sends nothing. Entries without `reply` jump to
+their pane as before.
+
+### Asking the user
+
+`grofe.choose(items, fn, opts)` opens the fuzzy chooser on the client of the key press and calls
+`fn(item)` with the pick, or `fn(nil)` on `Escape`. `items` is a list of strings, or of tables
+`{ label, value }`: the label is shown and `fn` gets the `value` (the string itself for a
+string item). An empty list calls `fn(nil)` at once, without a chooser. A list with anything else in it, or a missing
+`label`, raises an error. Options: `title` (shown on the box) and `preview`, a function from an
+item to the text shown under the list for the selected row. Previews are worked out for all
+items when the chooser opens. Typing filters; `Enter` with no match does nothing.
+
+`grofe.input(prompt, fn)` opens the command prompt with `prompt` as its label and calls `fn(text)`
+with the line when you press `Enter` (an empty line is `""`), or `fn(nil)` on `Escape`. Neither
+call waits: the script goes on, and the callback runs later.
+
+`grofe.context()` returns `{ client, pane, cwd }`: the client's name, the pane id and the pane's
+directory for the key press that runs the callback, and for a chooser or input callback that press
+opened. Outside one (a pack loading, a timer, an event, the `lua` command) the fields are `nil`. A
+chooser or prompt opened from a callback with no key press shows on the most recently active
+client.
 
 ### JSON
 

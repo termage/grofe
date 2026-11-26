@@ -30,9 +30,40 @@ pub trait Host {
     /// state it reached (one of `until`, else the default ones) or nothing.
     fn agent_prompt(&mut self, req: PromptJob, id: u32) -> Result<(), String>;
     fn cancel(&mut self, id: u32);
-    /// Posts a tray entry for `pane` (the active pane when `None`).
-    fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String>;
+    /// Posts a tray entry for `pane` (the active pane when `None`); with
+    /// `reply`, Enter on it asks for text and sends it to the pane.
+    fn notify(
+        &mut self,
+        text: &str,
+        pane: Option<&str>,
+        level: &str,
+        reply: bool,
+    ) -> Result<(), String>;
+    /// The client, pane and cwd of the key press (or chooser or input
+    /// callback) now running; nothing outside one.
+    fn context(&mut self) -> Context;
+    /// Opens the chooser; callback `id` gets the 1-based pick or nothing.
+    fn choose(&mut self, req: ChooseJob, id: u32) -> Result<(), String>;
+    /// Opens a one-line prompt; callback `id` gets the text or nothing.
+    fn input(&mut self, prompt: &str, id: u32) -> Result<(), String>;
     fn log(&mut self, msg: &str);
+}
+
+/// What `grofe.context()` reports.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Context {
+    pub client: Option<String>,
+    pub pane: Option<String>,
+    pub cwd: Option<String>,
+}
+
+/// What `grofe.choose` asks for: row labels, and the text shown for each
+/// row's preview (empty without one).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChooseJob {
+    pub title: Option<String>,
+    pub labels: Vec<String>,
+    pub previews: Vec<String>,
 }
 
 /// What `grofe.agent.prompt` asks for.
@@ -60,6 +91,24 @@ impl PromptJob {
             text: t.get("text")?,
             until: t.get("until")?,
             timeout_ms: t.get("timeout_ms")?,
+        })
+    }
+}
+
+impl ChooseJob {
+    fn to_table(&self, lua: &Lua) -> mlua::Result<Table> {
+        let t = lua.create_table()?;
+        t.set("title", self.title.as_deref())?;
+        t.set("labels", self.labels.clone())?;
+        t.set("previews", self.previews.clone())?;
+        Ok(t)
+    }
+
+    fn from_table(t: &Table) -> mlua::Result<ChooseJob> {
+        Ok(ChooseJob {
+            title: t.get("title")?,
+            labels: t.get("labels")?,
+            previews: t.get("previews")?,
         })
     }
 }
@@ -266,12 +315,13 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
             let Value::String(text) = text else {
                 return Err(err("grofe.notify takes the text as a string"));
             };
-            let (pane, level) = match opts {
+            let (pane, level, reply) = match opts {
                 Some(o) => (
                     o.get::<Option<String>>("pane")?,
                     o.get::<Option<String>>("level")?,
+                    o.get::<Option<bool>>("reply")?.unwrap_or(false),
                 ),
-                None => (None, None),
+                None => (None, None, false),
             };
             let level = level.unwrap_or_else(|| "info".into());
             if !LEVELS.contains(&level.as_str()) {
@@ -279,7 +329,93 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
                     "grofe.notify: level must be one of {LEVELS:?}"
                 )));
             }
-            host_fn(lua, "notify")?.call::<()>((text.to_str()?.to_string(), pane, level))
+            host_fn(lua, "notify")?.call::<()>((text.to_str()?.to_string(), pane, level, reply))
+        })?,
+    )?;
+    g.set(
+        "context",
+        lua.create_function(|lua, ()| {
+            let (client, pane, cwd) =
+                host_fn(lua, "context")?
+                    .call::<(Option<String>, Option<String>, Option<String>)>(())?;
+            let t = lua.create_table()?;
+            t.set("client", client)?;
+            t.set("pane", pane)?;
+            t.set("cwd", cwd)?;
+            Ok(t)
+        })?,
+    )?;
+    g.set(
+        "choose",
+        lua.create_function(|lua, (items, f, opts): (Value, Value, Option<Table>)| {
+            let (Value::Table(items), Value::Function(f)) = (items, f) else {
+                return Err(err("grofe.choose takes a list of items and a function"));
+            };
+            let (title, preview) = match opts {
+                Some(o) => (
+                    o.get::<Option<String>>("title")?,
+                    o.get::<Value>("preview")?,
+                ),
+                None => (None, Value::Nil),
+            };
+            let preview = match preview {
+                Value::Nil => None,
+                Value::Function(p) => Some(p),
+                _ => return Err(err("grofe.choose: preview must be a function")),
+            };
+            let mut job = ChooseJob {
+                title,
+                ..ChooseJob::default()
+            };
+            let values = lua.create_table()?;
+            for (n, item) in items.sequence_values::<Value>().enumerate() {
+                let item = item?;
+                let (label, value) = match &item {
+                    Value::String(s) => (s.to_str()?.to_string(), item.clone()),
+                    Value::Table(t) => {
+                        let label = t.get::<Option<String>>("label")?;
+                        let label = label.ok_or_else(|| {
+                            err(format!("grofe.choose: item {} has no string label", n + 1))
+                        })?;
+                        (label, t.get::<Value>("value")?)
+                    }
+                    _ => {
+                        return Err(err(format!(
+                            "grofe.choose: item {} is not a string or a {{label, value}} table",
+                            n + 1
+                        )));
+                    }
+                };
+                if let Some(p) = &preview {
+                    let text = p.call::<Option<String>>(item)?;
+                    job.previews.push(text.unwrap_or_default());
+                }
+                job.labels.push(label);
+                values.set(n + 1, value)?;
+            }
+            // An empty list has nothing to choose from: it answers at once.
+            if job.labels.is_empty() {
+                return f.call::<()>(Value::Nil);
+            }
+            let host = host_fn(lua, "choose")?;
+            let pick = lua.create_function(move |_, pick: Option<usize>| match pick {
+                Some(i) => f.call::<()>(values.get::<Value>(i)?),
+                None => f.call::<()>(Value::Nil),
+            })?;
+            add_callback(lua, pick, |id| host.call((job.to_table(lua)?, id)))?;
+            Ok(())
+        })?,
+    )?;
+    g.set(
+        "input",
+        lua.create_function(|lua, (prompt, f): (Value, Value)| {
+            let (Value::String(prompt), Value::Function(f)) = (prompt, f) else {
+                return Err(err("grofe.input takes a prompt string and a function"));
+            };
+            let host = host_fn(lua, "input")?;
+            let prompt = prompt.to_str()?.to_string();
+            add_callback(lua, f, |id| host.call((prompt, id)))?;
+            Ok(())
         })?,
     )?;
     g.set(
@@ -388,12 +524,32 @@ pub fn enter<R>(
             t.set(
                 "notify",
                 scope.create_function_mut(
-                    |_, (text, pane, level): (String, Option<String>, String)| {
+                    |_, (text, pane, level, reply): (String, Option<String>, String, bool)| {
                         host.borrow_mut()
-                            .notify(&text, pane.as_deref(), &level)
+                            .notify(&text, pane.as_deref(), &level, reply)
                             .map_err(err)
                     },
                 )?,
+            )?;
+            t.set(
+                "context",
+                scope.create_function_mut(|_, ()| {
+                    let c = host.borrow_mut().context();
+                    Ok((c.client, c.pane, c.cwd))
+                })?,
+            )?;
+            t.set(
+                "choose",
+                scope.create_function_mut(|_, (job, id): (Table, u32)| {
+                    let job = ChooseJob::from_table(&job)?;
+                    host.borrow_mut().choose(job, id).map_err(err)
+                })?,
+            )?;
+            t.set(
+                "input",
+                scope.create_function_mut(|_, (prompt, id): (String, u32)| {
+                    host.borrow_mut().input(&prompt, id).map_err(err)
+                })?,
             )?;
             t.set(
                 "log",

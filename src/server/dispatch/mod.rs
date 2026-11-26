@@ -446,7 +446,7 @@ fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, Str
         Command::DragPane(_) => server::mouse::drag_pane(state),
         Command::Lua { src } => server::lua_host::run_chunk(state, ctx, &src),
         Command::LuaCall { id } => {
-            server::lua_host::call(state, id, crate::lua::api::Payload::None);
+            server::lua_host::call_for(state, ctx, id, crate::lua::api::Payload::None);
             Ok(String::new())
         }
         Command::PlacePane(c) => popup::place_pane(state, ctx, c),

@@ -13,6 +13,10 @@ pub enum Payload {
     Event(serde_json::Value),
     /// One line of a child's output, for `on_line`.
     Line(String),
+    /// The chooser's pick (1-based), or none when it was cancelled.
+    Pick(Option<usize>),
+    /// The text `grofe.input` read, or none when it was cancelled.
+    Text(Option<String>),
     System {
         code: i32,
         stdout: String,
@@ -75,6 +79,8 @@ fn run_callback(lua: &Lua, id: u32, payload: Payload) -> mlua::Result<()> {
     match payload {
         Payload::None => f.call::<()>(()),
         Payload::Line(l) => f.call::<()>(l),
+        Payload::Pick(p) => f.call::<()>(p),
+        Payload::Text(t) => f.call::<()>(t),
         Payload::Event(v) => f.call::<()>(super::json::from_json(lua, &v)?),
         Payload::System {
             code,

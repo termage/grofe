@@ -55,7 +55,8 @@ fn bad_format_string_does_not_break_the_sidebar() {
     set_global(&srv, "agent-sidebar-format", "BAD<#{unterminated").expect("set format");
     let mut a = attach(&srv, 160, 30);
     press(&mut a, "b");
-    a.wait_until("sidebar drawn", WAIT, |t| t.contains("agents"));
+    // The bad format renders as the text it is, in the row's label.
+    a.wait_until("sidebar drawn", WAIT, |t| t.contains("BAD<"));
     assert_eq!(
         srv.cmd(&["display-message", "-p", "up"])
             .map(|s| s.trim().to_string()),

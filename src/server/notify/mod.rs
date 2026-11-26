@@ -54,6 +54,9 @@ pub struct Notification {
     pub read: bool,
     /// What a job was called, for a notification with no pane.
     pub label: Option<String>,
+    /// Enter on it asks for text and sends it to the pane (a script's
+    /// `reply` option), rather than jumping there.
+    pub reply: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +113,7 @@ impl Notifier {
             it.state = new.to_string();
             it.msg = msg.map(str::to_string);
             it.read = false;
+            it.reply = false;
             return None;
         }
         let id = self.push(Some(pane), uid, kind, new, msg, None, now);
@@ -167,6 +171,7 @@ impl Notifier {
                 at: now,
                 read: false,
                 label: label.map(str::to_string),
+                reply: false,
             },
         );
         self.items.truncate(self.cfg.history);
@@ -175,8 +180,19 @@ impl Notifier {
 
     /// Adds an entry a script asked for, past the raise rules: no toast, no
     /// desktop message. `level` is the entry's state.
-    pub fn post(&mut self, pane: PaneId, uid: &str, level: &str, text: &str, now: Instant) {
+    pub fn post(
+        &mut self,
+        pane: PaneId,
+        uid: &str,
+        level: &str,
+        text: &str,
+        reply: bool,
+        now: Instant,
+    ) {
         self.push(Some(pane), uid, None, level, Some(text), None, now);
+        if let Some(it) = self.items.first_mut() {
+            it.reply = reply;
+        }
     }
 
     /// Marks the pane's notifications read; true if any changed.
@@ -382,7 +398,7 @@ mod tests {
     fn post_adds_an_unread_entry_past_the_rules() {
         let mut n = Notifier::default();
         n.cfg.enabled = false;
-        n.post(PaneId(1), "u", "warn", "hello", Instant::now());
+        n.post(PaneId(1), "u", "warn", "hello", false, Instant::now());
         assert_eq!(n.unread(), 1);
         assert_eq!(n.items()[0].msg.as_deref(), Some("hello"));
         assert_eq!(n.items()[0].state, "warn");

@@ -2,6 +2,11 @@ use super::*;
 use crate::server::{test_ctx, test_state};
 use std::time::{Duration, Instant};
 
+/// Runs callback `id` for no key press.
+fn call(state: &mut State, id: u32, payload: Payload) {
+    call_for(state, &client_less_ctx(), id, payload);
+}
+
 fn messages(state: &State) -> String {
     clients::messages(state)
         .map(|(_, l)| l.as_str())

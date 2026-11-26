@@ -9,15 +9,16 @@ use std::time::Instant;
 
 use super::State;
 use super::clients;
-use super::dispatch::agent;
 use super::dispatch::options::{FormatCtx, ServerVars};
+use super::dispatch::{agent, agent_control};
 use super::input::{Input, InputHook, Mouse, MouseButton, MouseKind, Routed};
 use super::listdraw::{Rows, centred, draw_list};
 use super::listview::{ListAction, ListState};
 use super::notify::Notification;
+use super::prompt;
 use super::render::{Overlay, OverlayCtx, Screen};
 use crate::cmd::expand;
-use crate::types::{ClientId, Rect};
+use crate::types::{ClientId, PaneId, Rect};
 
 /// Width and height of the tray, percent of the client.
 const WIDTH_PCT: u16 = 80;
@@ -214,6 +215,10 @@ fn enter(state: &mut State, client: ClientId, n: &Notification) {
         state.notify.read(n.id);
         return;
     };
+    if n.reply {
+        state.notify.read(n.id);
+        return ask_reply(state, client, pane, &target_label(state, n));
+    }
     let ctx = state.clients.get(&client).map(|c| c.ctx.clone());
     if let Some(ctx) = ctx
         && let Err(e) = agent::jump(state, &ctx, pane)
@@ -221,6 +226,29 @@ fn enter(state: &mut State, client: ClientId, n: &Notification) {
         clients::show_message(state, client, &e);
     }
     state.notify.seen(pane);
+}
+
+/// Asks for a line and types it into `pane`'s agent (an entry posted with
+/// `reply`); Escape sends nothing.
+fn ask_reply(state: &mut State, client: ClientId, pane: PaneId, label: &str) {
+    let then = Box::new(move |state: &mut State, client: ClientId, text: &str| {
+        if text.trim().is_empty() {
+            return Routed::Consumed;
+        }
+        if let Err(e) = agent_control::reply(state, pane, text) {
+            clients::show_message(state, client, &e);
+        }
+        Routed::Consumed
+    });
+    prompt::ask(
+        state,
+        client,
+        &format!("Reply to {label}: "),
+        "",
+        "search",
+        false,
+        then,
+    );
 }
 
 pub struct TrayOverlay;

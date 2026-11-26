@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::cmd::expand;
+use crate::cmd::{FormatVars, expand};
 use crate::config::Resolved;
 use crate::protocol::ClientCtx;
 use crate::server::agents::{AgentState, Change, Report, ReportState, Source, kinds};
@@ -251,6 +251,14 @@ pub(crate) fn pane_label(state: &State, pane: PaneId) -> String {
         "#{session_name}:#{window_index}.#{pane_index}",
         &ServerVars::fresh(state, pane, &vars),
     )
+}
+
+/// The option `option` (a format) expanded for `pane`: an agent's label in
+/// the sidebar or grid. A bad format expands as the format engine does.
+pub(crate) fn pane_format(state: &State, pane: PaneId, option: &str) -> String {
+    let vars = FormatCtx::new(&state.model, pane);
+    let vars = ServerVars::fresh(state, pane, &vars);
+    expand(&vars.get(option).unwrap_or_default(), &vars)
 }
 
 /// A bell or OSC 9/777 on a pane that never reported (spec §3.3).

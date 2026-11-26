@@ -4,9 +4,12 @@
 //! previewed live below. Rows are rebuilt from `State.agents` on every key
 //! and every draw, so a state change shows at once.
 
+pub(crate) mod chooser;
+
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
+use super::agents::worktree::{self, Block};
 use super::agents::{Agent, rank};
 use super::clients;
 use super::dispatch::agent;
@@ -24,6 +27,8 @@ pub struct Pickers {
     open: BTreeMap<ClientId, ListState>,
     /// When a shown time next changes (see [`deadline`]).
     at: Option<Instant>,
+    /// The choosers scripts open (`grofe.choose`).
+    choosers: chooser::Choosers,
 }
 
 impl Pickers {
@@ -32,11 +37,39 @@ impl Pickers {
     }
 }
 
-/// The agent rows for a query: panes, their columns, and the display order.
+/// The agent rows for a query: panes (none for a repo's header row), their
+/// columns, and the display order.
 struct View {
-    panes: Vec<PaneId>,
+    panes: Vec<Option<PaneId>>,
     rows: Rows,
     visible: Vec<usize>,
+}
+
+impl View {
+    /// `selected`, or the nearest row that is no header: the first one in the
+    /// direction of `down`, else the first one in the other.
+    fn off_header(&self, selected: usize, down: bool) -> usize {
+        let at = selected.min(self.visible.len().saturating_sub(1));
+        let header =
+            |i: usize| self.visible.get(i).and_then(|&at| self.panes.get(at)) == Some(&None);
+        if !header(at) {
+            return at;
+        }
+        let after = (at + 1..self.visible.len()).find(|i| !header(*i));
+        let before = (0..at).rev().find(|i| !header(*i));
+        let (first, second) = if down {
+            (after, before)
+        } else {
+            (before, after)
+        };
+        first.or(second).unwrap_or(at)
+    }
+
+    /// The pane under the selection `st`.
+    fn selected(&self, st: &ListState) -> Option<PaneId> {
+        let at = *self.visible.get(self.off_header(st.selected, true))?;
+        self.panes.get(at).copied().flatten()
+    }
 }
 
 pub(crate) fn open(state: &mut State, client: ClientId) -> Result<(), String> {
@@ -51,6 +84,7 @@ pub(crate) fn open(state: &mut State, client: ClientId) -> Result<(), String> {
 
 /// A client that detached takes its picker with it.
 pub(crate) fn client_gone(state: &mut State, id: ClientId) {
+    chooser::client_gone(state, id);
     state.pickers.open.remove(&id);
     rearm(state, Instant::now());
 }
@@ -104,9 +138,7 @@ fn rearm(state: &mut State, now: Instant) {
 /// The pane under the selection, if the picker is open and lists any.
 pub(crate) fn selected_pane(state: &State, client: ClientId) -> Option<PaneId> {
     let st = state.pickers.open.get(&client)?;
-    let v = view(state, &st.query);
-    let at = *v.visible.get(st.selected)?;
-    v.panes.get(at).copied()
+    view(state, &st.query).selected(st)
 }
 
 fn age(since: Instant) -> String {
@@ -139,8 +171,8 @@ fn home_short(state: &State, pane: PaneId) -> String {
 }
 
 fn view(state: &State, query: &str) -> View {
-    let mut panes = Vec::new();
-    let mut cols = Vec::new();
+    let mut found = Vec::new();
+    let mut found_cols = Vec::new();
     for pane in state.agents.by_urgency() {
         let (Some(a), true) = (
             state.agents.get(pane),
@@ -148,8 +180,8 @@ fn view(state: &State, query: &str) -> View {
         ) else {
             continue;
         };
-        panes.push(pane);
-        cols.push(vec![
+        found.push(pane);
+        found_cols.push(vec![
             format!("{} {}", glyph(a), rank(a).as_str()),
             age(a.since),
             agent::pane_label(state, pane),
@@ -161,17 +193,50 @@ fn view(state: &State, query: &str) -> View {
             home_short(state, pane),
         ]);
     }
-    let texts: Vec<String> = cols.iter().map(|c| c.join(" ")).collect();
-    let visible = filter(&texts, query);
-    if panes.is_empty() {
+    if found.is_empty() {
         return View {
-            panes,
+            panes: Vec::new(),
             rows: Rows {
                 cols: vec![vec!["no agents".to_string()]],
             },
             visible: vec![0],
         };
     }
+    // Sessions in worktrees of one repo gather under a header row with the
+    // repo's name; their rows say the branch.
+    let infos: Vec<_> = found.iter().map(|p| worktree::of_pane(state, *p)).collect();
+    let (mut panes, mut cols) = (Vec::new(), Vec::new());
+    for block in worktree::arrange(&infos) {
+        let (repo, members) = match block {
+            Block::One(n) => (None, vec![n]),
+            Block::Repo { repo, members } => (Some(repo), members),
+        };
+        if let Some(repo) = repo {
+            panes.push(None);
+            cols.push(vec![String::new(), String::new(), repo]);
+        }
+        for n in members {
+            let mut row = found_cols[n].clone();
+            if let Some(i) = infos[n].as_ref().filter(|i| i.linked) {
+                row[2].clone_from(&i.branch);
+            }
+            panes.push(Some(found[n]));
+            cols.push(row);
+        }
+    }
+    // A header has no text, so a query matches none.
+    let texts: Vec<String> = cols
+        .iter()
+        .zip(&panes)
+        .map(|(c, p)| {
+            if p.is_some() {
+                c.join(" ")
+            } else {
+                String::new()
+            }
+        })
+        .collect();
+    let visible = filter(&texts, query);
     View {
         panes,
         rows: Rows { cols },
@@ -215,6 +280,9 @@ impl InputHook for PickerHook {
         input: &Input,
         _now: Instant,
     ) -> Option<Routed> {
+        if chooser::is_open(state, client) {
+            return chooser::on_input(state, client, input);
+        }
         if !state.pickers.is_open(client) {
             return None;
         }
@@ -228,11 +296,14 @@ impl InputHook for PickerHook {
             Input::Mouse(_) | Input::Paste { .. } => return Some(Routed::Consumed),
         };
         let mut st = state.pickers.open.get(&client).cloned()?;
-        let count = view(state, &st.query).visible.len();
-        st.clamp(count, list_height(state, size));
-        let action = st.on_key(key, count, true);
-        let count = view(state, &st.query).visible.len();
-        st.clamp(count, list_height(state, size));
+        let (height, v) = (list_height(state, size), view(state, &st.query));
+        st.clamp(v.visible.len(), height);
+        st.selected = v.off_header(st.selected, true);
+        let from = st.selected;
+        let action = st.on_key(key, v.visible.len(), true);
+        let v = view(state, &st.query);
+        st.clamp(v.visible.len(), height);
+        st.selected = v.off_header(st.selected, st.selected >= from);
         state.pickers.open.insert(client, st);
         clients::mark_dirty(state, client);
         let pane = selected_pane(state, client);
@@ -304,21 +375,24 @@ pub(crate) struct PickerOverlay;
 
 impl Overlay for PickerOverlay {
     fn draw(&self, state: &State, client: ClientId, _cx: &OverlayCtx, screen: &mut Screen) {
+        if chooser::draw(state, client, screen) {
+            return;
+        }
         let Some(st) = state.pickers.open.get(&client) else {
             return;
         };
         let (list, preview) = layout(state, (screen.cols, screen.rows));
         let v = view(state, &st.query);
+        let st = &ListState {
+            selected: v.off_header(st.selected, true),
+            ..st.clone()
+        };
         draw_list(screen, list, "choose-agent", &v.rows, &v.visible, st, true);
         screen.cursor = None;
         if preview.rows < 3 {
             return;
         }
-        let pane = v
-            .visible
-            .get(st.selected)
-            .and_then(|&at| v.panes.get(at))
-            .copied();
+        let pane = v.selected(st);
         let title = pane
             .map(|p| agent::pane_label(state, p))
             .unwrap_or_default();
