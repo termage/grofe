@@ -644,7 +644,12 @@ mod tests {
             })
         };
         let link = Link::over(a.try_clone().unwrap(), a, Some(end)).unwrap();
+        // Closed, not only shut down: on macOS a `shutdown` that races the
+        // link's first ping write can leave its reader asleep in `recv`
+        // past the EOF. The shutdown still ends the socket should a child
+        // spawned meanwhile have inherited `b` (close-on-exec comes late).
         b.shutdown(std::net::Shutdown::Both).unwrap();
+        drop(b);
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while link.dropped().is_none() {
             assert!(std::time::Instant::now() < deadline, "never dropped");

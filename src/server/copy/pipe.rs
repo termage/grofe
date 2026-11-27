@@ -17,7 +17,7 @@
 //! with nothing on stdin, and three positionals make the command do
 //! nothing.
 
-use std::process::{ExitStatus, Stdio};
+use std::process::ExitStatus;
 use std::time::Duration;
 
 use nix::sys::signal::{Signal, killpg};
@@ -29,7 +29,7 @@ use super::{Action, Ctx, Mode};
 use crate::cmd;
 use crate::server::dispatch::options::{FormatCtx, ServerVars};
 use crate::server::shell_jobs::ShellJobs;
-use crate::server::spawn;
+use crate::server::spawn::{self, Stdio};
 use crate::server::{State, hooks};
 use crate::types::PaneId;
 

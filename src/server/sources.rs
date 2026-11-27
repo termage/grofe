@@ -16,7 +16,6 @@
 //! killed.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use nix::sys::signal::{Signal, killpg};
@@ -27,7 +26,7 @@ use tokio::sync::{mpsc, watch};
 use crate::config::Resolved;
 use crate::event::Event;
 use crate::server::dispatch::options::Owner;
-use crate::server::spawn;
+use crate::server::spawn::{self, Stdio};
 use crate::server::{Job, State, clients, hooks};
 
 /// How long a run may take when its registration names no timeout.

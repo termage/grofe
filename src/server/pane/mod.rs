@@ -494,7 +494,7 @@ pub(crate) fn cloexec_inherited_fds(limit: u32) {
 /// separate `fcntl`, so without this a concurrent fork could inherit a master.
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
 
-/// Held while spawning any child process (a pane, `run-shell`), so no fork
+/// Held while spawning a pane or a plugin, so no fork
 /// inherits a pty master between its `openpty` and its `FD_CLOEXEC`.
 pub(crate) fn spawn_lock() -> MutexGuard<'static, ()> {
     lock(&SPAWN_LOCK)

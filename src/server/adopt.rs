@@ -53,15 +53,15 @@ const LIVE_TIMEOUT: Duration = Duration::from_secs(2);
 /// [`from_live_tmux`] with the program and the wait named, killing the
 /// program when the wait ends.
 fn from_tmux_program(program: &str, timeout: Duration) -> Result<Snapshot, String> {
-    let mut child = Command::new(program)
-        .env_remove("TMUX")
+    let mut cmd = Command::new(program);
+    cmd.env_remove("TMUX")
         .env_remove("TMUX_PANE")
         .args(["list-panes", "-a", "-F", LIVE_FORMAT])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("tmux: {e}"))?;
+        .stderr(Stdio::null());
+    crate::server::spawn::stdio_only(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("tmux: {e}"))?;
     // Read on a thread, so a full pipe cannot stall the program the wait
     // below is timing.
     let mut stdout = child.stdout.take();

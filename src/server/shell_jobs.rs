@@ -15,7 +15,7 @@ pub struct ShellJobs(Arc<Mutex<BTreeSet<i32>>>);
 impl ShellJobs {
     /// Tracks `child` until the guard drops; drop it only once the child
     /// is reaped, so its pid stays its own while it is tracked.
-    pub(crate) fn track(&self, child: &tokio::process::Child) -> Tracked {
+    pub(crate) fn track(&self, child: &crate::server::spawn::Child) -> Tracked {
         let pid = child.id().and_then(|id| i32::try_from(id).ok());
         if let (Some(pid), Ok(mut set)) = (pid, self.0.lock()) {
             set.insert(pid);
@@ -83,10 +83,11 @@ mod tests {
     #[tokio::test]
     async fn kill_all_ends_a_tracked_shell_and_reaping_untracks_it() {
         let jobs = ShellJobs::default();
-        let mut child = tokio::process::Command::new("/bin/sh")
-            .args(["-c", "while :; do sleep 0.05; done"])
-            .spawn()
-            .expect("spawn sh");
+        let mut child = crate::server::spawn::spawn(&mut crate::server::spawn::sh(
+            "while :; do sleep 0.05; done",
+            None,
+        ))
+        .expect("spawn sh");
         let tracked = jobs.track(&child);
         assert_eq!(jobs.len(), 1);
         jobs.kill_all();
