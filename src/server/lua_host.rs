@@ -44,6 +44,34 @@ thread_local! {
     static DEFERRED: RefCell<Option<Deferred>> = const { RefCell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The limits runtimes made on this thread get, for a test whose host
+    /// work (a whole `reload`, say) a slow runner can push past the budget.
+    static TEST_LIMITS: Cell<Option<Limits>> = const { Cell::new(None) };
+}
+
+/// Test hook: the budget in milliseconds, for integration tests whose host
+/// work (durable `grofe.store` writes, say) a loaded runner can push past
+/// the default. Test-only.
+const TEST_BUDGET_ENV: &str = "GROFE_TEST_LUA_BUDGET_MS";
+
+/// The limits a new runtime gets.
+fn limits() -> Limits {
+    #[cfg(test)]
+    if let Some(l) = TEST_LIMITS.with(Cell::get) {
+        return l;
+    }
+    let mut limits = Limits::default();
+    if let Some(ms) = std::env::var(TEST_BUDGET_ENV)
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        limits.budget = std::time::Duration::from_millis(ms);
+    }
+    limits
+}
+
 #[derive(Default)]
 struct Deferred {
     packs: Vec<(String, PathBuf, serde_json::Value)>,
@@ -275,7 +303,7 @@ fn with_host<R>(
     let mut lua = match state.lua.take() {
         Some(l) => l,
         None => {
-            let rt = Runtime::new(Limits::default())?;
+            let rt = Runtime::new(limits())?;
             api::install(&rt)?;
             LuaHost {
                 rt,

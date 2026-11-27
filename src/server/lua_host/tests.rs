@@ -121,7 +121,16 @@ fn a_failing_callback_names_itself() {
 fn test_reload_inside_lua_is_deferred() {
     let (mut state, mut rx) = crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
     let ctx = test_ctx();
-    assert!(run_chunk(&mut state, &ctx, "grofe.cmd{'reload'}").is_ok());
+    // The whole reload runs inside the chunk and counts against its
+    // budget: a slow runner takes it past the default 50 ms.
+    TEST_LIMITS.with(|l| {
+        l.set(Some(Limits {
+            budget: Duration::from_secs(10),
+            ..Limits::default()
+        }))
+    });
+    let r = run_chunk(&mut state, &ctx, "grofe.cmd{'reload'}");
+    assert!(r.is_ok(), "{r:?}");
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("init.luau"),

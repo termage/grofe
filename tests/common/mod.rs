@@ -98,6 +98,8 @@ pub struct TestServer {
     restore_on_start: bool,
     /// [`TestServerBuilder::path_env`]: the only `PATH` its commands see.
     path_env: Option<String>,
+    /// [`TestServerBuilder::lua_budget`]: the Lua budget its servers get.
+    lua_budget: Option<Duration>,
     pub socket: PathBuf,
     pub home: PathBuf,
     pub config_home: PathBuf,
@@ -149,6 +151,7 @@ impl TestServer {
             orphans: Mutex::new(Vec::new()),
             restore_on_start: false,
             path_env: None,
+            lua_budget: None,
             home,
             config_home,
             state_home,
@@ -319,6 +322,9 @@ impl TestServer {
         if let Some(path) = &self.path_env {
             cmd.env("PATH", path);
         }
+        if let Some(budget) = self.lua_budget {
+            cmd.env("GROFE_TEST_LUA_BUDGET_MS", budget.as_millis().to_string());
+        }
         cmd
     }
 
@@ -469,6 +475,7 @@ pub struct TestServerBuilder {
     restore_on_start: bool,
     path_env: Option<String>,
     frames: bool,
+    lua_budget: Option<Duration>,
 }
 
 impl TestServerBuilder {
@@ -496,6 +503,14 @@ impl TestServerBuilder {
         self
     }
 
+    /// Gives each Lua call `budget` instead of the default 50 ms, for tests
+    /// of what Lua does rather than how long it takes: a loaded runner can
+    /// push host work (a durable `grofe.store` write) past the default.
+    pub fn lua_budget(mut self, budget: Duration) -> TestServerBuilder {
+        self.lua_budget = Some(budget);
+        self
+    }
+
     /// Isolated dirs as this builder says, with no server started yet, as
     /// [`TestServer::unstarted`].
     pub fn unstarted(self) -> TestServer {
@@ -506,6 +521,7 @@ impl TestServerBuilder {
         };
         srv.restore_on_start = self.restore_on_start;
         srv.path_env = self.path_env;
+        srv.lua_budget = self.lua_budget;
         srv
     }
 
