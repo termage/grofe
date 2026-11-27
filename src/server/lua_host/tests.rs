@@ -34,14 +34,12 @@ fn nested_lua_verb_is_an_error() {
 #[test]
 fn a_spin_returns_a_budget_error_fast() {
     let mut state = test_state();
-    let t = Instant::now();
+    // The budget is CPU time: a loaded runner stretches the wall time.
+    let t = crate::thread_cpu_time();
     let e = run_chunk(&mut state, &test_ctx(), "while true do end").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    assert!(
-        t.elapsed() < Duration::from_millis(200),
-        "{:?}",
-        t.elapsed()
-    );
+    let took = crate::thread_cpu_time() - t;
+    assert!(took < Duration::from_millis(200), "{took:?}");
 }
 
 #[test]
@@ -121,14 +119,6 @@ fn a_failing_callback_names_itself() {
 fn test_reload_inside_lua_is_deferred() {
     let (mut state, mut rx) = crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
     let ctx = test_ctx();
-    // The whole reload runs inside the chunk and counts against its
-    // budget: a slow runner takes it past the default 50 ms.
-    TEST_LIMITS.with(|l| {
-        l.set(Some(Limits {
-            budget: Duration::from_secs(10),
-            ..Limits::default()
-        }))
-    });
     let r = run_chunk(&mut state, &ctx, "grofe.cmd{'reload'}");
     assert!(r.is_ok(), "{r:?}");
     let dir = tempfile::tempdir().unwrap();
@@ -294,14 +284,12 @@ fn a_required_module_that_spins_hits_the_budget() {
     let dir = folder("", &[("spin.luau", "while true do end")]);
     let mut state = test_state();
     load_init(&mut state, dir.path());
-    let t = Instant::now();
+    // The budget is CPU time: a loaded runner stretches the wall time.
+    let t = crate::thread_cpu_time();
     let e = require(&mut state, "spin").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    assert!(
-        t.elapsed() < Duration::from_millis(500),
-        "{:?}",
-        t.elapsed()
-    );
+    let took = crate::thread_cpu_time() - t;
+    assert!(took < Duration::from_millis(500), "{took:?}");
 }
 
 /// t8 (A8): a module that errors on load is an error naming it.

@@ -1,10 +1,10 @@
 use super::callbacks::{CALLBACKS, LINES, NEXT_ID, add_callback, free_line};
 pub use super::callbacks::{Payload, call, in_pack, release};
 use super::pack;
-use super::runtime::{LuaError, Runtime};
+use super::runtime::{LuaError, Runtime, off_budget};
 use super::system;
 pub use super::system::SystemJob;
-use mlua::{Function, Lua, Table, Value};
+use mlua::{Function, Lua, MultiValue, Table, Value};
 use std::cell::RefCell;
 
 pub trait Host {
@@ -292,7 +292,29 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     super::json::install(lua, &g)?;
     super::config::install(lua, &g)?;
     pack::install(lua, &g)?;
+    host_calls_off_budget(lua, &g)?;
     lua.globals().set("grofe", g)
+}
+
+/// The host-call boundary: every function in `t` (all Rust) and in its
+/// tables runs [`off_budget`], so the budget measures running Lua, not the
+/// host work (a reload, an fsync, a spawn) a call asks for. None of them
+/// runs Lua: a nested entry is refused.
+fn host_calls_off_budget(lua: &Lua, t: &Table) -> mlua::Result<()> {
+    let entries: Vec<(Value, Value)> = t.pairs().collect::<mlua::Result<_>>()?;
+    for (key, value) in entries {
+        match value {
+            Value::Function(f) => {
+                let paused = lua.create_function(move |lua, args: MultiValue| {
+                    off_budget(lua, || f.call::<MultiValue>(args))
+                })?;
+                t.set(key, paused)?;
+            }
+            Value::Table(sub) => host_calls_off_budget(lua, &sub)?,
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 pub fn enter<R>(

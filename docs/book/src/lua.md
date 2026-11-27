@@ -60,15 +60,18 @@ error.
 Every entry into Lua (the init file, a key, an event, a timer, a `system` callback, the `lua`
 command) is one call with its own limits:
 
-- 50 ms of run time. After that every step raises an error, so even a `pcall` loop ends within
-  twice the budget. Compiling the code is not run time: a large file costs nothing of it.
+- 50 ms of CPU time running Lua. After that every step raises an error, so even a `pcall` loop
+  ends within twice the budget. Time spent inside a `grofe.*` call (a command, a `grofe.store`
+  write, a spawn), compiling the code, and waiting on a busy machine do not count.
+- 5 s in all, `grofe.*` calls included, so a loop of them still ends.
 - 64 MiB of memory.
 - No `io`, no `os.execute`, no `loadstring`, no native modules. `require` loads modules from
   your config folder, or from a pack's own folder (see [Modules with `require`](#modules-with-require)).
 - Calling the `lua` command from Lua is an error, not a deadlock.
 
-When a call goes over, grofe aborts it, logs `<script>: over its 50 ms budget` and carries on. The
-worst case is a stutter of one budget, plus compiling the code. Anything slow (a `git` call, a network fetch) belongs in
+When a call goes over, grofe aborts it, logs `<script>: over its 50 ms budget` (or `over its 5000
+ms limit, host calls included`) and carries on. The worst case is a stutter of 5 s. Anything slow
+(a `git` call, a network fetch) belongs in
 `grofe.system`, which runs outside the server and calls you back with the result.
 
 ## The API (`grofe.api == 1`)

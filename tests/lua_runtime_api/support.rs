@@ -70,9 +70,7 @@ pub(crate) struct Pack<'a> {
 /// A server with `packs` installed through `pack sync` from local bare
 /// repos and loaded at start. `user_init` is the config folder's init.luau.
 pub(crate) fn with_packs(packs: &[Pack], user_init: Option<&str>) -> TestServer {
-    // A pack's init runs under the budget, and each `grofe.store` write
-    // in it fsyncs: a loaded runner takes a few of those past 50 ms.
-    let srv = TestServer::builder().lua_budget(WAIT).unstarted();
+    let srv = TestServer::builder().unstarted();
     let root = srv.home.join("repos");
     let mut config = String::new();
     for p in packs {

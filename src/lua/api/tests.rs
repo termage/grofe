@@ -12,11 +12,15 @@ struct FakeHost {
     cancelled: Vec<u32>,
     subs: Vec<(u32, Option<String>)>,
     jobs: Vec<SystemJob>,
+    /// The CPU time each `run` burns.
+    delay: Duration,
 }
 
 impl Host for FakeHost {
     fn run(&mut self, argv: Vec<String>) -> Result<String, String> {
         self.runs.push(argv);
+        let start = crate::thread_cpu_time();
+        while crate::thread_cpu_time() - start < self.delay {}
         match &self.fail {
             Some(e) => Err(e.clone()),
             None => Ok(self.reply.clone()),
@@ -81,6 +85,45 @@ fn eval<R: mlua::FromLuaMulti>(
     src: &str,
 ) -> Result<R, LuaError> {
     enter(rt, host, "t", |l| l.load(src).eval::<R>())
+}
+
+#[test]
+fn host_calls_are_off_the_budget_and_lua_is_not() {
+    let rt = rt();
+    let mut h = FakeHost {
+        delay: Duration::from_millis(200),
+        ..Default::default()
+    };
+    // 200 ms of CPU inside a host call, four times the budget: not Lua's.
+    eval::<()>(&rt, &mut h, "grofe.cmd{'slow'}").unwrap();
+    // Lua busy for as long fails. `os.clock` is wall time, so the loop asks
+    // for 2 s: a loaded runner still gives it far more than 50 ms of CPU.
+    let e = eval::<()>(
+        &rt,
+        &mut h,
+        "local t = os.clock() while os.clock() - t < 2 do end",
+    )
+    .unwrap_err();
+    assert!(e.message.contains("50 ms budget"), "{e}");
+}
+
+#[test]
+fn a_loop_of_host_calls_still_ends() {
+    let rt = Runtime::new(Limits {
+        wall: Duration::from_millis(300),
+        ..Limits::default()
+    })
+    .unwrap();
+    install(&rt).unwrap();
+    let mut h = FakeHost {
+        delay: Duration::from_millis(10),
+        ..Default::default()
+    };
+    let t = Instant::now();
+    let e = eval::<()>(&rt, &mut h, "while true do grofe.cmd{'slow'} end").unwrap_err();
+    assert!(e.message.contains("300 ms limit"), "{e}");
+    // Unlimited, it never ends; a descheduled runner may overshoot a little.
+    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
 }
 
 #[test]
@@ -240,13 +283,14 @@ fn test_callback_over_budget_errors() {
         "grofe.bind('root', 'x', function() while true do end end)",
     )
     .unwrap();
-    let t = Instant::now();
+    // The budget is CPU time: a loaded runner stretches the wall time.
+    let t = crate::thread_cpu_time();
     let e = call(&rt, &mut h, 1, Payload::None).unwrap_err();
     assert!(
         e.who.contains("callback 1") && e.message.contains("budget"),
         "{e}"
     );
-    assert!(t.elapsed() < Duration::from_millis(150));
+    assert!(crate::thread_cpu_time() - t < Duration::from_millis(150));
 }
 
 #[test]
