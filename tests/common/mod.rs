@@ -43,6 +43,7 @@
 
 #![allow(dead_code)]
 
+#[path = "../../src/test_exec.rs"]
 pub mod exec;
 
 use std::collections::BTreeSet;

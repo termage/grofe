@@ -18,7 +18,7 @@ mod b3wpc;
 mod b3wpd;
 mod b4flags;
 mod b4rest;
-#[path = "../common/exec.rs"]
+#[path = "../../src/test_exec.rs"]
 mod exec;
 mod fe_1;
 mod fe_2;

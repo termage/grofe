@@ -5,6 +5,9 @@
 //! busy for a moment: write it once, at a path of its own, with
 //! [`write_script`], and start it through [`retry_busy`], the workaround
 //! cargo's own test support uses.
+//!
+//! One copy for the crate's unit tests (`cfg(test)`) and the integration
+//! test targets, which include this file by `#[path]`.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};

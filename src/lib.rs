@@ -18,6 +18,8 @@ pub mod protocol;
 pub mod remote;
 pub mod server;
 pub mod term;
+#[cfg(test)]
+pub(crate) mod test_exec;
 pub mod types;
 pub mod util;
 
