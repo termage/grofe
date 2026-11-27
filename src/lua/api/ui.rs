@@ -3,6 +3,7 @@
 
 use super::{err, host_fn};
 use crate::lua::callbacks::add_callback;
+use crate::lua::runtime::host_function;
 use mlua::{Function, Lua, Table, Value};
 
 /// What `grofe.context()` reports.
@@ -90,7 +91,7 @@ fn parse_items(
 pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     g.set(
         "context",
-        lua.create_function(|lua, ()| {
+        host_function(lua, |lua, ()| {
             let (client, pane, cwd) =
                 host_fn(lua, "context")?
                     .call::<(Option<String>, Option<String>, Option<String>)>(())?;
@@ -103,39 +104,42 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     )?;
     g.set(
         "choose",
-        lua.create_function(|lua, (items, f, opts): (Value, Value, Option<Table>)| {
-            let (Value::Table(items), Value::Function(f)) = (items, f) else {
-                return Err(err("grofe.choose takes a list of items and a function"));
-            };
-            let (title, preview) = match opts {
-                Some(o) => (
-                    o.get::<Option<String>>("title")?,
-                    o.get::<Value>("preview")?,
-                ),
-                None => (None, Value::Nil),
-            };
-            let preview = match preview {
-                Value::Nil => None,
-                Value::Function(p) => Some(p),
-                _ => return Err(err("grofe.choose: preview must be a function")),
-            };
-            let (job, values) = parse_items(lua, items, title, preview)?;
-            // An empty list has nothing to choose from: it answers at once.
-            if job.labels.is_empty() {
-                return f.call::<()>(Value::Nil);
-            }
-            let host = host_fn(lua, "choose")?;
-            let pick = lua.create_function(move |_, pick: Option<usize>| match pick {
-                Some(i) => f.call::<()>(values.get::<Value>(i)?),
-                None => f.call::<()>(Value::Nil),
-            })?;
-            add_callback(lua, pick, |id| host.call((job.to_table(lua)?, id)))?;
-            Ok(())
-        })?,
+        host_function(
+            lua,
+            |lua, (items, f, opts): (Value, Value, Option<Table>)| {
+                let (Value::Table(items), Value::Function(f)) = (items, f) else {
+                    return Err(err("grofe.choose takes a list of items and a function"));
+                };
+                let (title, preview) = match opts {
+                    Some(o) => (
+                        o.get::<Option<String>>("title")?,
+                        o.get::<Value>("preview")?,
+                    ),
+                    None => (None, Value::Nil),
+                };
+                let preview = match preview {
+                    Value::Nil => None,
+                    Value::Function(p) => Some(p),
+                    _ => return Err(err("grofe.choose: preview must be a function")),
+                };
+                let (job, values) = parse_items(lua, items, title, preview)?;
+                // An empty list has nothing to choose from: it answers at once.
+                if job.labels.is_empty() {
+                    return f.call::<()>(Value::Nil);
+                }
+                let host = host_fn(lua, "choose")?;
+                let pick = lua.create_function(move |_, pick: Option<usize>| match pick {
+                    Some(i) => f.call::<()>(values.get::<Value>(i)?),
+                    None => f.call::<()>(Value::Nil),
+                })?;
+                add_callback(lua, pick, |id| host.call((job.to_table(lua)?, id)))?;
+                Ok(())
+            },
+        )?,
     )?;
     g.set(
         "input",
-        lua.create_function(|lua, (prompt, f): (Value, Value)| {
+        host_function(lua, |lua, (prompt, f): (Value, Value)| {
             let (Value::String(prompt), Value::Function(f)) = (prompt, f) else {
                 return Err(err("grofe.input takes a prompt string and a function"));
             };
