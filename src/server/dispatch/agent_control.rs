@@ -217,6 +217,16 @@ pub(crate) fn prompt(state: &mut State, ctx: &ClientCtx, c: AgentPrompt) -> Resu
     Ok(String::new())
 }
 
+/// A tray reply: `text` typed into `pane`'s agent as `agent prompt` types it.
+pub(crate) fn reply(state: &mut State, pane: PaneId, text: &str) -> Result<(), String> {
+    if state.agents.get(pane).is_none() {
+        return Err(format!("pane {pane} is not an agent pane"));
+    }
+    type_text(state, pane, text)?;
+    mark_prompted(state, pane);
+    Ok(())
+}
+
 /// `grofe.agent.prompt`: as [`prompt`] with a wait, ending in Lua callback
 /// `id` of runtime `generation` (with the state, or nothing on a timeout or a
 /// closed pane).

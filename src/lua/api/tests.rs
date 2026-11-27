@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Default)]
 struct FakeHost {
+    context: Option<Context>,
     runs: Vec<Vec<String>>,
     reply: String,
     fail: Option<String>,
@@ -12,15 +13,24 @@ struct FakeHost {
     cancelled: Vec<u32>,
     subs: Vec<(u32, Option<String>)>,
     jobs: Vec<SystemJob>,
-    /// The CPU time each `run` burns.
+    chooses: Vec<(ChooseJob, u32)>,
+    inputs: Vec<(String, u32)>,
+    notified: Vec<bool>,
+    /// The CPU time each host call (`run`, `choose`, `input`) burns.
     delay: Duration,
+}
+
+impl FakeHost {
+    fn burn(&self) {
+        let start = crate::thread_cpu_time();
+        while crate::thread_cpu_time() - start < self.delay {}
+    }
 }
 
 impl Host for FakeHost {
     fn run(&mut self, argv: Vec<String>) -> Result<String, String> {
         self.runs.push(argv);
-        let start = crate::thread_cpu_time();
-        while crate::thread_cpu_time() - start < self.delay {}
+        self.burn();
         match &self.fail {
             Some(e) => Err(e.clone()),
             None => Ok(self.reply.clone()),
@@ -67,7 +77,25 @@ impl Host for FakeHost {
     fn cancel(&mut self, id: u32) {
         self.cancelled.push(id);
     }
-    fn notify(&mut self, _: &str, _: Option<&str>, _: &str) -> Result<(), String> {
+    fn notify(&mut self, _: &str, _: Option<&str>, _: &str, reply: bool) -> Result<(), String> {
+        self.notified.push(reply);
+        Ok(())
+    }
+    fn context(&mut self) -> Context {
+        self.context.clone().unwrap_or_else(|| Context {
+            client: Some("client-1".into()),
+            pane: None,
+            cwd: Some("/w".into()),
+        })
+    }
+    fn choose(&mut self, req: ChooseJob, id: u32) -> Result<(), String> {
+        self.burn();
+        self.chooses.push((req, id));
+        Ok(())
+    }
+    fn input(&mut self, prompt: &str, id: u32) -> Result<(), String> {
+        self.burn();
+        self.inputs.push((prompt.into(), id));
         Ok(())
     }
     fn log(&mut self, _: &str) {}
@@ -105,6 +133,22 @@ fn host_calls_are_off_the_budget_and_lua_is_not() {
     )
     .unwrap_err();
     assert!(e.message.contains("50 ms budget"), "{e}");
+}
+
+#[test]
+fn choose_input_and_context_are_off_the_budget() {
+    let rt = rt();
+    let mut h = FakeHost {
+        delay: Duration::from_millis(200),
+        ..Default::default()
+    };
+    eval::<()>(
+        &rt,
+        &mut h,
+        "grofe.choose({'a'}, function() end) grofe.input('p', function() end) grofe.context()",
+    )
+    .unwrap();
+    assert_eq!((h.chooses.len(), h.inputs.len()), (1, 1));
 }
 
 /// Runs `src`, which must hit the budget, and the CPU time that took.
@@ -410,4 +454,127 @@ fn test_on_rejects_an_unknown_option_key() {
     .unwrap_err();
     assert!(e.to_string().contains("unknown option scope"), "{e}");
     assert!(h.subs.is_empty());
+}
+
+#[test]
+fn test_context_passes_host_fields_through() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let out: String = eval(
+        &rt,
+        &mut h,
+        "local c = grofe.context() return tostring(c.client) .. tostring(c.pane) .. tostring(c.cwd)",
+    )
+    .unwrap();
+    assert_eq!(out, "client-1nil/w");
+}
+
+#[test]
+fn test_context_fields_are_nil_when_the_host_has_none() {
+    let rt = rt();
+    let mut h = FakeHost {
+        context: Some(Context::default()),
+        ..FakeHost::default()
+    };
+    let out: String = eval(
+        &rt,
+        &mut h,
+        "local c = grofe.context() return tostring(c.client) .. tostring(c.pane) .. tostring(c.cwd)",
+    )
+    .unwrap();
+    assert_eq!(out, "nilnilnil");
+}
+
+#[test]
+fn test_choose_sends_labels_and_previews_and_maps_the_pick_to_the_value() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    eval::<()>(
+        &rt,
+        &mut h,
+        "grofe.choose({'a', {label = 'B', value = 42}}, function(v) got = v end, \
+         {title = 'T', preview = function(i) return type(i) end})",
+    )
+    .unwrap();
+    let (job, id) = h.chooses[0].clone();
+    assert_eq!(job.labels, ["a", "B"]);
+    assert_eq!(job.previews, ["string", "table"]);
+    assert_eq!(job.title.as_deref(), Some("T"));
+    call(&rt, &mut h, id, Payload::Pick(Some(2))).unwrap();
+    let got: f64 = eval(&rt, &mut h, "return got").unwrap();
+    assert_eq!(got, 42.0);
+    eval::<()>(&rt, &mut h, "grofe.choose({'a'}, function(v) got = v end)").unwrap();
+    let second = h.chooses[1].1;
+    call(&rt, &mut h, second, Payload::Pick(None)).unwrap();
+    assert!(
+        eval::<Option<f64>>(&rt, &mut h, "return got")
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn test_choose_with_no_items_answers_nil_at_once() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let out: String = eval(
+        &rt,
+        &mut h,
+        "local r = 'unset' grofe.choose({}, function(v) r = tostring(v) end) return r",
+    )
+    .unwrap();
+    assert_eq!(out, "nil");
+    assert!(h.chooses.is_empty());
+}
+
+#[test]
+fn test_choose_and_input_reject_bad_arguments() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    for src in [
+        "grofe.choose('x', function() end)",
+        "grofe.choose({'a'}, 1)",
+        "grofe.choose({'a', 5}, function() end)",
+        "grofe.choose({{value = 1}}, function() end)",
+        "grofe.choose({'a'}, function() end, {preview = 1})",
+        "grofe.input(5, function() end)",
+        "grofe.input('p', 'x')",
+    ] {
+        let e = eval::<()>(&rt, &mut h, src).expect_err(src).to_string();
+        assert!(
+            e.contains("grofe.choose") || e.contains("grofe.input"),
+            "{src}: {e}"
+        );
+    }
+    assert!(h.chooses.is_empty() && h.inputs.is_empty());
+}
+
+#[test]
+fn test_input_reaches_host_and_text_reaches_the_callback() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    eval::<()>(
+        &rt,
+        &mut h,
+        "grofe.input('Name: ', function(v) got = v end)",
+    )
+    .unwrap();
+    let (prompt, id) = h.inputs[0].clone();
+    assert_eq!(prompt, "Name: ");
+    call(&rt, &mut h, id, Payload::Text(Some("hi".into()))).unwrap();
+    let got: String = eval(&rt, &mut h, "return got").unwrap();
+    assert_eq!(got, "hi");
+}
+
+#[test]
+fn test_notify_reply_option_reaches_host() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    eval::<()>(
+        &rt,
+        &mut h,
+        "grofe.notify('a', {reply = true}) grofe.notify('b')",
+    )
+    .unwrap();
+    assert_eq!(h.notified, [true, false]);
 }

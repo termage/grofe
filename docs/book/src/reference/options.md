@@ -88,6 +88,30 @@ Default: `●`
 
 grofe only: tmux does not have this option.
 
+## agent-grid-format
+
+Format of an agent tile's label in the agent grid, expanded for the agent's pane.
+
+- **TOML key**: `agent-grid-format` (string)
+- **Scope**: session
+- **Values**: text
+
+Default: `#{session_name}:#{window_index}.#{pane_index}`
+
+grofe only: tmux does not have this option.
+
+## agent-sidebar-format
+
+Format of an agent's row label in the agent sidebar and, for a worktree session, in the agent picker, expanded for the agent's pane; a worktree session's row is its branch, then this label.
+
+- **TOML key**: `agent-sidebar-format` (string)
+- **Scope**: session
+- **Values**: text
+
+Default: `#{window_name}`
+
+grofe only: tmux does not have this option.
+
 ## aggressive-resize
 
 Resize a window to the clients that show it rather than to every client attached to the session.

@@ -2,6 +2,11 @@ use super::*;
 use crate::server::{test_ctx, test_state};
 use std::time::{Duration, Instant};
 
+/// Runs callback `id` for no key press.
+fn call(state: &mut State, id: u32, payload: Payload) {
+    call_for(state, None, id, payload);
+}
+
 fn messages(state: &State) -> String {
     clients::messages(state)
         .map(|(_, l)| l.as_str())
@@ -609,4 +614,13 @@ fn notify_with_no_session_posts_a_server_entry() {
     // A pane asked for by name must still exist.
     let e = run_chunk(&mut state, &ctx, "grofe.notify('x', {pane = '%9'})").unwrap_err();
     assert!(e.contains("no pane"), "{e}");
+}
+
+#[test]
+fn notify_reply_without_a_pane_is_an_error() {
+    let mut state = test_state();
+    let ctx = test_ctx();
+    let e = run_chunk(&mut state, &ctx, "grofe.notify('x', {reply = true})").unwrap_err();
+    assert!(e.contains("reply needs a pane"), "{e}");
+    assert!(state.notify.items().is_empty());
 }

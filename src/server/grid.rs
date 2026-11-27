@@ -10,7 +10,6 @@ use super::agents::{Agent, Rank, rank};
 use super::borders::PaneLines;
 use super::clients;
 use super::dispatch::agent;
-use super::dispatch::options::{FormatCtx, ServerVars};
 use super::frameopts;
 use super::input::{Input, InputHook, KeyCode, Routed};
 use super::listdraw::put_text;
@@ -18,7 +17,6 @@ use super::listview::{ListAction, ListState, filter};
 use super::pane::{CellFlags, SnapCell};
 use super::render::{Overlay, OverlayCtx, Screen};
 use super::status::Style;
-use crate::cmd::expand;
 use crate::types::{ClientId, PaneId};
 use draw::{Layout, Look, Tile, blank};
 
@@ -86,14 +84,6 @@ fn layout(state: &State, size: (u16, u16)) -> Layout {
     )
 }
 
-fn target_label(state: &State, pane: PaneId) -> String {
-    let vars = FormatCtx::new(&state.model, pane);
-    expand(
-        "#{session_name}:#{window_index}.#{pane_index}",
-        &ServerVars::fresh(state, pane, &vars),
-    )
-}
-
 fn age(since: Instant) -> String {
     let secs = since.elapsed().as_secs();
     match secs {
@@ -141,7 +131,7 @@ fn view(state: &State, query: &str) -> Vec<(Option<PaneId>, String)> {
         .filter(|p| state.model.panes.contains_key(p))
         .filter_map(|p| state.agents.get(p).map(|a| (p, a)))
         .map(|(p, a)| {
-            let label = target_label(state, p);
+            let label = agent::pane_format(state, p, "agent-grid-format");
             let t = title(&label, rank(a), a.kind.as_deref(), a.since, message(a));
             (Some(p), t, rank(a))
         });
