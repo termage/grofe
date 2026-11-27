@@ -18,6 +18,8 @@ mod b3wpc;
 mod b3wpd;
 mod b4flags;
 mod b4rest;
+#[path = "../common/exec.rs"]
+mod exec;
 mod fe_1;
 mod fe_2;
 mod fe_3;
@@ -41,17 +43,17 @@ mod wpa;
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use normalize::fixtures_dir;
 use record::check_version;
 use replay::{Step, find_scenarios, parse_scenario, split_words};
 
+/// A `tmux` printing `prints`, in a directory of its own under `dir`.
 fn fake_tmux(dir: &Path, prints: &str) -> PathBuf {
-    let path = dir.join("tmux");
-    fs::write(&path, format!("#!/bin/sh\necho '{prints}'\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = dir.join(prints).join("tmux");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    exec::write_script(&path, &format!("#!/bin/sh\necho '{prints}'\n"));
     path
 }
 
@@ -61,7 +63,7 @@ fn recorder_refuses_another_tmux_version_naming_it() {
     let err = check_version(&fake_tmux(dir.path(), "tmux 3.4")).unwrap_err();
     assert!(err.contains("tmux 3.4"), "{err}");
     assert!(err.contains("tmux 3.7b"), "{err}");
-    assert!(check_version(&fake_tmux(dir.path(), "tmux 3.7b")).is_ok());
+    assert_eq!(check_version(&fake_tmux(dir.path(), "tmux 3.7b")), Ok(()));
     assert!(
         check_version(Path::new("tmux")).is_err(),
         "relative path accepted"

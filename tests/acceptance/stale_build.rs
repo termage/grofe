@@ -31,20 +31,7 @@ fn command_at(srv: &TestServer, exe: &std::path::Path) -> Command {
 /// thread that forks in that window inherits the descriptor until its own exec
 /// closes it, so executing the fresh copy can briefly fail. Not a grofe bug.
 fn status_retrying_etxtbsy(mut make: impl FnMut() -> Command) -> std::process::ExitStatus {
-    let mut result = None;
-    common::wait_until(
-        "the copied grofe to be executable",
-        common::CMD_TIMEOUT,
-        || match make().status() {
-            Ok(status) => {
-                result = Some(status);
-                true
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => false,
-            Err(e) => panic!("run grofe: {e}"),
-        },
-    );
-    result.expect("status set")
+    common::exec::retry_busy(|| make().status()).unwrap_or_else(|e| panic!("run grofe: {e}"))
 }
 
 #[test]

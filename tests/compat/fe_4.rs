@@ -85,9 +85,9 @@ pub fn with_client_ttys(mut cli: Cli, dir: &Path) -> Cli {
     fs::create_dir_all(&wrap).unwrap();
     let script = wrap.join("tmux");
     let grofe = cli.program.display().to_string();
-    fs::write(
+    crate::exec::write_script(
         &script,
-        format!(
+        &format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
              *'list-clients -F #{{client_tty}}')\n\
@@ -97,9 +97,7 @@ pub fn with_client_ttys(mut cli: Cli, dir: &Path) -> Cli {
              esac\n\
              exec '{grofe}' \"$@\"\n"
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     cli.program = script;
     cli
 }
@@ -392,7 +390,7 @@ impl Attached {
                 Ok(())
             });
         }
-        let child = cmd.spawn().expect("spawn attach");
+        let child = crate::exec::retry_busy(|| cmd.spawn()).expect("spawn attach");
         drop(pty.slave);
         let master = File::from(pty.master);
         let mut reader = master.try_clone().expect("dup pty master");

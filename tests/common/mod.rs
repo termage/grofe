@@ -43,6 +43,8 @@
 
 #![allow(dead_code)]
 
+pub mod exec;
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};

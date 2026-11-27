@@ -6,7 +6,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crate::fe_1::grofe_cli;
@@ -95,9 +94,9 @@ fn with_client_ttys(mut cli: Cli, dir: &Path) -> Cli {
     fs::create_dir_all(&wrap).unwrap();
     let script = wrap.join("tmux");
     let grofe = cli.program.display().to_string();
-    fs::write(
+    crate::exec::write_script(
         &script,
-        format!(
+        &format!(
             "#!/bin/sh\n\
              unset OLDPWD _\n\
              case \"$*\" in\n\
@@ -108,9 +107,7 @@ fn with_client_ttys(mut cli: Cli, dir: &Path) -> Cli {
              esac\n\
              exec env -u SHLVL '{grofe}' \"$@\"\n"
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     cli.program = script;
     cli
 }
