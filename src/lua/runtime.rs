@@ -3,7 +3,11 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
+    /// CPU time running Lua. Host calls and compiling stop the clock.
     pub budget: Duration,
+    /// Wall-clock time for the whole call, host calls included: a loop of
+    /// host calls spends almost none of `budget`, and must still end.
+    pub wall: Duration,
     pub memory: usize,
 }
 
@@ -11,6 +15,9 @@ impl Default for Limits {
     fn default() -> Self {
         Limits {
             budget: Duration::from_millis(50),
+            // ponytail: one fixed ceiling for every call; a slow disk or
+            // a busy machine near it would need it per call kind.
+            wall: Duration::from_secs(5),
             memory: 64 << 20,
         }
     }
@@ -32,11 +39,44 @@ impl std::error::Error for LuaError {}
 
 pub struct Runtime {
     lua: mlua::Lua,
-    budget: Duration,
-    deadline: Arc<Mutex<Option<Instant>>>,
+    limits: Limits,
+    clock: Arc<Mutex<Option<Clock>>>,
 }
 
-fn lock(d: &Mutex<Option<Instant>>) -> std::sync::MutexGuard<'_, Option<Instant>> {
+/// The running call's limits.
+#[derive(Debug, Clone, Copy)]
+struct Clock {
+    /// The thread's CPU time when the call began.
+    cpu_start: Duration,
+    /// The CPU time host calls and compiles took since.
+    paused: Duration,
+    /// Until then the budget cannot be spent: CPU time grows no faster than
+    /// wall time, so the interrupt reads it only from here on.
+    check_at: Instant,
+    /// When `wall` runs out.
+    wall: Instant,
+    /// Interrupts so far: one that came during a host call means Lua ran
+    /// inside it (a metamethod on an argument), and that call is not paused.
+    steps: u64,
+    /// The budget ran out: every later step raises. Defence in depth: the
+    /// budget error is raised by an interrupt, which bumps `steps`, so the
+    /// host call that caught it is never paused and `used` stays spent.
+    spent: bool,
+    /// Nested [`off_budget`] calls running; only the outermost pauses.
+    depth: u32,
+}
+
+impl Clock {
+    /// The CPU time the call has spent running Lua.
+    fn used(&self) -> Duration {
+        crate::thread_cpu_time().saturating_sub(self.cpu_start + self.paused)
+    }
+}
+
+/// The running call's clock, where code holding only the `Lua` finds it.
+struct Shared(Arc<Mutex<Option<Clock>>>);
+
+fn lock(d: &Mutex<Option<Clock>>) -> std::sync::MutexGuard<'_, Option<Clock>> {
     d.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -47,15 +87,33 @@ impl Runtime {
             message: e.to_string(),
         };
         let lua = mlua::Lua::new();
-        let deadline: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
-        let d = deadline.clone();
-        let budget = limits.budget;
-        lua.set_interrupt(move |_| match *lock(&d) {
-            Some(at) if Instant::now() >= at => Err(mlua::Error::runtime(format!(
-                "over its {} ms budget",
-                budget.as_millis()
-            ))),
-            _ => Ok(mlua::VmState::Continue),
+        let clock: Arc<Mutex<Option<Clock>>> = Arc::new(Mutex::new(None));
+        let c = clock.clone();
+        lua.set_interrupt(move |_| {
+            let mut guard = lock(&c);
+            let Some(clock) = guard.as_mut() else {
+                return Ok(mlua::VmState::Continue);
+            };
+            clock.steps = clock.steps.wrapping_add(1);
+            let now = Instant::now();
+            if clock.spent || now >= clock.check_at {
+                let used = clock.used();
+                if clock.spent || used >= limits.budget {
+                    clock.spent = true;
+                    return Err(mlua::Error::runtime(format!(
+                        "over its {} ms budget",
+                        limits.budget.as_millis()
+                    )));
+                }
+                clock.check_at = now + (limits.budget - used);
+            }
+            if now >= clock.wall {
+                return Err(mlua::Error::runtime(format!(
+                    "over its {} ms limit, host calls included",
+                    limits.wall.as_millis()
+                )));
+            }
+            Ok(mlua::VmState::Continue)
         });
         lua.globals()
             .set("loadstring", mlua::Value::Nil)
@@ -63,24 +121,33 @@ impl Runtime {
         super::require::install(&lua).map_err(setup)?;
         lua.sandbox(true).map_err(setup)?;
         lua.set_memory_limit(limits.memory).map_err(setup)?;
-        Ok(Runtime {
-            lua,
-            budget,
-            deadline,
-        })
+        lua.set_app_data(Shared(clock.clone()));
+        Ok(Runtime { lua, limits, clock })
     }
 
-    /// Runs `f` under the time budget. A nested call keeps the earlier deadline.
+    /// Runs `f` under the limits. A nested call runs under the outer one's.
     pub fn guarded<R>(
         &self,
         who: &str,
         f: impl FnOnce(&mlua::Lua) -> mlua::Result<R>,
     ) -> Result<R, LuaError> {
-        let outer = *lock(&self.deadline);
-        let mine = Instant::now() + self.budget;
-        *lock(&self.deadline) = Some(outer.map_or(mine, |o| o.min(mine)));
+        let fresh = lock(&self.clock).is_none();
+        if fresh {
+            let now = Instant::now();
+            *lock(&self.clock) = Some(Clock {
+                cpu_start: crate::thread_cpu_time(),
+                paused: Duration::ZERO,
+                check_at: now + self.limits.budget,
+                wall: now + self.limits.wall,
+                steps: 0,
+                spent: false,
+                depth: 0,
+            });
+        }
         let result = f(&self.lua);
-        *lock(&self.deadline) = outer;
+        if fresh {
+            *lock(&self.clock) = None;
+        }
         result.map_err(|e| LuaError {
             who: who.to_string(),
             message: clean(&e),
@@ -88,12 +155,81 @@ impl Runtime {
     }
 
     pub fn exec(&self, who: &str, src: &str) -> Result<(), LuaError> {
-        self.guarded(who, |lua| lua.load(src).set_name(who).exec())
+        self.guarded(who, |lua| {
+            compile(lua, lua.load(src).set_name(who))?.call(())
+        })
     }
 
     pub fn lua(&self) -> &mlua::Lua {
         &self.lua
     }
+}
+
+/// Runs `f`, host work a Lua call asked for, with the budget's clock
+/// stopped, unless Lua ran inside it. The wall limit runs on, so a loop of
+/// host calls still ends.
+pub fn off_budget<R>(lua: &mlua::Lua, f: impl FnOnce() -> R) -> R {
+    let shared = lua.app_data_ref::<Shared>().map(|s| s.0.clone());
+    let steps = shared.as_ref().and_then(|c| {
+        lock(c).as_mut().map(|c| {
+            c.depth += 1;
+            c.steps
+        })
+    });
+    let start = crate::thread_cpu_time();
+    let r = f();
+    if let Some(shared) = &shared
+        && let Some(clock) = lock(shared).as_mut()
+    {
+        clock.depth = clock.depth.saturating_sub(1);
+        // ponytail: a call that ran Lua (an interrupt fired inside it) is
+        // charged whole, its host work included, to stop runaway code; to
+        // charge only the Lua, pause and resume the clock around each
+        // re-entry instead.
+        if clock.depth == 0 && Some(clock.steps) == steps {
+            clock.paused += crate::thread_cpu_time().saturating_sub(start);
+        }
+    }
+    r
+}
+
+/// A Rust function for the `grofe` API, made as `create_function` makes one,
+/// that runs [`off_budget`]: the budget measures running Lua, not the host
+/// work (a reload, an fsync, a spawn) a call asks for.
+pub fn host_function<A, R>(
+    lua: &mlua::Lua,
+    f: impl Fn(&mlua::Lua, A) -> mlua::Result<R> + mlua::MaybeSend + 'static,
+) -> mlua::Result<mlua::Function>
+where
+    A: mlua::FromLuaMulti,
+    R: mlua::IntoLuaMulti,
+{
+    lua.create_function(move |lua, args: A| off_budget(lua, || f(lua, args)))
+}
+
+/// Compiles `chunk` [`off_budget`]: only running the code counts. A debug
+/// build takes ~30 ms to compile 64 KiB of Luau, most of the budget.
+pub fn compile(lua: &mlua::Lua, chunk: mlua::chunk::Chunk) -> mlua::Result<mlua::Function> {
+    off_budget(lua, || chunk.into_function())
+}
+
+/// [`compile`] for a chunk run as `Chunk::eval` runs one: as an expression
+/// when `src` is one, else as a block.
+pub fn compile_eval(
+    lua: &mlua::Lua,
+    src: &[u8],
+    name: &str,
+    env: Option<mlua::Table>,
+) -> mlua::Result<mlua::Function> {
+    let chunk = |src: Vec<u8>| {
+        let c = lua.load(src).set_name(name);
+        match &env {
+            Some(env) => c.set_environment(env.clone()),
+            None => c,
+        }
+    };
+    let expression = [b"return ".as_slice(), src].concat();
+    compile(lua, chunk(expression)).or_else(|_| compile(lua, chunk(src.to_vec())))
 }
 
 /// The innermost error text, without mlua's wrapper and traceback.
@@ -127,15 +263,34 @@ mod tests {
     #[test]
     fn pcall_cannot_swallow_the_budget() {
         let r = rt();
-        let t = Instant::now();
-        assert!(
-            r.exec(
+        let t = crate::thread_cpu_time();
+        let e = r
+            .exec(
                 "p",
-                "while true do pcall(function() while true do end end) end"
+                "while true do pcall(function() while true do end end) end",
             )
-            .is_err()
-        );
-        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+            .unwrap_err();
+        assert!(e.message.contains("budget"), "{e}");
+        let took = crate::thread_cpu_time() - t;
+        assert!(took < 2 * Limits::default().budget, "{took:?}");
+    }
+    #[test]
+    fn nested_off_budget_pauses_once() {
+        let r = rt();
+        let burn = |d: Duration| {
+            let start = crate::thread_cpu_time();
+            while crate::thread_cpu_time() - start < d {}
+        };
+        let paused = r
+            .guarded("n", |lua| {
+                off_budget(lua, || off_budget(lua, || burn(Duration::from_millis(30))));
+                Ok(lock(&r.clock).map(|c| c.paused))
+            })
+            .unwrap()
+            .unwrap();
+        // Counted twice, it would be 60 ms or more.
+        assert!(paused >= Duration::from_millis(30), "{paused:?}");
+        assert!(paused < Duration::from_millis(50), "{paused:?}");
     }
     #[test]
     fn the_next_call_after_an_abort_runs() {
@@ -157,6 +312,7 @@ mod tests {
         let r = Runtime::new(Limits {
             memory: 8 << 20,
             budget: Duration::from_secs(5),
+            ..Limits::default()
         })
         .unwrap();
         let e = r
@@ -178,10 +334,10 @@ mod tests {
         r.exec("base", "n = 0 while true do n = n + 1 end")
             .unwrap_err();
         let fresh: f64 = r.lua().globals().get("n").unwrap();
-        r.guarded("outer", |_| {
-            // Past the outer deadline: a fresh inner budget would let the spin run as long as
+        r.guarded("outer", |lua| {
+            // Past the outer budget: a fresh inner budget would let the spin run as long as
             // the baseline did. Counting iterations instead of time ignores runner speed.
-            std::thread::sleep(Duration::from_millis(60));
+            let _ = lua.load("while true do end").exec();
             let inner = r
                 .exec("inner", "n = 0 while true do n = n + 1 end")
                 .unwrap_err();
@@ -199,21 +355,18 @@ mod tests {
     /// Runs `src`, checks it ended fast with an error containing `want`, then that the VM still runs.
     fn aborts(src: &str, want: &str) {
         let r = Runtime::new(Limits::default()).unwrap();
-        let t = Instant::now();
+        let t = crate::thread_cpu_time();
         let e = r.exec("p", src).unwrap_err();
-        // Unbudgeted, these never return, so any finite bound proves the abort; 2 s leaves room
-        // for a descheduled runner. The 2x-budget contract is a_spin_ends_within_twice_the_budget.
-        assert!(
-            t.elapsed() < Duration::from_secs(2),
-            "{src}: {:?}",
-            t.elapsed()
-        );
+        // Unbudgeted, these never return, so any finite bound proves the abort. CPU time, as
+        // the budget is: a loaded runner stretches the wall time.
+        let took = crate::thread_cpu_time() - t;
+        assert!(took < Duration::from_secs(2), "{src}: {took:?}");
         assert!(e.message.contains(want), "{src}: {e}");
         runs_after(&r);
     }
 
-    /// Checks that a trivial call runs. The budget is wall-clock, so a descheduled runner can push
-    /// even `z = 1` past it; a stale deadline fails at once, so only a full-budget miss is retried.
+    /// Checks that a trivial call runs; a stale deadline fails at once, so only a full-budget
+    /// miss is retried.
     fn runs_after(r: &Runtime) {
         let budget = Limits::default().budget;
         for _ in 0..5 {
@@ -295,6 +448,7 @@ mod tests {
         let r = Runtime::new(Limits {
             memory: 8 << 20,
             budget: Duration::from_secs(5),
+            ..Limits::default()
         })
         .unwrap();
         for _ in 0..2 {

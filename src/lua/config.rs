@@ -17,7 +17,7 @@ const RESERVED: [&str; 2] = ["config", "pack-lock"];
 pub fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     g.set(
         "config",
-        lua.create_function(|lua, (name, dir): (String, Option<String>)| {
+        super::runtime::host_function(lua, |lua, (name, dir): (String, Option<String>)| {
             if name.is_empty() || name.contains(['/', '\\']) || name.contains("..") {
                 return Err(err(format!("grofe.config: {name:?} is not a usable name")));
             }
