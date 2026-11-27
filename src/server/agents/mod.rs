@@ -9,6 +9,7 @@ mod rank;
 pub(crate) mod screen;
 mod text;
 pub(crate) mod waiters;
+pub(crate) mod worktree;
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;

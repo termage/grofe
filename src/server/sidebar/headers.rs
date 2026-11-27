@@ -4,7 +4,9 @@
 
 use super::{Row, State, jobs};
 use crate::cmd::expand;
+use crate::server::agents::worktree::{self, Block};
 use crate::server::agents::{Rank, rank};
+use crate::server::dispatch::agent;
 use crate::server::dispatch::options::{FormatCtx, ServerVars};
 use crate::types::{ClientId, PaneId};
 
@@ -66,55 +68,107 @@ fn field(state: &State, pane: PaneId, format: &str) -> String {
     expand(format, &ServerVars::fresh(state, pane, &vars))
 }
 
+/// One session's agents.
+struct Session {
+    name: String,
+    panes: Vec<PaneId>,
+}
+
+/// The header row over `panes`: the most urgent state among them.
+fn header(state: &State, label: String, panes: impl Iterator<Item = PaneId>) -> Row {
+    let panes: Vec<PaneId> = panes.collect();
+    Row {
+        pane: None,
+        label,
+        header: Some(Header {
+            rank: most_urgent(panes.iter().filter_map(|p| state.agents.get(*p)).map(rank)),
+            agents: panes.len(),
+        }),
+    }
+}
+
 /// Agents grouped by session, the client's own session first, then by the
 /// most urgent agent in each; a header row opens each group, urgency order
-/// inside it; jobs last.
+/// inside it; jobs last. Sessions in a git worktree of one repo share a
+/// header named after the repo, and their rows lead with their branch.
 pub(super) fn rows(state: &State, client: ClientId) -> Vec<Row> {
     let own = state
         .clients
         .get(&client)
         .and_then(|c| state.model.sessions.get(&c.session))
         .map(|s| s.name.clone());
-    let mut groups: Vec<(String, Vec<PaneId>)> = Vec::new();
+    let mut sessions: Vec<Session> = Vec::new();
     for pane in state.agents.by_urgency() {
         if !state.model.panes.contains_key(&pane) {
             continue;
         }
-        let session = field(state, pane, "#{session_name}");
-        match groups.iter_mut().find(|(s, _)| *s == session) {
-            Some((_, panes)) => panes.push(pane),
-            None => groups.push((session, vec![pane])),
+        let name = field(state, pane, "#{session_name}");
+        match sessions.iter_mut().find(|s| s.name == name) {
+            Some(s) => s.panes.push(pane),
+            None => sessions.push(Session {
+                name,
+                panes: vec![pane],
+            }),
         }
     }
-    if let Some(at) = groups.iter().position(|(s, _)| Some(s) == own.as_ref()) {
-        let first = groups.remove(at);
-        groups.insert(0, first);
+    if let Some(at) = sessions.iter().position(|s| Some(&s.name) == own.as_ref()) {
+        let first = sessions.remove(at);
+        sessions.insert(0, first);
     }
-    groups
-        .into_iter()
-        .flat_map(|(session, panes)| {
-            let prefix = if Some(&session) == own.as_ref() {
-                String::new()
-            } else {
-                format!("{session}:")
-            };
-            let header = Row {
-                pane: None,
-                label: session,
-                header: Some(Header {
-                    rank: most_urgent(panes.iter().filter_map(|p| state.agents.get(*p)).map(rank)),
-                    agents: panes.len(),
-                }),
-            };
-            let entries = panes.into_iter().map(move |pane| Row {
-                pane: Some(pane),
-                label: format!("{prefix}{}", field(state, pane, "#{window_name}")),
-                header: None,
-            });
-            std::iter::once(header).chain(entries)
-        })
-        .chain(jobs::rows(state))
-        .collect()
+    let infos: Vec<_> = sessions
+        .iter()
+        .map(|s| worktree::of_pane(state, s.panes[0]))
+        .collect();
+    let mut rows = Vec::new();
+    for block in worktree::arrange(&infos) {
+        match block {
+            Block::One(n) => {
+                let s = &sessions[n];
+                rows.push(header(state, s.name.clone(), s.panes.iter().copied()));
+                rows.extend(entries(state, s, own.as_ref(), None));
+            }
+            Block::Repo { repo, members } => {
+                let all = members
+                    .iter()
+                    .flat_map(|n| sessions[*n].panes.iter().copied());
+                rows.push(header(state, repo, all));
+                for n in members {
+                    let branch = infos[n].as_ref().map(|i| i.branch.as_str());
+                    rows.extend(entries(state, &sessions[n], own.as_ref(), branch));
+                }
+            }
+        }
+    }
+    rows.extend(jobs::rows(state));
+    rows
+}
+
+/// The rows of a session's agents: labelled by their window, after the
+/// session's name when it is not the client's own, or by `branch` then the
+/// window.
+fn entries<'a>(
+    state: &'a State,
+    s: &'a Session,
+    own: Option<&String>,
+    branch: Option<&'a str>,
+) -> impl Iterator<Item = Row> + 'a {
+    let prefix = if Some(&s.name) == own {
+        String::new()
+    } else {
+        format!("{}:", s.name)
+    };
+    s.panes.iter().map(move |&pane| {
+        let window = agent::pane_format(state, pane, "agent-sidebar-format");
+        let label = match branch {
+            Some(b) => format!("{b} · {window}"),
+            None => format!("{prefix}{window}"),
+        };
+        Row {
+            pane: Some(pane),
+            label,
+            header: None,
+        }
+    })
 }
 
 #[cfg(test)]

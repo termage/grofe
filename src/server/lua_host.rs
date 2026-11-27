@@ -3,7 +3,7 @@
 //! so the host can hold `&mut State`; a call that finds it taken is nested.
 
 use crate::cmd;
-use crate::lua::api::{self, Host, Payload, PromptJob, SystemJob};
+use crate::lua::api::{self, ChooseJob, Context, Host, Payload, PromptJob, SystemJob};
 use crate::lua::runtime::{Limits, LuaError, Runtime, compile, compile_eval};
 use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
@@ -16,6 +16,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+pub(crate) mod ui;
+pub(crate) use ui::Inputs;
 
 const PLUGIN: &str = "lua";
 
@@ -86,6 +89,9 @@ struct StateHost<'a> {
     ctx: ClientCtx,
     /// No request owns this call: see [`with_client_less_host`].
     client_less: bool,
+    /// The key press (or chooser or input answer) this call runs for, what
+    /// `grofe.context()` reports; none for a timer, event, pack or CLI call.
+    press: Option<ClientCtx>,
 }
 
 /// What a key bound by `grofe.bind` runs for callback `id`.
@@ -234,7 +240,54 @@ impl Host for StateHost<'_> {
         }
     }
 
-    fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String> {
+    fn context(&mut self) -> Context {
+        let Some(p) = self.press.as_ref() else {
+            return Context::default();
+        };
+        let model = &self.state.model;
+        let pane = p
+            .pane
+            .or_else(|| cmd::Resolve::resolve_pane(model, &cmd::target::Target::Current, p).ok())
+            .filter(|id| model.panes.contains_key(id));
+        let cwd = pane
+            .and_then(|id| model.panes.get(&id))
+            .map_or(&p.cwd, |p| &p.cwd);
+        Context {
+            client: p
+                .client
+                .and_then(|id| self.state.clients.get(&id))
+                .map(|c| c.name.clone()),
+            pane: pane.map(|id| id.to_string()),
+            cwd: Some(cwd.to_string_lossy().into_owned()),
+        }
+    }
+
+    fn choose(&mut self, req: ChooseJob, id: u32) -> Result<(), String> {
+        let (client, press) = ui::client_of(self.state, self.press.as_ref(), &self.ctx)?;
+        let from = (self.async_.generation(), id);
+        crate::server::picker::chooser::open(self.state, client, press, from, req);
+        Ok(())
+    }
+
+    fn input(&mut self, prompt: &str, id: u32) -> Result<(), String> {
+        let (client, press) = ui::client_of(self.state, self.press.as_ref(), &self.ctx)?;
+        ui::input(
+            self.state,
+            client,
+            press,
+            (self.async_.generation(), id),
+            prompt,
+        );
+        Ok(())
+    }
+
+    fn notify(
+        &mut self,
+        text: &str,
+        pane: Option<&str>,
+        level: &str,
+        reply: bool,
+    ) -> Result<(), String> {
         let model = &self.state.model;
         let pane = match pane {
             Some(p) => {
@@ -249,6 +302,9 @@ impl Host for StateHost<'_> {
                 cmd::Resolve::resolve_pane(model, &cmd::target::Target::Current, &self.ctx).ok()
             }
         };
+        if reply && pane.is_none() {
+            return Err("grofe.notify: reply needs a pane".into());
+        }
         let uid = match pane {
             Some(id) => match model.panes.get(&id) {
                 Some(p) => p.uid.clone(),
@@ -258,7 +314,7 @@ impl Host for StateHost<'_> {
         };
         self.state
             .notify
-            .post(pane, &uid, level, text, std::time::Instant::now());
+            .post(pane, &uid, level, text, reply, std::time::Instant::now());
         clients::mark_all_dirty(self.state);
         Ok(())
     }
@@ -274,6 +330,17 @@ fn with_host<R>(
     state: &mut State,
     ctx: ClientCtx,
     client_less: bool,
+    f: impl FnOnce(&Runtime, &mut dyn Host) -> Result<R, LuaError>,
+) -> Result<R, LuaError> {
+    with_press(state, ctx, client_less, None, f)
+}
+
+/// [`with_host`] for a call that runs for key press `press`.
+fn with_press<R>(
+    state: &mut State,
+    ctx: ClientCtx,
+    client_less: bool,
+    press: Option<ClientCtx>,
     f: impl FnOnce(&Runtime, &mut dyn Host) -> Result<R, LuaError>,
 ) -> Result<R, LuaError> {
     let fail = |m: &str| LuaError {
@@ -303,6 +370,7 @@ fn with_host<R>(
             replaced: &mut lua.replaced,
             ctx,
             client_less,
+            press,
         },
     );
     if state.lua.is_none() {
@@ -371,6 +439,8 @@ pub(crate) fn reset(state: &mut State) {
     }
     headless::clear(state);
     dispatch::agent_control::clear_lua(state);
+    crate::server::picker::chooser::clear(state);
+    ui::clear(state);
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
 }
@@ -504,8 +574,20 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result<String, String> {
-    with_host(state, ctx.clone(), false, |rt, host| {
+    run_chunk_for(state, ctx, None, src)
+}
+
+/// Runs `src` as a chunk; `grofe.context()` reports key press `press` (a
+/// binding's; none for a CLI call).
+pub(crate) fn run_chunk_for(
+    state: &mut State,
+    ctx: &ClientCtx,
+    press: Option<&ClientCtx>,
+    src: &str,
+) -> Result<String, String> {
+    with_press(state, ctx.clone(), false, press.cloned(), |rt, host| {
         api::enter(rt, host, "lua", |lua| {
             let values =
                 compile_eval(lua, src.as_bytes(), "lua", None)?.call::<mlua::MultiValue>(())?;
@@ -516,10 +598,16 @@ pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result
     .map_err(|e| e.to_string())
 }
 
-pub(crate) fn call(state: &mut State, id: u32, payload: Payload) {
-    let r = with_host(state, client_less_ctx(), false, |rt, host| {
-        api::call(rt, host, id, payload)
-    });
+/// Runs callback `id` for key press `press` (a binding's, or the one a chooser or
+/// prompt it opened answers to; none for a CLI call): `grofe.context()` reports it.
+pub(crate) fn call_for(state: &mut State, press: Option<&ClientCtx>, id: u32, payload: Payload) {
+    let r = with_press(
+        state,
+        client_less_ctx(),
+        false,
+        press.cloned(),
+        |rt, host| api::call(rt, host, id, payload),
+    );
     if let Err(e) = r {
         log_error(state, &e);
     }
@@ -555,6 +643,14 @@ pub(crate) fn call_job(state: &mut State, id: u32, payload: Payload) {
 /// [`call_job`] for a callback that runs once: it is freed after.
 pub(crate) fn call_once(state: &mut State, id: u32, payload: Payload) {
     call_job(state, id, payload);
+    if let Some(lua) = state.lua.as_ref() {
+        api::release(&lua.rt, id);
+    }
+}
+
+/// [`call`] for a callback that runs once: it is freed after.
+pub(crate) fn call_once_for(state: &mut State, press: &ClientCtx, id: u32, payload: Payload) {
+    call_for(state, Some(press), id, payload);
     if let Some(lua) = state.lua.as_ref() {
         api::release(&lua.rt, id);
     }

@@ -5,6 +5,9 @@ export type SystemResult = {
 	code: number,
 	stdout: string,
 	stderr: string,
+	timed_out: boolean, -- killed by its timeout_ms
+	error: string?, -- the command could not be spawned
+	signal: number?, -- the signal that killed it
 }
 
 export type BindOptions = {
@@ -40,6 +43,24 @@ export type OnOptions = {
 export type NotifyOptions = {
 	pane: string?,
 	level: ("info" | "warn" | "error")?,
+	-- Enter on the tray entry opens grofe.input and sends the text to `pane`
+	reply: boolean?,
+}
+
+-- fn gets `value`, or the label when a table has no value
+export type ChooseItem = string | { label: string, value: any? }
+
+export type ChooseOptions = {
+	title: string?,
+	-- text shown for the selected item
+	preview: ((item: any) -> string)?,
+}
+
+-- Client, pane and cwd of the key press; every field is nil outside one.
+export type Context = {
+	client: string?,
+	pane: string?,
+	cwd: string?,
 }
 
 declare grofe: {
@@ -56,6 +77,9 @@ declare grofe: {
 		prompt: (pane: string, text: string, opts: PromptOptions?, fn: (state: string?) -> ()) -> number,
 		read: (pane: string, n: number?) -> string,
 	},
+	choose: (items: { ChooseItem }, fn: (item: any?) -> (), opts: ChooseOptions?) -> (),
+	input: (prompt: string, fn: (text: string?) -> ()) -> (),
+	context: () -> Context,
 	log: (msg: string) -> (),
 	plugin: (name: string) -> any,
 	notify: (text: string, opts: NotifyOptions?) -> (),
