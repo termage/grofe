@@ -37,7 +37,7 @@ fn check(name: &str, diverges: &[(&str, &str)]) {
     let parsed = parse_scenario(&fs::read_to_string(&scenario).unwrap()).unwrap();
     let golden = fs::read_to_string(scenario.with_extension("golden")).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cli = with_client_ttys(grofe_cli(dir.path()), dir.path());
+    let cli = grofe_cli(dir.path());
     let got = replay(&cli, &parsed).normalized(&Normalizer::load());
     let (want, got) = (steps(&golden), steps(&got));
     assert_eq!(
@@ -72,34 +72,6 @@ fn check(name: &str, diverges: &[(&str, &str)]) {
         stale.is_empty(),
         "fe_4/{name}: listed steps now match: {stale:#?}"
     );
-}
-
-/// `cli` behind a wrapper that answers the replayer's attach check,
-/// `list-clients -F '#{client_tty}'`, with the ttys of this run's attach
-/// clients once the server lists a client, since grofe's `client_tty` is
-/// still empty (FE.2's). Every other command reaches grofe as it is.
-// ponytail: harness only, the same shim as FE.3's; drop it once FE.2 fills
-// client_tty.
-pub fn with_client_ttys(mut cli: Cli, dir: &Path) -> Cli {
-    let wrap = dir.join("wrap");
-    fs::create_dir_all(&wrap).unwrap();
-    let script = wrap.join("tmux");
-    let grofe = cli.program.display().to_string();
-    crate::exec::write_script(
-        &script,
-        &format!(
-            "#!/bin/sh\n\
-             case \"$*\" in\n\
-             *'list-clients -F #{{client_tty}}')\n\
-             \x20 [ \"$('{grofe}' \"$@\" | wc -l)\" -gt 0 ] || exit 0\n\
-             \x20 ps -A -o tty= -o args= | awk -v g='{grofe}' 'index($0, g \" \") && / attach/ {{ print \"/dev/\" $1 }}'\n\
-             \x20 exit 0 ;;\n\
-             esac\n\
-             exec '{grofe}' \"$@\"\n"
-        ),
-    );
-    cli.program = script;
-    cli
 }
 
 /// Case 1: vim-tmux-navigator's `if -F` C-h test from the CLI (the
@@ -206,7 +178,7 @@ fn popup_env_is_tmux_s() {
     let scenario = fixtures_dir().join("golden/fe_4/popup-env.scenario");
     let parsed = parse_scenario(&fs::read_to_string(&scenario).unwrap()).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cli = with_client_ttys(grofe_cli(dir.path()), dir.path());
+    let cli = grofe_cli(dir.path());
     let mut run = replay(&cli, &parsed);
     // The server's pid exactly, from `TMUX` (`<socket>,<pid>,<session>`),
     // in place of the replayer's pid window, which a busy machine can

@@ -6,11 +6,10 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
 
 use crate::fe_1::grofe_cli;
 use crate::normalize::{Normalizer, fixtures_dir};
-use crate::replay::{Cli, Transcript, parse_scenario, replay, steps};
+use crate::replay::{Transcript, parse_scenario, replay, steps};
 
 /// The grofe side of `fe_3/<name>` against its golden, after `fix`
 /// (harness differences only), allowing the listed steps to differ.
@@ -19,7 +18,7 @@ fn check(name: &str, diverges: &[(&str, &str)], fix: fn(String) -> String) {
     let parsed = parse_scenario(&fs::read_to_string(&scenario).unwrap()).unwrap();
     let golden = fs::read_to_string(scenario.with_extension("golden")).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cli = with_client_ttys(grofe_cli(dir.path()), dir.path());
+    let cli = grofe_cli(dir.path());
     let got = fix(exact_pids(replay(&cli, &parsed)).normalized(&Normalizer::load()));
     let (want, got) = (steps(&golden), steps(&got));
     assert_eq!(
@@ -80,36 +79,6 @@ pub fn exact_pids(mut t: Transcript) -> Transcript {
     t.ctx.pids = None;
     t.ctx.exact_pids = pids;
     t
-}
-
-/// `cli` behind a wrapper that answers the replayer's attach check,
-/// `list-clients -F '#{client_tty}'`, with the ttys of this run's attach
-/// clients once the server lists a client, since grofe's `client_tty` is
-/// still empty (TC.3 left it a stub for FE.2, which sends the tty in the
-/// attach hello). Every other command reaches grofe as it is, without the
-/// variables the wrapper's own shell adds (`SHLVL`, `OLDPWD`, `_`).
-// ponytail: harness only; drop it once FE.2 fills client_tty.
-fn with_client_ttys(mut cli: Cli, dir: &Path) -> Cli {
-    let wrap = dir.join("wrap");
-    fs::create_dir_all(&wrap).unwrap();
-    let script = wrap.join("tmux");
-    let grofe = cli.program.display().to_string();
-    crate::exec::write_script(
-        &script,
-        &format!(
-            "#!/bin/sh\n\
-             unset OLDPWD _\n\
-             case \"$*\" in\n\
-             *'list-clients -F #{{client_tty}}')\n\
-             \x20 [ \"$('{grofe}' \"$@\" | wc -l)\" -gt 0 ] || exit 0\n\
-             \x20 ps -A -o tty= -o args= | awk -v g='{grofe}' 'index($0, g \" \") && / attach/ {{ print \"/dev/\" $1 }}'\n\
-             \x20 exit 0 ;;\n\
-             esac\n\
-             exec env -u SHLVL '{grofe}' \"$@\"\n"
-        ),
-    );
-    cli.program = script;
-    cli
 }
 
 fn same(s: String) -> String {
