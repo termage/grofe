@@ -38,6 +38,9 @@ check() {
     done ;;
   format)
     [ "$(tmux display -p -t "$1" "$2" 2>/dev/null)" = "$3" ] ;;
+  seen)
+    seen=$(tmux display -p -t "$1" "$2" 2>/dev/null)
+    [ "$seen" = "$3" ] ;;
   clients)
     [ "$(tmux list-clients | wc -l)" -eq "$1" ] ;;
   gone)
@@ -52,7 +55,11 @@ until check "$@"; do
   i=$((i + 1))
   if [ "$i" -ge 100 ]; then
     echo "wait.sh: timed out: $what $*" >&2
-    exit 0
+    break
   fi
   sleep 0.1
 done
+# seen: print the value the wait read last, so one read both waits for a
+# value that does not stay (mode 2026's flag) and records it.
+[ "$what" != seen ] || echo "$seen"
+exit 0
