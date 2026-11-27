@@ -16,9 +16,16 @@ use std::os::fd::OwnedFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use alacritty_terminal::Term;
+use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line};
+use alacritty_terminal::term::{Config, test::TermSize};
+use alacritty_terminal::vte::ansi::Processor;
 use grofe::compat::tmux;
 use grofe::protocol::{ClientCtx, Dialect};
 use nix::pty::Winsize;
@@ -331,10 +338,12 @@ fn popup_style_flags_are_not_ignored() {
 
 // ---- Keys pressed on an attached client ------------------------------------
 
-/// An attach client on a pty, for pressing keys.
+/// An attach client on a pty, for pressing keys; what it draws is kept,
+/// so a test can wait for a menu or a prompt before typing into it.
 struct Attached {
     child: Child,
     master: File,
+    drawn: Arc<Mutex<Vec<u8>>>,
 }
 
 impl Attached {
@@ -365,14 +374,38 @@ impl Attached {
         drop(pty.slave);
         let master = File::from(pty.master);
         let mut reader = master.try_clone().expect("dup pty master");
+        let drawn = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&drawn);
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
-            while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+            while let Ok(n @ 1..) = reader.read(&mut buf) {
+                sink.lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .extend_from_slice(&buf[..n]);
+            }
         });
         wait_until("a client attached", || {
             !cli.run(&words(&["list-clients"])).1.is_empty()
         });
-        Attached { child, master }
+        Attached {
+            child,
+            master,
+            drawn,
+        }
+    }
+
+    /// Whether the client's screen, as drawn so far, shows `text`.
+    fn shows(&self, text: &str) -> bool {
+        let bytes = self.drawn.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut term = Term::new(Config::default(), &TermSize::new(80, 24), VoidListener);
+        let mut parser: Processor = Processor::new();
+        parser.advance(&mut term, &bytes);
+        let grid = term.grid();
+        (0..grid.screen_lines()).any(|y| {
+            let row = &grid[Line(y as i32)];
+            let line: String = (0..grid.columns()).map(|x| row[Column(x)].c).collect();
+            line.contains(text)
+        })
     }
 
     fn press(&mut self, bytes: &[u8]) {
@@ -1131,8 +1164,13 @@ fn menu_item_prompt(grofe_server: bool, via_run_shell: bool) {
             &["list-windows", "-t", "main", "-F", "#{window_name}"],
         )
     };
+    // The menu opens, and its item's prompt, after the keys that ask for
+    // them: through a run-shell later still. A key typed sooner goes to the
+    // pane.
     client.press(b"\x02m");
+    wait_until("the menu", || client.shows("(r)"));
     client.press(b"r");
+    wait_until("the prompt", || client.shows("Rename window:"));
     client.press(b"\x15renamed\r");
     wait_until("the renamed window", || names() == "renamed\n");
     drop(client);
