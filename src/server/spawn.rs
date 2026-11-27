@@ -198,13 +198,24 @@ pub(crate) fn spawn(cmd: &mut Command) -> io::Result<Child> {
 /// does ([`pane::cloexec_inherited_fds`]): macOS sets `FD_CLOEXEC` on a new
 /// socket with a separate call, so a child started meanwhile on another
 /// thread would hold that socket (a client's connection, a remote link)
-/// open for its whole life.
+/// open for its whole life. It also starts the child with no signal blocked
+/// and SIGPIPE (which Rust ignores) at its default, whatever the spawning
+/// thread blocks.
 pub(crate) fn stdio_only(cmd: &mut std::process::Command) {
+    use nix::libc;
     use std::os::unix::process::CommandExt;
     let limit = pane::nofile_limit();
-    // SAFETY: the closure only makes async-signal-safe `fcntl` calls.
+    // Built before the fork, so the child only copies it.
+    // SAFETY: a zeroed sigset_t is valid, and sigemptyset only writes it.
+    let mut empty: libc::sigset_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `empty` is a valid, writable sigset_t.
+    unsafe { libc::sigemptyset(&mut empty) };
+    // SAFETY: the closure only makes async-signal-safe `sigprocmask`,
+    // `signal` and `fcntl` calls, and allocates nothing.
     unsafe {
         cmd.pre_exec(move || {
+            libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
             pane::cloexec_inherited_fds(limit);
             Ok(())
         });
