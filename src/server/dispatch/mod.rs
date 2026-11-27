@@ -299,6 +299,17 @@ pub fn defer_reply(state: &mut State) -> oneshot::Sender<Result<String, crate::p
     tx
 }
 
+/// What the tmux text of user options needs when `#{E:}` reads it: the
+/// status sources of its `#(cmd)`s and the option its `#}` stand for, which
+/// the front end sets for a format it rewrites ([`compat::tmux::formats`]).
+/// `text` is the option's whole value, so an append can complete a `#(cmd)`.
+fn register_user_jobs(state: &mut State, ctx: &ClientCtx, text: &str) {
+    use compat::tmux::formats::{Jobs, to_native};
+    for cmd in to_native(text, Jobs::Sources).before {
+        let _ = route(state, ctx, cmd);
+    }
+}
+
 fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, String> {
     match cmd {
         Command::NewSession(c) => session::new_session(state, ctx, c),
@@ -338,6 +349,9 @@ fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, Str
             let silence = c.name == "monitor-silence";
             let unattached = c.name == "destroy-unattached";
             let out = options::run(state, ctx, Command::SetOption(c));
+            if let Some(text) = state.model.options.take_marked() {
+                register_user_jobs(state, ctx, &text);
+            }
             server::sources::prune_unreferenced(state);
             if unattached && out.is_ok() {
                 clients::check_unattached(state);

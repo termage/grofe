@@ -47,10 +47,11 @@ pub trait FormatVars {
         None
     }
 
-    /// `text`, a format that something read back out of a variable and is
-    /// about to be expanded again (`#{E:}`, `#{T:}`), in the language the
-    /// expander reads: a tmux server stores formats as tmux wrote them.
-    fn reexpand(&self, text: &str) -> String {
+    /// `text`, a format that something read back out of the variable `name`
+    /// and is about to be expanded again (`#{E:}`, `#{T:}`), in the language
+    /// the expander reads: a tmux server stores formats as tmux wrote them,
+    /// and a user option as the tmux client that set it did.
+    fn reexpand(&self, _name: &str, text: &str) -> String {
         text.to_string()
     }
 
@@ -159,6 +160,32 @@ pub(crate) const SHORT_FORMS: &[(char, &str)] = &[
     ('W', "window_name"),
     ('h', "host_short"),
 ];
+
+/// The `]` of the last `#[...]` style tmux's `format_expand1` passed, which
+/// no short form inside it expands (`#[fg=#FFD700]` keeps its colour).
+#[derive(Default)]
+pub(crate) struct StyleEnd(Option<usize>);
+
+impl StyleEnd {
+    /// Passes the style `fmt[at..]` starts with (`at` is a `#`): `#[`, and
+    /// `##[` with any number of `#`, which tmux keeps as written for the
+    /// drawing. `Ok` is the offset just past its `[`; `Err` the length of
+    /// the run of `#` that is no style.
+    pub(crate) fn pass(&mut self, fmt: &str, at: usize) -> Result<usize, usize> {
+        let run = fmt[at..].bytes().take_while(|&b| b == b'#').count();
+        let open = at + run;
+        if !fmt[open..].starts_with('[') {
+            return Err(run);
+        }
+        self.0 = modify::skip1(&fmt[at..], b"]").map(|end| at + end);
+        Ok(open + 1)
+    }
+
+    /// Whether a short form ending at `after` is outside the style.
+    pub(crate) fn allows(&self, after: usize) -> bool {
+        self.0.is_none_or(|end| after > end)
+    }
+}
 
 /// Expands every `#{...}` in `fmt` against `vars`, and `##` to a literal
 /// `#`.
@@ -480,10 +507,8 @@ impl<'a> Expander<'a> {
     /// [`Self::expand_pieces`] for a format in tmux's language: tmux's
     /// `format_expand1` loop, logging as it does.
     fn expand_pieces_tmux(&self, fmt: &str) -> String {
-        let b = fmt.as_bytes();
         let mut out = String::with_capacity(fmt.len());
-        // The `]` of the last style found: no short form inside it.
-        let mut style_end: Option<usize> = None;
+        let mut style = StyleEnd::default();
         let mut i = 0;
         while let Some(ch) = fmt[i..].chars().next() {
             if ch != '#' {
@@ -535,18 +560,10 @@ impl<'a> Expander<'a> {
                     i = end + 1;
                 }
                 '[' | '#' => {
-                    // `#[`, and `##[` with any number of `#`, start a style,
-                    // kept as it is for the drawing.
-                    let (mut p, mut n) = if c == '[' { (i + 1, 1) } else { (after, 2) };
-                    while b.get(p) == Some(&b'#') {
-                        p += 1;
-                        n += 1;
-                    }
-                    if b.get(p) == Some(&b'[') {
-                        style_end = modify::skip1(&fmt[i..], b"]").map(|e| i + e);
-                        self.log(|| format!("found #*{n}["));
-                        out.push_str(&fmt[i..i + n + 1]);
-                        i = p + 1;
+                    if let Ok(end) = style.pass(fmt, i) {
+                        self.log(|| format!("found #*{}[", end - i - 1));
+                        out.push_str(&fmt[i..end]);
+                        i = end;
                         continue;
                     }
                     self.log(|| "found ##".to_string());
@@ -561,8 +578,7 @@ impl<'a> Expander<'a> {
                 _ => {
                     let short = SHORT_FORMS
                         .iter()
-                        .find(|(f, _)| *f == c)
-                        .filter(|_| style_end.is_none_or(|e| after > e));
+                        .find(|(f, _)| *f == c && style.allows(after));
                     let Some((_, name)) = short else {
                         out.push('#');
                         out.push(c);
