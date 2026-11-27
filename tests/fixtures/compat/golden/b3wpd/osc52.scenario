@@ -48,7 +48,6 @@ $ run-shell 'sh {fixtures}/wait.sh shows main:16 done'
 $ delete-buffer -b named
 $ new-window -d -t main:17 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 $ run-shell 'sh {fixtures}/wait.sh shows main:17 done'
-$ run-shell 'sh {fixtures}/wait.sh shows main:17 done'
 $ capture-pane -p -t main:2
 $ capture-pane -p -t main:3
 $ capture-pane -p -t main:4

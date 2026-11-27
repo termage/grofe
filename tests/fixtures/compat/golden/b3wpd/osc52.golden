@@ -98,8 +98,6 @@ $ new-window -d -t main:17 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
 $ run-shell 'sh {fixtures}/wait.sh shows main:17 done'
 ? 0
-$ run-shell 'sh {fixtures}/wait.sh shows main:17 done'
-? 0
 $ capture-pane -p -t main:2
 ^[]52;c;aGVsbG8gd29ybGQ=^G
 done
