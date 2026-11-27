@@ -295,6 +295,9 @@ fn test_call_passes_payloads() {
             code: 3,
             stdout: String::new(),
             stderr: String::new(),
+            timed_out: false,
+            error: None,
+            signal: None,
         },
     )
     .unwrap();

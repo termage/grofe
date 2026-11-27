@@ -17,6 +17,12 @@ pub enum Payload {
         code: i32,
         stdout: String,
         stderr: String,
+        /// Killed by its `timeout_ms`.
+        timed_out: bool,
+        /// Why the command could not be spawned.
+        error: Option<String>,
+        /// The signal that killed it.
+        signal: Option<i32>,
     },
 }
 
@@ -80,6 +86,9 @@ fn run_callback(lua: &Lua, id: u32, payload: Payload) -> mlua::Result<()> {
             code,
             stdout,
             stderr,
+            timed_out,
+            error,
+            signal,
         } => {
             // Its lines were all delivered before this payload.
             free_line(lua, id)?;
@@ -87,6 +96,9 @@ fn run_callback(lua: &Lua, id: u32, payload: Payload) -> mlua::Result<()> {
             t.set("code", code)?;
             t.set("stdout", stdout)?;
             t.set("stderr", stderr)?;
+            t.set("timed_out", timed_out)?;
+            t.set("error", error)?;
+            t.set("signal", signal)?;
             f.call::<()>(t)
         }
     }

@@ -181,3 +181,44 @@ fn an_unknown_option_is_an_error_naming_the_key() {
     .expect_err("unknown option");
     assert!(err.contains("unknown option timeout"), "{err}");
 }
+
+const FIELDS: &str =
+    "tostring(r.timed_out) .. ':' .. tostring(r.error) .. ':' .. tostring(r.signal)";
+
+#[test]
+fn result_flags_a_timeout() {
+    let srv = server();
+    let code = format!(
+        "grofe.system({{'sleep','30'}}, function(r) {SET} r.code .. ':' .. {FIELDS}}} end, \
+         {{timeout_ms = 300}})"
+    );
+    assert_eq!(run_for_r(&srv, &code), "-1:true:nil:nil");
+}
+
+#[test]
+fn result_of_a_normal_exit_has_no_flags() {
+    let srv = server();
+    let code = format!(
+        "grofe.system({{'sh','-c','exit 3'}}, function(r) {SET} r.code .. ':' .. {FIELDS}}} end)"
+    );
+    assert_eq!(run_for_r(&srv, &code), "3:false:nil:nil");
+}
+
+#[test]
+fn result_names_a_command_that_cannot_spawn() {
+    let srv = server();
+    let code = format!(
+        "grofe.system({{'grofe-no-such-cmd'}}, function(r) {SET} r.code .. ':' .. tostring(r.timed_out) .. ':' .. \
+         tostring(r.error:find('grofe-no-such-cmd', 1, true) ~= nil)}} end)"
+    );
+    assert_eq!(run_for_r(&srv, &code), "-1:false:true");
+}
+
+#[test]
+fn result_reports_the_signal_that_killed_the_child() {
+    let srv = server();
+    let code = format!(
+        "grofe.system({{'sh','-c','kill -9 $$'}}, function(r) {SET} r.code .. ':' .. {FIELDS}}} end)"
+    );
+    assert_eq!(run_for_r(&srv, &code), "-1:false:nil:9");
+}

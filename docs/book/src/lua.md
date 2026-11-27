@@ -115,7 +115,10 @@ window raises an error, as does any other option key. The subscription ends when
 ### Running processes
 
 `grofe.system(argv, fn, opts)` runs `argv` off the server and calls `fn` with
-`{ code, stdout, stderr }` when it ends. The options:
+`{ code, stdout, stderr, timed_out, error, signal }` when it ends. `timed_out` is `true` when
+`timeout_ms` killed the job. `error` is a string, only when the command could not be spawned.
+`signal` is the number of the signal that killed the process, when it died to one. In all three
+cases `code` is `-1`. The options:
 
 - `cwd`: the working directory.
 - `env`: a table of variables added to the environment.
