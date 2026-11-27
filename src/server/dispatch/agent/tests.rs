@@ -563,8 +563,12 @@ async fn agent_text_is_inert_on_every_surface() {
         ..test_ctx()
     };
     let mut at = Instant::now();
+    let client = accepted.id;
     let mut frame = |state: &mut State, rx: &mut mpsc::Receiver<Vec<u8>>| {
         at += Duration::from_secs(1);
+        // A full frame: a diff frame skips cells drawn alike last time (a
+        // clock digit, say), which splits the text `assert_inert` looks for.
+        clients::refresh(state, client, false);
         clients::tick(state, at);
         drain(rx)
     };

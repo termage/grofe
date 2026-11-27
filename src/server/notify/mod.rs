@@ -180,16 +180,17 @@ impl Notifier {
 
     /// Adds an entry a script asked for, past the raise rules: no toast, no
     /// desktop message. `level` is the entry's state.
+    /// With no `pane` it is the server's own (`uid` empty).
     pub fn post(
         &mut self,
-        pane: PaneId,
+        pane: Option<PaneId>,
         uid: &str,
         level: &str,
         text: &str,
         reply: bool,
         now: Instant,
     ) {
-        self.push(Some(pane), uid, None, level, Some(text), None, now);
+        self.push(pane, uid, None, level, Some(text), None, now);
         if let Some(it) = self.items.first_mut() {
             it.reply = reply;
         }
@@ -398,7 +399,7 @@ mod tests {
     fn post_adds_an_unread_entry_past_the_rules() {
         let mut n = Notifier::default();
         n.cfg.enabled = false;
-        n.post(PaneId(1), "u", "warn", "hello", false, Instant::now());
+        n.post(Some(PaneId(1)), "u", "warn", "hello", false, Instant::now());
         assert_eq!(n.unread(), 1);
         assert_eq!(n.items()[0].msg.as_deref(), Some("hello"));
         assert_eq!(n.items()[0].state, "warn");
@@ -408,7 +409,7 @@ mod tests {
     fn a_reply_entry_is_not_coalesced_into() {
         let mut n = Notifier::default();
         let t = Instant::now();
-        n.post(PaneId(1), "u1", "warn", "which one?", true, t);
+        n.post(Some(PaneId(1)), "u1", "warn", "which one?", true, t);
         let r = raise(&mut n, 1, "blocked", 5, false, t + s(1));
         assert!(r.is_some());
         assert_eq!(n.items().len(), 2);

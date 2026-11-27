@@ -15,11 +15,13 @@ pub fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     let json = lua.create_table()?;
     json.set(
         "encode",
-        lua.create_function(|_, v: Value| serde_json::to_string(&to_json(&v)?).map_err(err))?,
+        super::runtime::host_function(lua, |_, v: Value| {
+            serde_json::to_string(&to_json(&v)?).map_err(err)
+        })?,
     )?;
     json.set(
         "decode",
-        lua.create_function(|lua, text: String| {
+        super::runtime::host_function(lua, |lua, text: String| {
             let v: J = serde_json::from_str(&text).map_err(|e| err(format!("json.decode: {e}")))?;
             from_json(lua, &v)
         })?,

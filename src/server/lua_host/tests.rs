@@ -39,14 +39,12 @@ fn nested_lua_verb_is_an_error() {
 #[test]
 fn a_spin_returns_a_budget_error_fast() {
     let mut state = test_state();
-    let t = Instant::now();
+    // The budget is CPU time: a loaded runner stretches the wall time.
+    let t = crate::thread_cpu_time();
     let e = run_chunk(&mut state, &test_ctx(), "while true do end").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    assert!(
-        t.elapsed() < Duration::from_millis(200),
-        "{:?}",
-        t.elapsed()
-    );
+    let took = crate::thread_cpu_time() - t;
+    assert!(took < Duration::from_millis(200), "{took:?}");
 }
 
 #[test]
@@ -126,7 +124,8 @@ fn a_failing_callback_names_itself() {
 fn test_reload_inside_lua_is_deferred() {
     let (mut state, mut rx) = crate::server::test_state_at(PathBuf::from("/nonexistent/x.sock"));
     let ctx = test_ctx();
-    assert!(run_chunk(&mut state, &ctx, "grofe.cmd{'reload'}").is_ok());
+    let r = run_chunk(&mut state, &ctx, "grofe.cmd{'reload'}");
+    assert!(r.is_ok(), "{r:?}");
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("init.luau"),
@@ -290,14 +289,12 @@ fn a_required_module_that_spins_hits_the_budget() {
     let dir = folder("", &[("spin.luau", "while true do end")]);
     let mut state = test_state();
     load_init(&mut state, dir.path());
-    let t = Instant::now();
+    // The budget is CPU time: a loaded runner stretches the wall time.
+    let t = crate::thread_cpu_time();
     let e = require(&mut state, "spin").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    assert!(
-        t.elapsed() < Duration::from_millis(500),
-        "{:?}",
-        t.elapsed()
-    );
+    let took = crate::thread_cpu_time() - t;
+    assert!(took < Duration::from_millis(500), "{took:?}");
 }
 
 /// t8 (A8): a module that errors on load is an error naming it.
@@ -519,4 +516,102 @@ async fn jobs_queued_before_a_reload_are_ignored_by_the_new_runtime() {
     );
     assert_eq!(state.lua.as_ref().map(|l| l.async_.len()), Some(2));
     assert!(!callback_freed(&state, 1) && !callback_freed(&state, 2));
+}
+
+/// About `kib` KiB of Luau that is slow to compile and fast to run: one
+/// function it never calls, then `tail`.
+fn big_chunk(kib: usize, tail: &str) -> String {
+    let mut src = String::from("local function unused()\n  local M = {}\n");
+    for i in 0..kib * 1024 / 120 {
+        src.push_str(&format!(
+            "  function M.f{i}(a, b)\n    if a == b then return a .. '{i}' end\n    return string.format('%s-%d', b, {i})\n  end\n"
+        ));
+    }
+    src.push_str("  return M\nend\n");
+    src.push_str(tail);
+    src
+}
+
+#[test]
+fn compiling_a_cold_pack_is_off_the_budget() {
+    // A debug build takes ~30 ms to compile 64 KiB. Without the fix the
+    // compile alone runs past 50 ms: the init and the module each fail.
+    let module = big_chunk(512, "return { ok = 'yes' }\n");
+    let t = Instant::now();
+    mlua::Lua::new().load(&module).into_function().unwrap();
+    let compile = t.elapsed();
+    let init = big_chunk(512, "return { mod = require('mod') }\n");
+    let dir = folder(&init, &[("mod.luau", &module)]);
+    let config = folder("", &[]);
+    let mut state = test_state();
+    // As a server load does: `require`'s cache starts with the config folder.
+    reset_at(&mut state, config.path());
+    let t = Instant::now();
+    let r = load_pack(&mut state, "big", dir.path(), &serde_json::json!({}));
+    assert_eq!(r, Ok(()), "one compile {compile:?}, load {:?}", t.elapsed());
+    let r = run_chunk(&mut state, &test_ctx(), "return grofe.plugin('big').mod.ok");
+    assert_eq!(r, Ok("yes".into()));
+}
+
+#[test]
+fn requiring_a_raising_module_in_a_loop_still_ends() {
+    // The module's compile is off the budget; its runs are not, so the
+    // loop still ends.
+    let module = big_chunk(64, "error('raised')\n");
+    let dir = folder("", &[("bad.luau", &module)]);
+    let mut state = test_state();
+    load_init(&mut state, dir.path());
+    // Compiled anew each time (64 KiB, ~30 ms in a debug build, off the
+    // budget), the loop would run to the 5 s wall limit.
+    let t = crate::thread_cpu_time();
+    let e = run_chunk(
+        &mut state,
+        &test_ctx(),
+        "while true do pcall(require, 'bad') end",
+    )
+    .unwrap_err();
+    assert!(e.contains("budget"), "{e}");
+    let took = crate::thread_cpu_time() - t;
+    assert!(took < Duration::from_millis(500), "{took:?}");
+}
+
+#[test]
+fn a_module_compiles_for_each_environment_it_runs_in() {
+    // It raises, so no value is kept and each require runs it again.
+    // A pack's `grofe` is a proxy with a metatable; the global one has none.
+    let probe = "error(getmetatable(grofe) and 'pack' or 'config')";
+    let dir = folder(
+        "return { probe = function() return select(2, pcall(require, 'm')) end }",
+        &[("m.luau", probe)],
+    );
+    let mut state = test_state();
+    reset_at(&mut state, dir.path());
+    // The config folder is the pack's folder too: one file, two environments.
+    load_pack(&mut state, "p", dir.path(), &serde_json::json!({})).unwrap();
+    let ctx = test_ctx();
+    let config = run_chunk(&mut state, &ctx, "return select(2, pcall(require, 'm'))");
+    assert!(
+        config.as_deref().is_ok_and(|e| e.contains("config")),
+        "{config:?}"
+    );
+    let pack = run_chunk(&mut state, &ctx, "return grofe.plugin('p').probe()");
+    assert!(
+        pack.as_deref().is_ok_and(|e| e.contains("pack")),
+        "{pack:?}"
+    );
+}
+
+#[test]
+fn notify_with_no_session_posts_a_server_entry() {
+    let mut state = test_state();
+    let ctx = test_ctx();
+    assert_eq!(
+        run_chunk(&mut state, &ctx, "grofe.notify('hi')"),
+        Ok("".into())
+    );
+    let n = &state.notify.items()[0];
+    assert_eq!((n.pane, n.msg.as_deref()), (None, Some("hi")));
+    // A pane asked for by name must still exist.
+    let e = run_chunk(&mut state, &ctx, "grofe.notify('x', {pane = '%9'})").unwrap_err();
+    assert!(e.contains("no pane"), "{e}");
 }

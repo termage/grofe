@@ -16,11 +16,21 @@ struct FakeHost {
     chooses: Vec<(ChooseJob, u32)>,
     inputs: Vec<(String, u32)>,
     notified: Vec<bool>,
+    /// The CPU time each `run` burns.
+    delay: Duration,
+}
+
+impl FakeHost {
+    fn burn(&self) {
+        let start = crate::thread_cpu_time();
+        while crate::thread_cpu_time() - start < self.delay {}
+    }
 }
 
 impl Host for FakeHost {
     fn run(&mut self, argv: Vec<String>) -> Result<String, String> {
         self.runs.push(argv);
+        self.burn();
         match &self.fail {
             Some(e) => Err(e.clone()),
             None => Ok(self.reply.clone()),
@@ -79,10 +89,12 @@ impl Host for FakeHost {
         })
     }
     fn choose(&mut self, req: ChooseJob, id: u32) -> Result<(), String> {
+        self.burn();
         self.chooses.push((req, id));
         Ok(())
     }
     fn input(&mut self, prompt: &str, id: u32) -> Result<(), String> {
+        self.burn();
         self.inputs.push((prompt.into(), id));
         Ok(())
     }
@@ -101,6 +113,109 @@ fn eval<R: mlua::FromLuaMulti>(
     src: &str,
 ) -> Result<R, LuaError> {
     enter(rt, host, "t", |l| l.load(src).eval::<R>())
+}
+
+#[test]
+fn host_calls_are_off_the_budget_and_lua_is_not() {
+    let rt = rt();
+    let mut h = FakeHost {
+        delay: Duration::from_millis(200),
+        ..Default::default()
+    };
+    // 200 ms of CPU inside a host call, four times the budget: not Lua's.
+    eval::<()>(&rt, &mut h, "grofe.cmd{'slow'}").unwrap();
+    // Lua busy for as long fails. `os.clock` is wall time, so the loop asks
+    // for 2 s: a loaded runner still gives it far more than 50 ms of CPU.
+    let e = eval::<()>(
+        &rt,
+        &mut h,
+        "local t = os.clock() while os.clock() - t < 2 do end",
+    )
+    .unwrap_err();
+    assert!(e.message.contains("50 ms budget"), "{e}");
+}
+
+#[test]
+fn choose_input_and_context_are_off_the_budget() {
+    let rt = rt();
+    let mut h = FakeHost {
+        delay: Duration::from_millis(200),
+        ..Default::default()
+    };
+    eval::<()>(
+        &rt,
+        &mut h,
+        "grofe.choose({'a'}, function() end) grofe.input('p', function() end) grofe.context()",
+    )
+    .unwrap();
+    assert_eq!((h.chooses.len(), h.inputs.len()), (1, 1));
+}
+
+/// Runs `src`, which must hit the budget, and the CPU time that took.
+fn spends_the_budget(src: &str) -> Duration {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let t = crate::thread_cpu_time();
+    let e = eval::<()>(&rt, &mut h, src).unwrap_err();
+    assert!(e.message.contains("50 ms budget"), "{e}");
+    crate::thread_cpu_time() - t
+}
+
+#[test]
+fn lua_inside_a_host_call_cannot_buy_back_the_budget() {
+    // The metamethod runs inside grofe.notify, which reads the options table.
+    let took = spends_the_budget(
+        "local o = setmetatable({}, {__index = function() while true do end end}) \
+         while true do pcall(grofe.notify, 'x', o) end",
+    );
+    assert!(took < Duration::from_millis(100), "{took:?}");
+}
+
+#[test]
+fn lua_a_host_call_runs_counts() {
+    // Each metamethod run stays under the budget; together they do not.
+    let took = spends_the_budget(
+        "local o = setmetatable({}, {__index = function() for _ = 1, 20000 do end end}) \
+         while true do grofe.notify('x', o) end",
+    );
+    assert!(took < Duration::from_millis(100), "{took:?}");
+}
+
+#[test]
+fn a_host_call_error_names_it_first() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let out: String = eval(
+        &rt,
+        &mut h,
+        "local _, e = pcall(grofe.notify, {}) return tostring(e)",
+    )
+    .unwrap();
+    let first = out
+        .lines()
+        .skip_while(|l| !l.starts_with("stack traceback"))
+        .nth(1)
+        .unwrap_or_default();
+    assert!(first.contains("grofe.notify"), "{out}");
+}
+
+#[test]
+fn a_loop_of_host_calls_still_ends() {
+    let rt = Runtime::new(Limits {
+        wall: Duration::from_millis(300),
+        ..Limits::default()
+    })
+    .unwrap();
+    install(&rt).unwrap();
+    let mut h = FakeHost {
+        delay: Duration::from_millis(10),
+        ..Default::default()
+    };
+    let t = Instant::now();
+    let e = eval::<()>(&rt, &mut h, "while true do grofe.cmd{'slow'} end").unwrap_err();
+    assert!(e.message.contains("300 ms limit"), "{e}");
+    // Unlimited, it never ends; a descheduled runner may overshoot a little.
+    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
 }
 
 #[test]
@@ -260,13 +375,14 @@ fn test_callback_over_budget_errors() {
         "grofe.bind('root', 'x', function() while true do end end)",
     )
     .unwrap();
-    let t = Instant::now();
+    // The budget is CPU time: a loaded runner stretches the wall time.
+    let t = crate::thread_cpu_time();
     let e = call(&rt, &mut h, 1, Payload::None).unwrap_err();
     assert!(
         e.who.contains("callback 1") && e.message.contains("budget"),
         "{e}"
     );
-    assert!(t.elapsed() < Duration::from_millis(150));
+    assert!(crate::thread_cpu_time() - t < Duration::from_millis(150));
 }
 
 #[test]
