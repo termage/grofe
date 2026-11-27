@@ -342,17 +342,22 @@ mod tests {
             return; // no IPv6 here
         }
         // A port below every default ephemeral range (Linux's from 32768,
-        // macOS's from 49152), free on ::1 and on 127.0.0.1. Any port a
-        // `:0` bind could be handed, another test's IPv4 listener could
-        // take on 127.0.0.1 before the connection is made.
+        // macOS's from 49152), free on ::1 and refused on 127.0.0.1. Any
+        // port a `:0` bind could be handed, another test's IPv4 listener
+        // could take on 127.0.0.1 before the connection is made.
         let Some((_v6, port)) = (20000..21000).find_map(|port| {
             let v6 = std::net::TcpListener::bind(("::1", port)).ok()?;
-            std::net::TcpListener::bind(("127.0.0.1", port)).ok()?;
-            Some((v6, port))
+            // Probed with a connect, never a bind: a listener made here can
+            // live on in a child another test spawns meanwhile (macOS sets
+            // close-on-exec after the socket is made) and take the
+            // connection on 127.0.0.1.
+            let refused = std::net::TcpStream::connect(("127.0.0.1", port))
+                .is_err_and(|e| e.kind() == io::ErrorKind::ConnectionRefused);
+            refused.then_some((v6, port))
         }) else {
             return; // no such port free on both
         };
-        // 127.0.0.1:port is free (refused), so the connection goes to ::1.
+        // 127.0.0.1:port is refused, so the connection goes to ::1.
         let stream = connect_local(port).unwrap();
         assert!(stream.peer_addr().unwrap().is_ipv6());
         let v4 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
