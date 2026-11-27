@@ -302,19 +302,10 @@ pub fn defer_reply(state: &mut State) -> oneshot::Sender<Result<String, crate::p
 /// What the tmux text of user options needs when `#{E:}` reads it: the
 /// status sources of its `#(cmd)`s and the option its `#}` stand for, which
 /// the front end sets for a format it rewrites ([`compat::tmux::formats`]).
-/// It follows the whole value, so an append can complete a `#(cmd)`.
-fn register_user_jobs(state: &mut State, ctx: &ClientCtx) {
+/// `text` is the option's whole value, so an append can complete a `#(cmd)`.
+fn register_user_jobs(state: &mut State, ctx: &ClientCtx, text: &str) {
     use compat::tmux::formats::{Jobs, to_native};
-    let texts: Vec<String> = state
-        .model
-        .options
-        .tmux_texts()
-        .map(str::to_string)
-        .collect();
-    for cmd in texts
-        .iter()
-        .flat_map(|t| to_native(t, Jobs::Sources).before)
-    {
+    for cmd in to_native(text, Jobs::Sources).before {
         let _ = route(state, ctx, cmd);
     }
 }
@@ -357,11 +348,9 @@ fn route(state: &mut State, ctx: &ClientCtx, cmd: Command) -> Result<String, Str
         Command::SetOption(c) => {
             let silence = c.name == "monitor-silence";
             let unattached = c.name == "destroy-unattached";
-            // The `@src-` options are the front end's own, set below.
-            let user = c.name.starts_with('@') && !c.name.starts_with("@src-");
             let out = options::run(state, ctx, Command::SetOption(c));
-            if user && out.is_ok() {
-                register_user_jobs(state, ctx);
+            if let Some(text) = state.model.options.take_marked() {
+                register_user_jobs(state, ctx, &text);
             }
             server::sources::prune_unreferenced(state);
             if unattached && out.is_ok() {

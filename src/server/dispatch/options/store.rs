@@ -51,6 +51,9 @@ pub struct Options {
     /// sent, in whole or in part: `#{E:}` reads them in tmux's language.
     /// Only a `set` or an unset from grofe's own dialect clears one.
     tmux_text: BTreeSet<(Owner, String)>,
+    /// The value of the user option the last `set` marked as tmux text, for
+    /// the dispatcher to register its jobs ([`Options::take_marked`]).
+    marked: Option<String>,
 }
 
 /// tmux 3.7b's default `command-alias` entries (recorded: `show -gv
@@ -332,6 +335,11 @@ impl Options {
             .filter_map(|(owner, name)| Some(self.get(*owner, name)?.value.as_str()))
     }
 
+    /// The value of the user option the last `set` marked as tmux text.
+    pub(crate) fn take_marked(&mut self) -> Option<String> {
+        self.marked.take()
+    }
+
     /// Marks user option `name` at `owner` as tmux text, or not.
     fn set_tmux_text(&mut self, owner: Owner, name: &str, tmux: bool) {
         let key = (owner, name.to_string());
@@ -346,18 +354,16 @@ impl Options {
     /// Runtime ids are never reused within a server, so stale values never
     /// apply to anything; this only frees them.
     pub(crate) fn retain_live(&mut self, model: &Model) {
-        self.values.retain(|owner, _| match owner {
+        let live = |owner: &Owner| match owner {
             Owner::Global | Owner::Server | Owner::GlobalWindow => true,
             Owner::Session(id) => model.sessions.contains_key(id),
             Owner::Window(id) => model.windows.contains_key(id),
             Owner::Pane(id) => model.panes.contains_key(id),
-        });
-        self.lists.retain(|owner, _| match owner {
-            Owner::Global | Owner::Server | Owner::GlobalWindow => true,
-            Owner::Session(id) => model.sessions.contains_key(id),
-            Owner::Window(id) => model.windows.contains_key(id),
-            Owner::Pane(id) => model.panes.contains_key(id),
-        });
+        };
+        self.values.retain(|owner, _| live(owner));
+        self.lists.retain(|owner, _| live(owner));
+        self.shown.retain(|(owner, _), _| live(owner));
+        self.tmux_text.retain(|(owner, _)| live(owner));
     }
 }
 
@@ -820,10 +826,12 @@ pub(super) fn set_option(
         .unwrap_or_default();
     model.options.set_shown(owner, &c.name, &stored, sent);
     // A user option is tmux text once tmux sent any part of it: a grofe
-    // append keeps that, and only a whole grofe `set` clears it.
-    if c.name.starts_with('@') {
+    // append keeps that, and only a whole grofe `set` clears it. The
+    // front end's own `@src-` options are never.
+    if c.name.starts_with('@') && !c.name.starts_with("@src-") {
         let tmux_text = tmux || (c.append && model.options.has_tmux_text(owner, &c.name));
         model.options.set_tmux_text(owner, &c.name, tmux_text);
+        model.options.marked = tmux_text.then_some(stored);
     }
     changed(model, events, did);
     Ok(String::new())

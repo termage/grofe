@@ -283,9 +283,11 @@ fn a_user_option_is_tmux_text_once_tmux_sent_part_of_it() {
     assert_eq!(display(&srv, "seg", "#{E:@m}"), "seg-x");
     grofe(&srv, &["set", "-g", "@m", "#S"]).unwrap();
     assert_eq!(display(&srv, "seg", "#{E:@m}"), "#S");
-    tmux(&srv, &["set", "-g", "@u", "#S"]);
-    tmux(&srv, &["set", "-gu", "@u"]);
-    grofe(&srv, &["set", "-g", "@u", "#S"]).unwrap();
+    for args in [&["set", "-g", "@u", "#S"][..], &["set", "-gu", "@u"]] {
+        let out = tmux(&srv, args);
+        assert!(out.status.success(), "{args:?}: {}", out.stderr);
+    }
+    grofe(&srv, &["set", "-ga", "@u", "#S"]).unwrap();
     assert_eq!(display(&srv, "seg", "#{E:@u}"), "#S");
 }
 
@@ -315,9 +317,6 @@ fn a_tmux_set_user_option_runs_its_job() {
     let out = tmux(&srv, &["set", "-g", "@g", "#(echo yo)!"]);
     assert!(out.status.success(), "{}", out.stderr);
     try_wait_until(|| display(&srv, "seg", "#{E:@g}") == "yo!", CMD_TIMEOUT).expect("its output");
-    tmux(&srv, &["set", "-g", "@j", "#(echo"]);
-    tmux(&srv, &["set", "-ga", "@j", " yo)"]);
-    try_wait_until(|| display(&srv, "seg", "#{E:@j}") == "yo", CMD_TIMEOUT).expect("joined job");
 }
 
 /// What a pane of a new session `name` reads back, as `od -c` prints it

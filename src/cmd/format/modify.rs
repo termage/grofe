@@ -65,6 +65,20 @@ pub(super) fn skip1(s: &str, end: &[u8]) -> Option<usize> {
     None
 }
 
+/// The variable `copy` reads: `copy` itself, or `name` when it is one
+/// complete `#{name}`.
+// ponytail: a compound inner format (`#{@a}#{@b}`, `#{?c,#{@a},}`) names no
+// one variable, so `#{E:...}` of it reads its value as plain text, not in
+// tmux's language as it would a user option a tmux client set.
+fn reference(copy: &str) -> &str {
+    let whole = skip1(copy, b"}") == copy.len().checked_sub(1);
+    let name = copy.strip_prefix("#{").and_then(|b| b.strip_suffix('}'));
+    match name {
+        Some(name) if whole => name,
+        _ => copy,
+    }
+}
+
 /// OpenBSD's `strtonum`: a whole decimal number within `min..=max`.
 fn strtonum(s: &str, min: i64, max: i64) -> Option<i64> {
     let t = s.trim_start_matches([' ', '\t', '\n', '\x0b', '\x0c', '\r']);
@@ -974,11 +988,8 @@ impl Expander<'_> {
             found.unwrap_or_default()
         };
 
-        // Expand again; the variable it read may be written `#{name}`.
-        let name = copy
-            .strip_prefix("#{")
-            .and_then(|c| c.strip_suffix('}'))
-            .unwrap_or(copy);
+        // Expand again.
+        let name = reference(copy);
         if f.expand {
             value = self.expand_owned(&self.vars.reexpand(name, &value));
         } else if f.expand_time {
@@ -1195,6 +1206,17 @@ mod tests {
 
     use super::super::expand;
     use super::*;
+
+    /// Only one complete `#{name}` is read as a variable's name.
+    #[test]
+    fn a_reference_is_one_complete_variable() {
+        assert_eq!(reference("@a"), "@a");
+        assert_eq!(reference("#{@a}"), "@a");
+        assert_eq!(reference("#{@a}#{@b}"), "#{@a}#{@b}");
+        assert_eq!(reference("#{@a}x"), "#{@a}x");
+        assert_eq!(reference("#{"), "#{");
+        assert_eq!(reference("#{}"), "");
+    }
 
     struct Vars(BTreeMap<&'static str, &'static str>);
 
