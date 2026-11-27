@@ -5,6 +5,9 @@ export type SystemResult = {
 	code: number,
 	stdout: string,
 	stderr: string,
+	timed_out: boolean, -- killed by its timeout_ms
+	error: string?, -- the command could not be spawned
+	signal: number?, -- the signal that killed it
 }
 
 export type BindOptions = {

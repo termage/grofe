@@ -90,7 +90,7 @@ grofe.on("window-created", function(e) grofe.log("new window") end)
 grofe.on("pane-closed", function(e) grofe.log(e.pane) end, { pane = "%3" }) -- one pane only
 grofe.every(2000, function() end)            -- timer, at least 100 ms
 grofe.system({ "git", "status" }, function(r) grofe.log(r.stdout) end,
-  { cwd = "/tmp", timeout_ms = 5000 })       -- r has code, stdout, stderr
+  { cwd = "/tmp", timeout_ms = 5000 })       -- r: code, stdout, stderr, timed_out, error, signal
 local last = grofe.agent.history("%3", 5)    -- the agent's last 5 messages, oldest first
 grofe.cancel(id)                             -- stop a timer, binding, event or process
 grofe.log("text")                            -- write to the server log
@@ -118,7 +118,11 @@ window raises an error, as does any other option key. The subscription ends when
 ### Running processes
 
 `grofe.system(argv, fn, opts)` runs `argv` off the server and calls `fn` with
-`{ code, stdout, stderr }` when it ends. The options:
+`{ code, stdout, stderr, timed_out, error, signal }` when it ends. `timed_out` is `true` when
+`timeout_ms` killed the job. `error` is a string, only when the command could not be spawned.
+`signal` is the number of the signal that killed the process, when it died to one; it is nil
+when `timed_out` is true, since a timeout reports `timed_out`, not the kill signal. In all three
+cases `code` is `-1`. The options:
 
 - `cwd`: the working directory.
 - `env`: a table of variables added to the environment.
