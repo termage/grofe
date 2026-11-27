@@ -943,7 +943,7 @@ mod tests {
     /// chain of conditions is not nesting at all in tmux.
     #[test]
     fn deep_and_long_formats_are_bounded() {
-        let start = crate::lua::runtime::thread_cpu_time();
+        let start = crate::thread_cpu_time();
         let n = 100_000;
         let deep = format!("{}x{}", "#{!:".repeat(n), "}".repeat(n));
         assert_eq!(crate::cmd::expand(&native(&deep), &NoVars), "0");
@@ -951,7 +951,7 @@ mod tests {
         assert_eq!(crate::cmd::expand(&native(&unclosed), &NoVars), "a");
         let chain = format!("#{{?0,x{},last}}", ",0,a".repeat(n));
         assert_eq!(crate::cmd::expand(&native(&chain), &NoVars), "last");
-        let took = crate::lua::runtime::thread_cpu_time() - start;
+        let took = crate::thread_cpu_time() - start;
         assert!(took < std::time::Duration::from_millis(900), "{took:?}");
     }
 

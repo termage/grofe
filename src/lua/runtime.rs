@@ -58,15 +58,18 @@ struct Clock {
     /// Interrupts so far: one that came during a host call means Lua ran
     /// inside it (a metamethod on an argument), and that call is not paused.
     steps: u64,
-    /// The budget ran out: every later step raises, whatever a host call
-    /// that caught the error gives back.
+    /// The budget ran out: every later step raises. Defence in depth: the
+    /// budget error is raised by an interrupt, which bumps `steps`, so the
+    /// host call that caught it is never paused and `used` stays spent.
     spent: bool,
+    /// Nested [`off_budget`] calls running; only the outermost pauses.
+    depth: u32,
 }
 
 impl Clock {
     /// The CPU time the call has spent running Lua.
     fn used(&self) -> Duration {
-        thread_cpu_time().saturating_sub(self.cpu_start + self.paused)
+        crate::thread_cpu_time().saturating_sub(self.cpu_start + self.paused)
     }
 }
 
@@ -75,23 +78,6 @@ struct Shared(Arc<Mutex<Option<Clock>>>);
 
 fn lock(d: &Mutex<Option<Clock>>) -> std::sync::MutexGuard<'_, Option<Clock>> {
     d.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-/// This thread's CPU time: a busy machine that keeps the thread waiting, or
-/// a disk it waits on, spends none of the budget. Zero if it cannot be read.
-pub(crate) fn thread_cpu_time() -> Duration {
-    use nix::libc;
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: `ts` is a valid timespec to write to.
-    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) } != 0 {
-        // ponytail: no thread clock (never seen on Linux or macOS) means no
-        // budget; the wall limit still ends the call.
-        return Duration::ZERO;
-    }
-    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }
 
 impl Runtime {
@@ -149,12 +135,13 @@ impl Runtime {
         if fresh {
             let now = Instant::now();
             *lock(&self.clock) = Some(Clock {
-                cpu_start: thread_cpu_time(),
+                cpu_start: crate::thread_cpu_time(),
                 paused: Duration::ZERO,
                 check_at: now + self.limits.budget,
                 wall: now + self.limits.wall,
                 steps: 0,
                 spent: false,
+                depth: 0,
             });
         }
         let result = f(&self.lua);
@@ -183,14 +170,25 @@ impl Runtime {
 /// host calls still ends.
 pub fn off_budget<R>(lua: &mlua::Lua, f: impl FnOnce() -> R) -> R {
     let shared = lua.app_data_ref::<Shared>().map(|s| s.0.clone());
-    let steps = shared.as_ref().and_then(|c| lock(c).map(|c| c.steps));
-    let start = thread_cpu_time();
+    let steps = shared.as_ref().and_then(|c| {
+        lock(c).as_mut().map(|c| {
+            c.depth += 1;
+            c.steps
+        })
+    });
+    let start = crate::thread_cpu_time();
     let r = f();
     if let Some(shared) = &shared
         && let Some(clock) = lock(shared).as_mut()
-        && Some(clock.steps) == steps
     {
-        clock.paused += thread_cpu_time().saturating_sub(start);
+        clock.depth = clock.depth.saturating_sub(1);
+        // ponytail: a call that ran Lua (an interrupt fired inside it) is
+        // charged whole, its host work included, to stop runaway code; to
+        // charge only the Lua, pause and resume the clock around each
+        // re-entry instead.
+        if clock.depth == 0 && Some(clock.steps) == steps {
+            clock.paused += crate::thread_cpu_time().saturating_sub(start);
+        }
     }
     r
 }
@@ -265,15 +263,34 @@ mod tests {
     #[test]
     fn pcall_cannot_swallow_the_budget() {
         let r = rt();
-        let t = Instant::now();
-        assert!(
-            r.exec(
+        let t = crate::thread_cpu_time();
+        let e = r
+            .exec(
                 "p",
-                "while true do pcall(function() while true do end end) end"
+                "while true do pcall(function() while true do end end) end",
             )
-            .is_err()
-        );
-        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+            .unwrap_err();
+        assert!(e.message.contains("budget"), "{e}");
+        let took = crate::thread_cpu_time() - t;
+        assert!(took < 2 * Limits::default().budget, "{took:?}");
+    }
+    #[test]
+    fn nested_off_budget_pauses_once() {
+        let r = rt();
+        let burn = |d: Duration| {
+            let start = crate::thread_cpu_time();
+            while crate::thread_cpu_time() - start < d {}
+        };
+        let paused = r
+            .guarded("n", |lua| {
+                off_budget(lua, || off_budget(lua, || burn(Duration::from_millis(30))));
+                Ok(lock(&r.clock).map(|c| c.paused))
+            })
+            .unwrap()
+            .unwrap();
+        // Counted twice, it would be 60 ms or more.
+        assert!(paused >= Duration::from_millis(30), "{paused:?}");
+        assert!(paused < Duration::from_millis(50), "{paused:?}");
     }
     #[test]
     fn the_next_call_after_an_abort_runs() {
@@ -338,11 +355,11 @@ mod tests {
     /// Runs `src`, checks it ended fast with an error containing `want`, then that the VM still runs.
     fn aborts(src: &str, want: &str) {
         let r = Runtime::new(Limits::default()).unwrap();
-        let t = crate::lua::runtime::thread_cpu_time();
+        let t = crate::thread_cpu_time();
         let e = r.exec("p", src).unwrap_err();
         // Unbudgeted, these never return, so any finite bound proves the abort. CPU time, as
         // the budget is: a loaded runner stretches the wall time.
-        let took = crate::lua::runtime::thread_cpu_time() - t;
+        let took = crate::thread_cpu_time() - t;
         assert!(took < Duration::from_secs(2), "{src}: {took:?}");
         assert!(e.message.contains(want), "{src}: {e}");
         runs_after(&r);

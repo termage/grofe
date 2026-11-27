@@ -35,10 +35,10 @@ fn nested_lua_verb_is_an_error() {
 fn a_spin_returns_a_budget_error_fast() {
     let mut state = test_state();
     // The budget is CPU time: a loaded runner stretches the wall time.
-    let t = crate::lua::runtime::thread_cpu_time();
+    let t = crate::thread_cpu_time();
     let e = run_chunk(&mut state, &test_ctx(), "while true do end").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    let took = crate::lua::runtime::thread_cpu_time() - t;
+    let took = crate::thread_cpu_time() - t;
     assert!(took < Duration::from_millis(200), "{took:?}");
 }
 
@@ -285,10 +285,10 @@ fn a_required_module_that_spins_hits_the_budget() {
     let mut state = test_state();
     load_init(&mut state, dir.path());
     // The budget is CPU time: a loaded runner stretches the wall time.
-    let t = crate::lua::runtime::thread_cpu_time();
+    let t = crate::thread_cpu_time();
     let e = require(&mut state, "spin").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    let took = crate::lua::runtime::thread_cpu_time() - t;
+    let took = crate::thread_cpu_time() - t;
     assert!(took < Duration::from_millis(500), "{took:?}");
 }
 
@@ -558,7 +558,7 @@ fn requiring_a_raising_module_in_a_loop_still_ends() {
     load_init(&mut state, dir.path());
     // Compiled anew each time (64 KiB, ~30 ms in a debug build, off the
     // budget), the loop would run to the 5 s wall limit.
-    let t = crate::lua::runtime::thread_cpu_time();
+    let t = crate::thread_cpu_time();
     let e = run_chunk(
         &mut state,
         &test_ctx(),
@@ -566,7 +566,7 @@ fn requiring_a_raising_module_in_a_loop_still_ends() {
     )
     .unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    let took = crate::lua::runtime::thread_cpu_time() - t;
+    let took = crate::thread_cpu_time() - t;
     assert!(took < Duration::from_millis(500), "{took:?}");
 }
 

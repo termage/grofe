@@ -1562,7 +1562,7 @@ mod tests {
     /// once (a pane can put such text in its title).
     #[test]
     fn fnmatch_does_not_backtrack_exponentially() {
-        let start = crate::lua::runtime::thread_cpu_time();
+        let start = crate::thread_cpu_time();
         // The `#{m:}` shape, then each former caller's: event filters
         // (`*` runs), `terminal-features` (`*` and `?`), `source-file`
         // globs (sets between `*`).
@@ -1580,7 +1580,7 @@ mod tests {
         }
         let (pattern, s) = ("*a*a*a*a*a*a*a*a*a*a*b", "a".repeat(30));
         assert!(fnmatch(pattern.as_bytes(), format!("{s}b").as_bytes()));
-        let took = crate::lua::runtime::thread_cpu_time() - start;
+        let took = crate::thread_cpu_time() - start;
         assert!(took < std::time::Duration::from_millis(50), "{took:?}");
     }
 
@@ -1726,11 +1726,11 @@ mod tests {
         let open = "#{!:".repeat(n);
         let closed = format!("{open}x{}", "}".repeat(n));
         let flat_open = "#{".repeat(n);
-        let start = crate::lua::runtime::thread_cpu_time();
+        let start = crate::thread_cpu_time();
         assert_eq!(expand(&closed, &vars(&[])), "0");
         assert_eq!(expand(&open, &vars(&[])), open);
         assert_eq!(expand(&flat_open, &vars(&[])), flat_open);
-        let took = crate::lua::runtime::thread_cpu_time() - start;
+        let took = crate::thread_cpu_time() - start;
         assert!(took < std::time::Duration::from_millis(500), "{took:?}");
     }
 
@@ -1741,13 +1741,13 @@ mod tests {
     fn a_long_chain_of_conditions_is_not_nesting() {
         let arms = 20_000;
         let chain = |last: &str| format!("{}{last}{}", "#{?0,x,".repeat(arms), "}".repeat(arms));
-        let start = crate::lua::runtime::thread_cpu_time();
+        let start = crate::thread_cpu_time();
         assert_eq!(expand(&chain("last"), &vars(&[])), "last");
         assert_eq!(
             expand(&chain("#{?on,hit,miss}"), &vars(&[("on", "1")])),
             "hit"
         );
-        let took = crate::lua::runtime::thread_cpu_time() - start;
+        let took = crate::thread_cpu_time() - start;
         assert!(took < std::time::Duration::from_millis(500), "{took:?}");
     }
 

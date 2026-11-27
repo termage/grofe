@@ -19,8 +19,8 @@ struct FakeHost {
 impl Host for FakeHost {
     fn run(&mut self, argv: Vec<String>) -> Result<String, String> {
         self.runs.push(argv);
-        let start = crate::lua::runtime::thread_cpu_time();
-        while crate::lua::runtime::thread_cpu_time() - start < self.delay {}
+        let start = crate::thread_cpu_time();
+        while crate::thread_cpu_time() - start < self.delay {}
         match &self.fail {
             Some(e) => Err(e.clone()),
             None => Ok(self.reply.clone()),
@@ -111,10 +111,10 @@ fn host_calls_are_off_the_budget_and_lua_is_not() {
 fn spends_the_budget(src: &str) -> Duration {
     let rt = rt();
     let mut h = FakeHost::default();
-    let t = crate::lua::runtime::thread_cpu_time();
+    let t = crate::thread_cpu_time();
     let e = eval::<()>(&rt, &mut h, src).unwrap_err();
     assert!(e.message.contains("50 ms budget"), "{e}");
-    crate::lua::runtime::thread_cpu_time() - t
+    crate::thread_cpu_time() - t
 }
 
 #[test]
@@ -332,13 +332,13 @@ fn test_callback_over_budget_errors() {
     )
     .unwrap();
     // The budget is CPU time: a loaded runner stretches the wall time.
-    let t = crate::lua::runtime::thread_cpu_time();
+    let t = crate::thread_cpu_time();
     let e = call(&rt, &mut h, 1, Payload::None).unwrap_err();
     assert!(
         e.who.contains("callback 1") && e.message.contains("budget"),
         "{e}"
     );
-    assert!(crate::lua::runtime::thread_cpu_time() - t < Duration::from_millis(150));
+    assert!(crate::thread_cpu_time() - t < Duration::from_millis(150));
 }
 
 #[test]
