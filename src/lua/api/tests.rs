@@ -16,7 +16,7 @@ struct FakeHost {
     chooses: Vec<(ChooseJob, u32)>,
     inputs: Vec<(String, u32)>,
     notified: Vec<bool>,
-    /// The CPU time each `run` burns.
+    /// The CPU time each host call (`run`, `choose`, `input`) burns.
     delay: Duration,
 }
 
