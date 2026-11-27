@@ -291,8 +291,9 @@ pub(crate) fn register(
 /// Drops every `#(cmd)` source (an `@src-<hash>` key, FE.3) that no
 /// option's value reads any more: after a `set` overwrites or unsets the
 /// option, an `-a` changes it, or a reload replaces it. An option reads it
-/// as `#{@src-<hash>}`, or holds the `#(cmd)` itself (a user option a tmux
-/// client set). So a source runs only while the status line can show it.
+/// as `#{@src-<hash>}`, or holds the `#(cmd)` itself in tmux text (a user
+/// option a tmux client set). So a source runs only while the status line
+/// can show it.
 pub(crate) fn prune_unreferenced(state: &mut State) {
     let sources: BTreeSet<(String, String)> = state
         .sources
@@ -303,7 +304,10 @@ pub(crate) fn prune_unreferenced(state: &mut State) {
         .collect();
     for (key, cmd) in sources {
         let options = &state.model.options;
-        if !options.mentions(&format!("#{{@{key}}}")) && !options.mentions(&format!("#({cmd})")) {
+        let job = format!("#({cmd})");
+        if !options.mentions(&format!("#{{@{key}}}"))
+            && !options.tmux_texts().any(|text| text.contains(&job))
+        {
             unregister(state, &key);
         }
     }

@@ -42,7 +42,7 @@ fn is_end(c: u8) -> bool {
 /// tmux's `format_skip1`: the index of the first byte of `end` in `s` that
 /// is not inside a nested `#{...}` and not escaped (`#,` `##` `#{` `#}`
 /// `#:`).
-pub(crate) fn skip1(s: &str, end: &[u8]) -> Option<usize> {
+pub(super) fn skip1(s: &str, end: &[u8]) -> Option<usize> {
     let b = s.as_bytes();
     let mut brackets = 0i32;
     let mut i = 0;
@@ -974,12 +974,16 @@ impl Expander<'_> {
             found.unwrap_or_default()
         };
 
-        // Expand again.
+        // Expand again; the variable it read may be written `#{name}`.
+        let name = copy
+            .strip_prefix("#{")
+            .and_then(|c| c.strip_suffix('}'))
+            .unwrap_or(copy);
         if f.expand {
-            value = self.expand_owned(&self.vars.reexpand(copy, &value));
+            value = self.expand_owned(&self.vars.reexpand(name, &value));
         } else if f.expand_time {
             let before = self.shared.expand_time.replace(true);
-            value = self.expand_owned(&self.vars.reexpand(copy, &value));
+            value = self.expand_owned(&self.vars.reexpand(name, &value));
             self.shared.expand_time.set(before);
         }
 
