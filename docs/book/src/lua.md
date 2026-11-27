@@ -160,7 +160,8 @@ a desktop message by itself.
 `grofe.notify` also takes `reply = true`: `Enter` on that tray entry asks for a line (as
 `grofe.input` does) and types it into the entry's pane the way `agent prompt` does (control
 characters removed, that pane only), and `Escape` sends nothing. Entries without `reply` jump to
-their pane as before.
+their pane as before. `reply = true` needs a pane (the active one or `pane`); with none it raises
+an error instead of posting.
 
 ### Asking the user
 

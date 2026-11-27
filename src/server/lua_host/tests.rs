@@ -615,3 +615,12 @@ fn notify_with_no_session_posts_a_server_entry() {
     let e = run_chunk(&mut state, &ctx, "grofe.notify('x', {pane = '%9'})").unwrap_err();
     assert!(e.contains("no pane"), "{e}");
 }
+
+#[test]
+fn notify_reply_without_a_pane_is_an_error() {
+    let mut state = test_state();
+    let ctx = test_ctx();
+    let e = run_chunk(&mut state, &ctx, "grofe.notify('x', {reply = true})").unwrap_err();
+    assert!(e.contains("reply needs a pane"), "{e}");
+    assert!(state.notify.items().is_empty());
+}

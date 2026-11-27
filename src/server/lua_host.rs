@@ -302,6 +302,9 @@ impl Host for StateHost<'_> {
                 cmd::Resolve::resolve_pane(model, &cmd::target::Target::Current, &self.ctx).ok()
             }
         };
+        if reply && pane.is_none() {
+            return Err("grofe.notify: reply needs a pane".into());
+        }
         let uid = match pane {
             Some(id) => match model.panes.get(&id) {
                 Some(p) => p.uid.clone(),
