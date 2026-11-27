@@ -820,7 +820,7 @@ impl PtyClient {
     /// has passed without output, then return every row.
     fn screen(&self, until: Option<&str>) -> Vec<String> {
         let bytes = self.settled(until);
-        self.render(&bytes)
+        render(&bytes, self.cols, self.rows)
     }
 
     /// Wait as [`PtyClient::screen`] does, then return the style runs of
@@ -878,7 +878,7 @@ impl PtyClient {
                 (out.0.clone(), out.1.elapsed() >= SCREEN_QUIET)
             };
             if quiet && !bytes.is_empty() {
-                let rows = self.render(&bytes);
+                let rows = render(&bytes, self.cols, self.rows);
                 let shows = |t: &str| rows.iter().any(|r| r.contains(t));
                 if until.is_none_or(|t| t.strip_prefix('!').map_or(shows(t), |t| !shows(t))) {
                     return bytes;
@@ -923,24 +923,31 @@ impl PtyClient {
     }
     /// Replay everything the client printed into a fresh emulator.
     fn term(&self, bytes: &[u8]) -> Term<VoidListener> {
-        let size = TermSize::new(self.cols.into(), self.rows.into());
-        let mut term = Term::new(Config::default(), &size, VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, bytes);
-        term
+        emulate(bytes, self.cols, self.rows)
     }
+}
 
-    fn render(&self, bytes: &[u8]) -> Vec<String> {
-        let term = self.term(bytes);
-        let grid = term.grid();
-        (0..grid.screen_lines())
-            .map(|y| {
-                let row = &grid[Line(y as i32)];
-                let text: String = (0..grid.columns()).map(|x| row[Column(x)].c).collect();
-                text.trim_end().to_string()
-            })
-            .collect()
-    }
+/// `bytes` replayed into a fresh emulator of `cols` by `rows`.
+fn emulate(bytes: &[u8], cols: u16, rows: u16) -> Term<VoidListener> {
+    let size = TermSize::new(cols.into(), rows.into());
+    let mut term = Term::new(Config::default(), &size, VoidListener);
+    let mut parser: Processor = Processor::new();
+    parser.advance(&mut term, bytes);
+    term
+}
+
+/// The rows `bytes` leave on a screen of `cols` by `rows`, each with its
+/// trailing blanks trimmed.
+pub fn render(bytes: &[u8], cols: u16, rows: u16) -> Vec<String> {
+    let term = emulate(bytes, cols, rows);
+    let grid = term.grid();
+    (0..grid.screen_lines())
+        .map(|y| {
+            let row = &grid[Line(y as i32)];
+            let text: String = (0..grid.columns()).map(|x| row[Column(x)].c).collect();
+            text.trim_end().to_string()
+        })
+        .collect()
 }
 
 const ANSI_NAMES: [&str; 16] = [

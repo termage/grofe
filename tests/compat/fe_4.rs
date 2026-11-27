@@ -20,19 +20,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::Term;
-use alacritty_terminal::event::VoidListener;
-use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::index::{Column, Line};
-use alacritty_terminal::term::{Config, test::TermSize};
-use alacritty_terminal::vte::ansi::Processor;
 use grofe::compat::tmux;
 use grofe::protocol::{ClientCtx, Dialect};
 use nix::pty::Winsize;
 
 use crate::fe_1::grofe_cli;
 use crate::normalize::{Normalizer, fixtures_dir};
-use crate::replay::{Cli, parse_scenario, replay, split_words, steps};
+use crate::replay::{Cli, parse_scenario, render, replay, split_words, steps};
 
 // ---- Goldens ---------------------------------------------------------------
 
@@ -344,6 +338,7 @@ struct Attached {
     child: Child,
     master: File,
     drawn: Arc<Mutex<Vec<u8>>>,
+    size: Winsize,
 }
 
 impl Attached {
@@ -391,21 +386,16 @@ impl Attached {
             child,
             master,
             drawn,
+            size,
         }
     }
 
     /// Whether the client's screen, as drawn so far, shows `text`.
     fn shows(&self, text: &str) -> bool {
         let bytes = self.drawn.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let mut term = Term::new(Config::default(), &TermSize::new(80, 24), VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, &bytes);
-        let grid = term.grid();
-        (0..grid.screen_lines()).any(|y| {
-            let row = &grid[Line(y as i32)];
-            let line: String = (0..grid.columns()).map(|x| row[Column(x)].c).collect();
-            line.contains(text)
-        })
+        render(&bytes, self.size.ws_col, self.size.ws_row)
+            .iter()
+            .any(|row| row.contains(text))
     }
 
     fn press(&mut self, bytes: &[u8]) {
