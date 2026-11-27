@@ -48,7 +48,7 @@ $ paste-buffer -t main -s '|'
 ? 0
 $ pasteb -t main -b buffer0
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh has main herehello'
 ? 0
 $ capture-pane -p -t main -S 0 -E 2
 tab	herehello

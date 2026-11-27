@@ -3,7 +3,7 @@
 # tests/fixtures/copy/fixture.txt: indentation, separators, wide gaps,
 # wide characters, trailing blanks, a line wrapped twice, punctuation.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/../copy/fixture.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last line of text"'
 $ copy-mode -t main
 $ send-keys -t main H
 $ display -p -t main '#{copy_cursor_x},#{copy_cursor_y},#{scroll_position}'

@@ -317,7 +317,7 @@ $ display -p -t main:1.1 '[#{session_alert}][#{session_alerts}]'
 ? 0
 $ send-keys -t main:3.1 C-g Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:1.1 "##{session_alerts}" 3!'
 ? 0
 $ display -p -t main:1.1 '[#{session_alert}][#{session_alerts}]'
 [!][3!]

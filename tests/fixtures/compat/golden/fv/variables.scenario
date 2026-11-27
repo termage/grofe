@@ -5,7 +5,7 @@
 # signal, the attach times, mode 2026 and output unseen in a mode.
 $ new-session -d -s main -x 80 -y 24 'printf "first line\n\033]8;;http://example.com/\007link\033]8;;\007\n"; cat'
 $ new-window -d -t main cat
-$ run-shell 'sleep 0.3'
+$ run-shell 'sh {fixtures}/wait.sh shows main:1 link'
 $ display-message -p -t main:1 'active=[#{session_active}] clients=[#{window_active_clients}] list=[#{window_active_clients_list}] bigger=[#{window_bigger}] offset=[#{window_offset_x},#{window_offset_y}]'
 $ display-message -p -t main:1 'window cell=[#{window_cell_width}x#{window_cell_height}] client cell=[#{client_cell_width}x#{client_cell_height}]'
 $ display-message -p -t main 'buffer=[#{buffer_full}]'
@@ -21,10 +21,10 @@ $ kill-window -t main:8
 $ new-window -d -t main:5 'sleep 100000'
 $ set -w -t main:5 remain-on-exit on
 $ run-shell -t main:5 'kill -TERM #{pane_pid}'
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:5 "##{pane_dead}" 1'
 $ display-message -p -t main:5 'dead=[#{pane_dead}] signal=[#{pane_dead_signal}] status=[#{pane_dead_status}]'
 $ new-window -d -t main:6 'while :; do printf "\033[?2026h"; : > "$HOME/sync6"; sleep 0.02; done'
-$ run-shell 'for i in $(seq 100); do [ -e "$HOME/sync6" ] && break; sleep 0.1; done; sleep 0.2'
+$ run-shell 'sh {fixtures}/wait.sh format main:6 "##{synchronized_output_flag}" 1'
 $ display-message -p -t main:6 'sync=[#{synchronized_output_flag}]'
 $ display-message -p -t main:2 'sync=[#{synchronized_output_flag}]'
 $ kill-window -t main:6
@@ -58,7 +58,7 @@ $ send-keys -X -t main:1 cancel
 $ new-window -d -t main:7 'while [ ! -e go ]; do sleep 0.1; done; echo hi; cat'
 $ copy-mode -t main:7
 $ display-message -p -t main:7 'unseen=[#{pane_unseen_changes}]'
-$ run-shell 'touch go; sleep 1'
+$ run-shell 'touch go; sh {fixtures}/wait.sh format main:7 "##{pane_unseen_changes}" 1'
 $ display-message -p -t main:7 'unseen=[#{pane_unseen_changes}]'
 $ send-keys -X -t main:7 cancel
 $ display-message -p -t main:7 'unseen=[#{pane_unseen_changes}]'
@@ -70,6 +70,6 @@ $ display-message -p -t main:1 'bigger=[#{window_bigger}] offset=[#{window_offse
 $ new-window -d -t main:3 cat
 $ resize-window -t main:3 -x 120 -y 60
 $ respawn-pane -k -t main:3 'printf "\033[55;100H"; cat'
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:3 "##{cursor_y}" 54'
 $ select-window -t main:3
 $ display-message -p -t main:3 'bigger=[#{window_bigger}] offset=[#{window_offset_x},#{window_offset_y}]'

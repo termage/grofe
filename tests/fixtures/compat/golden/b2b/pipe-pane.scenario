@@ -4,7 +4,7 @@ $ display -p -t main 'pipe=#{pane_pipe}'
 $ pipe-pane -t main 'cat > "$HOME/pp1.#{pane_index}"'
 $ display -p -t main 'pipe=#{pane_pipe} pid=#{?pane_pipe_pid,set,none}'
 $ send-keys -t main abc Enter
-$ run-shell 'sleep 1; cat -v "$HOME/pp1.1"'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp1.1" 2; cat -v "$HOME/pp1.1"'
 $ pipe-pane -t main
 $ display -p -t main 'pipe=#{pane_pipe} pid=#{?pane_pipe_pid,set,none}'
 $ send-keys -t main later Enter
@@ -18,25 +18,25 @@ $ send-keys -t main two Enter
 $ pipe-pane -o -t main 'cat >> "$HOME/pp2"'
 $ display -p -t main 'pipe=#{pane_pipe}'
 $ send-keys -t main three Enter
-$ run-shell 'sleep 1; cat -v "$HOME/pp2"'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp2" 4; cat -v "$HOME/pp2"'
 $ pipe-pane -t main 'cat > "$HOME/pp3"'
 $ send-keys -t main first Enter
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp3" 2'
 $ pipe-pane -t main 'cat > "$HOME/pp4"'
 $ send-keys -t main second Enter
-$ run-shell 'sleep 1; echo pp3; cat -v "$HOME/pp3"; echo pp4; cat -v "$HOME/pp4"'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp4" 2; echo pp3; cat -v "$HOME/pp3"; echo pp4; cat -v "$HOME/pp4"'
 $ pipe-pane -t main ''
 $ display -p -t main 'pipe=#{pane_pipe}'
 $ pipe-pane -O -t main 'cat > "$HOME/pp5"'
 $ send-keys -t main five Enter
-$ run-shell 'sleep 1; cat -v "$HOME/pp5"'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp5" 2; cat -v "$HOME/pp5"'
 $ pipe-pane -t nosuch 'cat'
 $ pipe-pane -Z 'cat'
 $ pipe-pane -t main 'a' 'b'
 $ pipe-pane -t main 'true'
 $ display -p -t main 'pipe=#{pane_pipe}'
 $ send-keys -t main six Enter
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{pane_pipe}" 0'
 $ display -p -t main 'pipe=#{pane_pipe}'
 $ send-keys -t main seven Enter
 $ run-shell 'sleep 1'

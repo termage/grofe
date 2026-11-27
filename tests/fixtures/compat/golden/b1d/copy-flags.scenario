@@ -5,7 +5,7 @@
 $ new-session -d -s main -n one -x 80 -y 24 'for i in $(seq 1 60); do echo line$i; done; echo AAA-pane; exec cat'
 $ split-window -d -t main:1 -v -l 6 'echo BBB-pane; exec cat'
 $ set -g status-right ''
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main:1.1 AAA-pane; sh {fixtures}/wait.sh shows main:1.2 BBB-pane'
 $ display -p -t main:1.1 'start: [#{pane_in_mode}] [#{pane_mode}]'
 $ copy-mode -q -t main:1.1
 $ display -p -t main:1.1 'quit outside: [#{pane_in_mode}]'

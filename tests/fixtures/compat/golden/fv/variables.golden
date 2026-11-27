@@ -2,7 +2,7 @@ $ new-session -d -s main -x 80 -y 24 'printf "first line\n\033]8;;http://example
 ? 0
 $ new-window -d -t main cat
 ? 0
-$ run-shell 'sleep 0.3'
+$ run-shell 'sh {fixtures}/wait.sh shows main:1 link'
 ? 0
 $ display-message -p -t main:1 'active=[#{session_active}] clients=[#{window_active_clients}] list=[#{window_active_clients_list}] bigger=[#{window_bigger}] offset=[#{window_offset_x},#{window_offset_y}]'
 active=[] clients=[0] list=[] bigger=[] offset=[,]
@@ -43,14 +43,14 @@ $ set -w -t main:5 remain-on-exit on
 ? 0
 $ run-shell -t main:5 'kill -TERM #{pane_pid}'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:5 "##{pane_dead}" 1'
 ? 0
 $ display-message -p -t main:5 'dead=[#{pane_dead}] signal=[#{pane_dead_signal}] status=[#{pane_dead_status}]'
 dead=[1] signal=[15] status=[]
 ? 0
 $ new-window -d -t main:6 'while :; do printf "\033[?2026h"; : > "$HOME/sync6"; sleep 0.02; done'
 ? 0
-$ run-shell 'for i in $(seq 100); do [ -e "$HOME/sync6" ] && break; sleep 0.1; done; sleep 0.2'
+$ run-shell 'sh {fixtures}/wait.sh format main:6 "##{synchronized_output_flag}" 1'
 ? 0
 $ display-message -p -t main:6 'sync=[#{synchronized_output_flag}]'
 sync=[1]
@@ -125,7 +125,7 @@ $ copy-mode -t main:7
 $ display-message -p -t main:7 'unseen=[#{pane_unseen_changes}]'
 unseen=[0]
 ? 0
-$ run-shell 'touch go; sleep 1'
+$ run-shell 'touch go; sh {fixtures}/wait.sh format main:7 "##{pane_unseen_changes}" 1'
 ? 0
 $ display-message -p -t main:7 'unseen=[#{pane_unseen_changes}]'
 unseen=[1]
@@ -154,7 +154,7 @@ $ resize-window -t main:3 -x 120 -y 60
 ? 0
 $ respawn-pane -k -t main:3 'printf "\033[55;100H"; cat'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:3 "##{cursor_y}" 54'
 ? 0
 $ select-window -t main:3
 ? 0

@@ -2,7 +2,7 @@
 # terminal wraps it after foo; tmux finds foo77 across the wrap, and
 # search_match reads it whole.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/golden/tm_3/search.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last foo8 near the bottom"'
 $ copy-mode -t main
 $ send-keys -t main -X history-top
 $ send-keys -t main -X search-forward 'foo77'

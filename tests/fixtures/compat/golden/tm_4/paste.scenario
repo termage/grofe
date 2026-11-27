@@ -5,7 +5,7 @@
 # paste early); -d deletes the buffer after pasting.
 $ new-session -d -s main -n br -x 80 -y 24 'printf "\033[?2004h"; stty raw -echo; exec cat -v'
 $ new-window -d -n plain -t main 'stty raw -echo; exec cat -v'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh noecho main:br main:plain; sh {fixtures}/wait.sh format main:br "##{bracket_paste_flag}" 1'
 $ set-buffer -b one hello
 $ paste-buffer -p -b one -t main:br
 $ paste-buffer -p -b one -t main:plain
@@ -16,7 +16,7 @@ $ paste-buffer -r -b lines -t main:plain
 $ paste-buffer -s XX -b lines -t main:plain
 $ if-shell -F 1 'set-buffer -b esc "a\e[201~b\tc\ad"'
 $ paste-buffer -p -d -b esc -t main:br
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh has main:br "c^Gd^[[201~"; sh {fixtures}/wait.sh has main:plain l1XXl2'
 $ capture-pane -p -t main:br
 $ capture-pane -p -t main:plain
 $ list-buffers

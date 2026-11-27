@@ -23,12 +23,12 @@ screen first
 bells 0
 $ send-keys -t main:1 one Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 1'
 ? 0
 bells 1
 $ send-keys -t main:1 three Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 2'
 ? 0
 bells 1
 $ show -gv @n
@@ -36,7 +36,7 @@ $ show -gv @n
 ? 0
 $ send-keys -t main:2 three Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 3'
 ? 0
 bells 1
 $ show -gv @n
@@ -46,12 +46,12 @@ $ set -g visual-bell both
 ? 0
 $ send-keys -t main:2 three Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 4'
 ? 0
 bells 1
 $ send-keys -t main:1 three Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 5'
 ? 0
 bells 1
 $ show -gv @n

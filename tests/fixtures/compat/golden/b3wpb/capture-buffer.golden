@@ -1,6 +1,6 @@
 $ new-session -d -s main -x 20 -y 5 'printf "alpha\nbeta  \n"; sleep 100000'
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main beta'
 ? 0
 $ list-buffers
 ? 0

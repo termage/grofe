@@ -1,6 +1,6 @@
 $ new-session -d -s main -x 60 -y 12 "sh -c 'stty -icanon -echo; cat -v'"
 ? 0
-$ run-shell 'sleep 0.3'
+$ run-shell 'sh {fixtures}/wait.sh noecho main:1'
 ? 0
 $ send-keys -t main:1 KP0 KP1 KP2 KP3 KP4 KP5 KP6 KP7 KP8 KP9
 ? 0
@@ -18,7 +18,7 @@ $ send-keys -t main:1 User0 User1 User1000 User1001
 ? 0
 $ send-keys -t main:1 'KPx' 'KP55' 'KP'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh has main:1 User1001KPxKP55KP'
 ? 0
 $ capture-pane -p -t main:1
 0123456789/*-+.
@@ -36,7 +36,7 @@ $ capture-pane -p -t main:1
 ? 0
 $ send-keys -t main:1 -l KP5 '[SOH]' 0x41
 ? 0
-$ run-shell 'sleep 0.3'
+$ run-shell 'sh {fixtures}/wait.sh has main:1 "KP5[SOH]0x41"'
 ? 0
 $ capture-pane -p -t main:1
 0123456789/*-+.
@@ -54,7 +54,7 @@ $ capture-pane -p -t main:1
 ? 0
 $ send-keys -t main:1 -H 01 41 7f
 ? 0
-$ run-shell 'sleep 0.3'
+$ run-shell 'sh {fixtures}/wait.sh has main:1 "0x41^AA^?"'
 ? 0
 $ capture-pane -p -t main:1
 0123456789/*-+.

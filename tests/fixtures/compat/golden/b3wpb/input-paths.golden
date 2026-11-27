@@ -8,13 +8,13 @@ $ set-option -g prefix C-a
 ? 0
 $ set-option -w -t main synchronize-panes on
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh noecho main:.1 main:.2 main:.3'
 ? 0
 $ send-prefix -t main:.1
 ? 0
 $ send-keys -t main:.1 Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.2 ^A; sh {fixtures}/wait.sh shows main:.3 ^A'
 ? 0
 $ capture-pane -p -t main:.2
 ^A
@@ -33,7 +33,7 @@ $ paste-buffer -b pb -t main:.1
 ? 0
 $ send-keys -t main:.1 Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.1 pasted'
 ? 0
 $ capture-pane -p -t main:.1
 ^A
@@ -62,7 +62,7 @@ $ capture-pane -p -t main:.2
 ? 0
 $ new-session -d -s modes -x 30 -y 6 "printf 'one\\ntwo\\n\\033[?2004h\\033=\\033[?1h\\033[4h\\033[?6h\\033[?1000h\\033[?7l'; sleep 100000"
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh format modes "##{wrap_flag}" 0'
 ? 0
 $ display-message -p -t modes 'bp=#{bracket_paste_flag} kp=#{keypad_flag} kc=#{keypad_cursor_flag} ins=#{insert_flag} org=#{origin_flag} mouse=#{mouse_any_flag} wrap=#{wrap_flag}'
 bp=1 kp=1 kc=1 ins=1 org=1 mouse=1 wrap=0

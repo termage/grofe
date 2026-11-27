@@ -3,7 +3,7 @@
 # back-reference, grofe finds nothing. tests/acceptance/tm_3.rs checks
 # grofe's own answer on those lines.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/golden/tm_3/search.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last foo8 near the bottom"'
 $ copy-mode -t main
 $ send-keys -t main -X history-top
 $ send-keys -t main -X search-forward '(a|ab)'

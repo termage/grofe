@@ -7,7 +7,7 @@ $ run-shell 'for i in $(seq 100); do grep -qs hello "$HOME/dead1" && exit; sleep
 $ kill-window -t main:w2
 $ run-shell 'for i in $(seq 100); do grep -qs eof "$HOME/dead1" && break; sleep 0.1; done; cat -v "$HOME/dead1"'
 $ new-window -d -t main -n w3 'true'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh format main:w3 "##{pane_dead}" 1'
 $ display -p -t main:w3 '#{pane_dead} pipe=#{pane_pipe}'
 $ pipe-pane -t main:w3 'cat'
 $ display -p -t main:w3 'pipe=#{pane_pipe}'

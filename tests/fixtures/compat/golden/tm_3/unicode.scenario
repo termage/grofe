@@ -2,7 +2,7 @@
 # each pattern searched forward from the top and backward from the
 # bottom of unicode.txt.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/golden/tm_3/unicode.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh has main done'
 $ copy-mode -t main
 $ send-keys -t main -X history-top
 $ send-keys -t main -X search-forward '\w+é'

@@ -14,49 +14,49 @@ buffer
 ? 0
 $ new-window -d -t main:2 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:2 done'
 ? 0
 $ new-window -d -t main:3 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c st'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:3 done'
 ? 0
 $ new-window -d -t main:4 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh p bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:4 done'
 ? 0
 $ new-window -d -t main:5 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh cs bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:5 done'
 ? 0
 $ new-window -d -t main:6 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh - bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:6 done'
 ? 0
 $ new-window -d -t main:7 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh qc bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:7 done'
 ? 0
 $ new-window -d -t main:8 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh x bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:8 done'
 ? 0
 $ set-option -g set-clipboard on
 ? 0
 $ new-window -d -t main:9 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:9 done'
 ? 0
 $ set-option -g set-clipboard off
 ? 0
 $ new-window -d -t main:10 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:10 done'
 ? 0
 $ set-option -g set-clipboard external
 ? 0
 $ new-window -d -t main:11 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:11 done'
 ? 0
 $ set-option -g set-clipboard on
 ? 0
@@ -64,19 +64,19 @@ $ set-option -g get-clipboard off
 ? 0
 $ new-window -d -t main:12 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:12 done'
 ? 0
 $ set-option -g get-clipboard request
 ? 0
 $ new-window -d -t main:13 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:13 done'
 ? 0
 $ set-option -g get-clipboard both
 ? 0
 $ new-window -d -t main:14 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:14 done'
 ? 0
 $ set-option -g get-clipboard buffer
 ? 0
@@ -84,21 +84,21 @@ $ delete-buffer
 ? 0
 $ new-window -d -t main:15 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:15 done'
 ? 0
 $ delete-buffer
 ? 0
 $ new-window -d -t main:16 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:16 done'
 ? 0
 $ delete-buffer -b named
 ? 0
 $ new-window -d -t main:17 'sh {fixtures}/g*den/b3wpd/osc52-probe.sh c bel'
 ? 0
-$ run-shell 'sleep 0.4'
+$ run-shell 'sh {fixtures}/wait.sh shows main:17 done'
 ? 0
-$ run-shell 'sleep 3'
+$ run-shell 'sh {fixtures}/wait.sh shows main:17 done'
 ? 0
 $ capture-pane -p -t main:2
 ^[]52;c;aGVsbG8gd29ybGQ=^G

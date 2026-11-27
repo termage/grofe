@@ -4,7 +4,7 @@
 # (command-prompt -1), then ; and , repeat. A key that opens a prompt is
 # typed on its own, so the prompt is open before the next.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/golden/tm_3/search.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last foo8 near the bottom"'
 client 80x25 attach -t main
 keys C-b [
 keys g

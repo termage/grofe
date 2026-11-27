@@ -360,7 +360,7 @@ $ display -p -t main:1.1 '[#{c:brightblack}][#{c:90}][#{c:7}][#{c:8}][#{c:termin
 ? 0
 $ send-keys -t main:1.1 needle Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main:1.1 needle 2'
 ? 0
 $ display -p -t main:1.1 '[#{C:needle}][#{C:need}][#{C/i:NEED}][#{C:NEED}][#{C/r:^ne+dle$}][#{C/ri:^NE+DLE$}][#{C:zzz}][#{C/r:(}][#{C:}]'
 [1][1][1][0][1][1][0][0][1]

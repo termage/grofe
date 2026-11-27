@@ -1,6 +1,6 @@
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/../copy/fixture.txt; exec sleep 100000'
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last line of text"'
 ? 0
 $ display -p -t main '#{pane_width}x#{pane_height} #{history_size} #{pane_in_mode}[#{pane_mode}]'
 80x24 500 0[]

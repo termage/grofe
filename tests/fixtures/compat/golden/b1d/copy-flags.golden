@@ -4,7 +4,7 @@ $ split-window -d -t main:1 -v -l 6 'echo BBB-pane; exec cat'
 ? 0
 $ set -g status-right ''
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main:1.1 AAA-pane; sh {fixtures}/wait.sh shows main:1.2 BBB-pane'
 ? 0
 $ display -p -t main:1.1 'start: [#{pane_in_mode}] [#{pane_mode}]'
 start: [0] []
