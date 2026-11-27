@@ -2,6 +2,7 @@
 //! runs off the actor and posts a `Job` that calls `lua_host::call_job`.
 
 use std::collections::HashMap;
+use std::os::unix::process::ExitStatusExt;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -151,6 +152,9 @@ async fn run_system(
             code: -1,
             stdout: String::new(),
             stderr: msg.clone(),
+            timed_out: false,
+            error: Some(msg.clone()),
+            signal: None,
         };
         (payload, Some(msg))
     };
@@ -198,9 +202,13 @@ async fn run_system(
     // One deadline over the exit and both pipes: a descendant that holds a
     // pipe open outlives the child, and is as much the job as the child.
     let mut code = None;
+    let mut signal = None;
     let ran = tokio::time::timeout_at(deadline, async {
         code = Some(match child.wait().await {
-            Ok(status) => status.code().unwrap_or(-1),
+            Ok(status) => {
+                signal = status.signal();
+                status.code().unwrap_or(-1)
+            }
             Err(_) => -1,
         });
         let out = (&mut out_task).await.unwrap_or_default();
@@ -208,8 +216,14 @@ async fn run_system(
     })
     .await;
     let mut cause = None;
+    let mut timed_out = false;
     let (code, stdout, stderr) = match ran {
-        Ok((out, err)) => (code.unwrap_or(-1), out, err),
+        Ok((out, err)) => {
+            if let Some(n) = signal {
+                cause = Some(format!("killed by signal {n}"));
+            }
+            (code.unwrap_or(-1), out, err)
+        }
         Err(_) => {
             group.kill();
             let _ = child.wait().await;
@@ -220,6 +234,8 @@ async fn run_system(
             let (out, err) = tokio::time::timeout(PIPE_GRACE, pipes)
                 .await
                 .unwrap_or_default();
+            timed_out = true;
+            signal = None;
             cause = Some(format!("timed out after {}ms", job.timeout_ms));
             (-1, out, err)
         }
@@ -230,6 +246,9 @@ async fn run_system(
         code,
         stdout,
         stderr,
+        timed_out,
+        error: None,
+        signal,
     };
     (payload, cause)
 }
@@ -449,6 +468,7 @@ mod tests {
                 code,
                 stdout,
                 stderr,
+                ..
             } => assert_eq!((code, stdout.as_str(), stderr.as_str()), (3, "hi\n", "e\n")),
             _ => panic!("not a system payload"),
         }

@@ -507,6 +507,7 @@ fn handle_pane_event(state: &mut State, event: PaneEvent) {
 /// Runs one [`Job`] on the actor, then sends the events it caused.
 fn run_job(state: &mut State, job: Job) {
     job(state);
+    lua_host::ui::release_stranded(state);
     // A job is no CLI request: nothing waits for its hooks.
     drop(hooks::take_reply_hold(state));
     state.events.flush(&state.model);

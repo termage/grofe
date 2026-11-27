@@ -1,3 +1,4 @@
+mod ui;
 use super::callbacks::{CALLBACKS, LINES, NEXT_ID, add_callback, free_line};
 pub use super::callbacks::{Payload, call, in_pack, release};
 use super::pack;
@@ -6,6 +7,7 @@ use super::system;
 pub use super::system::SystemJob;
 use mlua::{Function, Lua, Table, Value};
 use std::cell::RefCell;
+pub use ui::{ChooseJob, Context};
 
 pub trait Host {
     fn run(&mut self, argv: Vec<String>) -> Result<String, String>;
@@ -30,8 +32,22 @@ pub trait Host {
     /// state it reached (one of `until`, else the default ones) or nothing.
     fn agent_prompt(&mut self, req: PromptJob, id: u32) -> Result<(), String>;
     fn cancel(&mut self, id: u32);
-    /// Posts a tray entry for `pane` (the active pane when `None`).
-    fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String>;
+    /// Posts a tray entry for `pane` (the active pane when `None`); with
+    /// `reply`, Enter on it asks for text and sends it to the pane.
+    fn notify(
+        &mut self,
+        text: &str,
+        pane: Option<&str>,
+        level: &str,
+        reply: bool,
+    ) -> Result<(), String>;
+    /// The client, pane and cwd of the key press (or chooser or input
+    /// callback) now running; nothing outside one.
+    fn context(&mut self) -> Context;
+    /// Opens the chooser; callback `id` gets the 1-based pick or nothing.
+    fn choose(&mut self, req: ChooseJob, id: u32) -> Result<(), String>;
+    /// Opens a one-line prompt; callback `id` gets the text or nothing.
+    fn input(&mut self, prompt: &str, id: u32) -> Result<(), String>;
     fn log(&mut self, msg: &str);
 }
 
@@ -276,12 +292,13 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
             let Value::String(text) = text else {
                 return Err(err("grofe.notify takes the text as a string"));
             };
-            let (pane, level) = match opts {
+            let (pane, level, reply) = match opts {
                 Some(o) => (
                     o.get::<Option<String>>("pane")?,
                     o.get::<Option<String>>("level")?,
+                    o.get::<Option<bool>>("reply")?.unwrap_or(false),
                 ),
-                None => (None, None),
+                None => (None, None, false),
             };
             let level = level.unwrap_or_else(|| "info".into());
             if !LEVELS.contains(&level.as_str()) {
@@ -289,9 +306,10 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
                     "grofe.notify: level must be one of {LEVELS:?}"
                 )));
             }
-            host_fn(lua, "notify")?.call::<()>((text.to_str()?.to_string(), pane, level))
+            host_fn(lua, "notify")?.call::<()>((text.to_str()?.to_string(), pane, level, reply))
         })?,
     )?;
+    ui::install(lua, &g)?;
     g.set(
         "plugin",
         host_function(lua, |lua, name: String| {
@@ -398,12 +416,32 @@ pub fn enter<R>(
             t.set(
                 "notify",
                 scope.create_function_mut(
-                    |_, (text, pane, level): (String, Option<String>, String)| {
+                    |_, (text, pane, level, reply): (String, Option<String>, String, bool)| {
                         host.borrow_mut()
-                            .notify(&text, pane.as_deref(), &level)
+                            .notify(&text, pane.as_deref(), &level, reply)
                             .map_err(err)
                     },
                 )?,
+            )?;
+            t.set(
+                "context",
+                scope.create_function_mut(|_, ()| {
+                    let c = host.borrow_mut().context();
+                    Ok((c.client, c.pane, c.cwd))
+                })?,
+            )?;
+            t.set(
+                "choose",
+                scope.create_function_mut(|_, (job, id): (Table, u32)| {
+                    let job = ChooseJob::from_table(&job)?;
+                    host.borrow_mut().choose(job, id).map_err(err)
+                })?,
+            )?;
+            t.set(
+                "input",
+                scope.create_function_mut(|_, (prompt, id): (String, u32)| {
+                    host.borrow_mut().input(&prompt, id).map_err(err)
+                })?,
             )?;
             t.set(
                 "log",

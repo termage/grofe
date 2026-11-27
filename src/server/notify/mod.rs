@@ -54,6 +54,9 @@ pub struct Notification {
     pub read: bool,
     /// What a job was called, for a notification with no pane.
     pub label: Option<String>,
+    /// Enter on it asks for text and sends it to the pane (a script's
+    /// `reply` option), rather than jumping there.
+    pub reply: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,11 +105,12 @@ impl Notifier {
         let toast = cfg.toast.iter().any(|s| s == new) && !muted;
         let desktop = cfg.desktop.iter().any(|s| s == new) && !muted && configured_kind;
         let min_interval = cfg.min_interval;
-        if let Some(it) = self
-            .items
-            .iter_mut()
-            .find(|it| it.pane == Some(pane) && now.saturating_duration_since(it.at) < min_interval)
-        {
+        // A script's reply entry keeps its text; a change raises a new one.
+        if let Some(it) = self.items.iter_mut().find(|it| {
+            it.pane == Some(pane)
+                && !it.reply
+                && now.saturating_duration_since(it.at) < min_interval
+        }) {
             it.state = new.to_string();
             it.msg = msg.map(str::to_string);
             it.read = false;
@@ -167,6 +171,7 @@ impl Notifier {
                 at: now,
                 read: false,
                 label: label.map(str::to_string),
+                reply: false,
             },
         );
         self.items.truncate(self.cfg.history);
@@ -176,8 +181,19 @@ impl Notifier {
     /// Adds an entry a script asked for, past the raise rules: no toast, no
     /// desktop message. `level` is the entry's state.
     /// With no `pane` it is the server's own (`uid` empty).
-    pub fn post(&mut self, pane: Option<PaneId>, uid: &str, level: &str, text: &str, now: Instant) {
+    pub fn post(
+        &mut self,
+        pane: Option<PaneId>,
+        uid: &str,
+        level: &str,
+        text: &str,
+        reply: bool,
+        now: Instant,
+    ) {
         self.push(pane, uid, None, level, Some(text), None, now);
+        if let Some(it) = self.items.first_mut() {
+            it.reply = reply;
+        }
     }
 
     /// Marks the pane's notifications read; true if any changed.
@@ -383,10 +399,23 @@ mod tests {
     fn post_adds_an_unread_entry_past_the_rules() {
         let mut n = Notifier::default();
         n.cfg.enabled = false;
-        n.post(Some(PaneId(1)), "u", "warn", "hello", Instant::now());
+        n.post(Some(PaneId(1)), "u", "warn", "hello", false, Instant::now());
         assert_eq!(n.unread(), 1);
         assert_eq!(n.items()[0].msg.as_deref(), Some("hello"));
         assert_eq!(n.items()[0].state, "warn");
+    }
+
+    #[test]
+    fn a_reply_entry_is_not_coalesced_into() {
+        let mut n = Notifier::default();
+        let t = Instant::now();
+        n.post(Some(PaneId(1)), "u1", "warn", "which one?", true, t);
+        let r = raise(&mut n, 1, "blocked", 5, false, t + s(1));
+        assert!(r.is_some());
+        assert_eq!(n.items().len(), 2);
+        let posted = &n.items()[1];
+        assert_eq!(posted.msg.as_deref(), Some("which one?"));
+        assert!(posted.reply);
     }
 
     #[test]

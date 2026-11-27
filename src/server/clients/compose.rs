@@ -887,9 +887,9 @@ impl FormatVars for ClientVars<'_> {
         self.pane.as_ref()?.pane_search(term, regex, ignore)
     }
 
-    fn reexpand(&self, text: &str) -> String {
+    fn reexpand(&self, name: &str, text: &str) -> String {
         match &self.pane {
-            Some(pane) => pane.reexpand(text),
+            Some(pane) => pane.reexpand(name, text),
             None => text.to_string(),
         }
     }
