@@ -82,9 +82,9 @@ fn words_split_like_a_shell() {
 
 #[test]
 fn scenarios_parse() {
-    let text = "# c\n\n$ ls -F '#S'\nclient 80x24 attach -t m\n$& popup\nscreen\nscreen a b\n";
+    let text = "# c\n\n$ ls -F '#S'\nclient 80x24 attach -t m\n$& popup\nscreen\nscreen a b\ndrawn\nscreen !a\n";
     let steps = parse_scenario(text).unwrap();
-    assert_eq!(steps.len(), 5);
+    assert_eq!(steps.len(), 7);
     let tmux = |i: usize| match &steps[i] {
         Step::Tmux { background, .. } => Some(*background),
         _ => None,
@@ -103,6 +103,13 @@ fn scenarios_parse() {
         steps[4],
         Step::Screen {
             until: Some("a b".into())
+        }
+    );
+    assert_eq!(steps[5], Step::Drawn);
+    assert_eq!(
+        steps[6],
+        Step::Screen {
+            until: Some("!a".into())
         }
     );
     assert!(parse_scenario("frob\n").is_err());

@@ -11,31 +11,33 @@ keys Escape '[<2;21;6M'
 screen Horizontal
 # The release where the press was: the menu stays or goes as tmux says.
 keys Escape '[<2;21;6m'
-screen
+screen !Horizontal
 # Press, drag onto an item and release over it chooses the item.
 keys Escape '[<2;21;6M'
 screen Horizontal
 keys Escape '[<34;21;11M'
+drawn
 styles 2-13
 keys Escape '[<2;21;11m'
-screen
+screen !Horizontal
 $ display-message -p -t main '#{pane_marked}'
 # The window menu at the status line.
 keys Escape '[<2;10;15M'
 screen Swap
 keys Escape '[<2;10;15m'
-screen
+screen !Swap
 # Meta forms open the menu too.
 keys Escape '[<10;21;6M'
 screen Horizontal
 keys Escape '[<10;21;6m'
-screen
+screen !Horizontal
 # The session menu.
 keys Escape '[<2;3;15M'
 screen Renumber
 keys Escape '[<2;3;15m'
-screen
+screen !Renumber
 # A left click on a window label selects the window (MouseDown1Status).
 keys Escape '[<0;20;15M'
 keys Escape '[<0;20;15m'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{window_index}" 2'
 $ display -p -t main '#{window_index}'

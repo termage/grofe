@@ -23,7 +23,9 @@
 //! - `screen [<text>]`: wait until the client's screen shows `<text>` (if
 //!   given) and its output has settled, then record the screen, each row as
 //!   `| <row>` with trailing blanks trimmed. Give `<text>` whenever the screen
-//!   is waiting on something a step started, or the capture races it.
+//!   is waiting on something a step started, or the capture races it;
+//!   `!<text>` waits until the screen no longer shows `<text>` (a menu that
+//!   closes).
 //! - `styles <first>-<last> [<text>]`: as `screen`, but record how rows
 //!   `<first>` to `<last>` look rather than what they say: each run of cells
 //!   with the same non-default colours or attributes as `~ <row>
@@ -38,6 +40,9 @@
 //!   read as Meta with the next step's key. Recorded as the `keys` line
 //!   only; follow it with `screen <text>` to see what the keys did, and
 //!   before typing into a menu a key opened.
+//! - `drawn`: wait until the client has drawn something since the last
+//!   `keys` and its output has settled, for keys whose effect no text shows
+//!   (a menu row highlighted). Recorded as the `drawn` line only.
 //!
 //! In `$`, `$&` and `client` args, `{client}` expands to the client's tty
 //! (for `-c`) and `{fixtures}` to `tests/fixtures/compat` (for `source-file`).
@@ -437,6 +442,14 @@ pub fn replay(cli: &Cli, steps: &[Step]) -> Transcript {
                 thread::sleep(KEYS_PAUSE);
                 out.push_str(&format!("{line}\n"));
             }
+            Step::Drawn => {
+                let client = live
+                    .client
+                    .as_ref()
+                    .expect("drawn needs a client step first");
+                client.drawn();
+                out.push_str("drawn\n");
+            }
             Step::Bells => {
                 let client = live
                     .client
@@ -507,6 +520,8 @@ pub enum Step {
     },
     /// The bell the client rang since the last `bells` step.
     Bells,
+    /// The client drew something after the last `keys`.
+    Drawn,
     Screen {
         until: Option<String>,
     },
@@ -616,6 +631,8 @@ pub fn parse_scenario(text: &str) -> Result<Vec<Step>, String> {
             });
         } else if line == "bells" {
             steps.push(Step::Bells);
+        } else if line == "drawn" {
+            steps.push(Step::Drawn);
         } else if line == "screen" {
             steps.push(Step::Screen { until: None });
         } else if let Some(text) = line.strip_prefix("screen ") {
@@ -726,6 +743,8 @@ struct PtyClient {
     output: Arc<Mutex<(Vec<u8>, Instant)>>,
     /// How many bytes of output `bells` has counted.
     counted: std::cell::Cell<usize>,
+    /// How many bytes of output there were when `keys` last typed.
+    typed_at: std::cell::Cell<usize>,
     cols: u16,
     rows: u16,
 }
@@ -778,6 +797,7 @@ impl PtyClient {
             input,
             output,
             counted: std::cell::Cell::new(0),
+            typed_at: std::cell::Cell::new(0),
             cols,
             rows,
         }
@@ -786,6 +806,13 @@ impl PtyClient {
     /// Type `bytes` on the client's terminal.
     fn type_bytes(&mut self, bytes: &[u8]) {
         use std::io::Write;
+        let drawn = self
+            .output
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .0
+            .len();
+        self.typed_at.set(drawn);
         self.input.write_all(bytes).expect("write to the pty");
     }
 
@@ -820,6 +847,26 @@ impl PtyClient {
         runs
     }
 
+    /// Wait until the client has printed something since [`PtyClient::type_bytes`]
+    /// and [`SCREEN_QUIET`] has passed without output.
+    fn drawn(&self) {
+        let deadline = Instant::now() + CMD_TIMEOUT;
+        loop {
+            thread::sleep(Duration::from_millis(50));
+            let (len, quiet) = {
+                let out = self.output.lock().unwrap_or_else(|e| e.into_inner());
+                (out.0.len(), out.1.elapsed() >= SCREEN_QUIET)
+            };
+            if quiet && len > self.typed_at.get() {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "client drew nothing after its keys"
+            );
+        }
+    }
+
     /// Everything the client printed, once it shows `until` (if given) and
     /// [`SCREEN_QUIET`] has passed without output.
     fn settled(&self, until: Option<&str>) -> Vec<u8> {
@@ -832,7 +879,8 @@ impl PtyClient {
             };
             if quiet && !bytes.is_empty() {
                 let rows = self.render(&bytes);
-                if until.is_none_or(|t| rows.iter().any(|r| r.contains(t))) {
+                let shows = |t: &str| rows.iter().any(|r| r.contains(t));
+                if until.is_none_or(|t| t.strip_prefix('!').map_or(shows(t), |t| !shows(t))) {
                     return bytes;
                 }
             }
