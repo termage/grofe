@@ -16,8 +16,7 @@
 //! [`dispatch::defer_reply`] once the command exits (R23).
 
 use crate::cmd::NoVars;
-use crate::server::spawn;
-use crate::server::spawn::Stdio;
+use crate::server::spawn::{self, Stdio};
 use std::collections::BTreeMap;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;

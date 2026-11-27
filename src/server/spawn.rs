@@ -65,8 +65,6 @@ pub(crate) struct Command {
     stdio: [Stdio; 3],
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     group: Option<i32>,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    kill_on_drop: bool,
 }
 
 macro_rules! forward {
@@ -86,7 +84,6 @@ impl Command {
             clear: false,
             stdio: [Stdio::Inherit; 3],
             group: None,
-            kill_on_drop: false,
         }
     }
 
@@ -97,6 +94,7 @@ impl Command {
         envs(vars: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>);
         env_remove(key: impl AsRef<OsStr>);
         current_dir(dir: impl AsRef<Path>);
+        kill_on_drop(on: bool);
     }
 
     pub(crate) fn arg0(&mut self, arg0: impl AsRef<OsStr>) -> &mut Self {
@@ -132,12 +130,6 @@ impl Command {
     pub(crate) fn process_group(&mut self, group: i32) -> &mut Self {
         self.group = Some(group);
         self.inner.process_group(group);
-        self
-    }
-
-    pub(crate) fn kill_on_drop(&mut self, on: bool) -> &mut Self {
-        self.kill_on_drop = on;
-        self.inner.kill_on_drop(on);
         self
     }
 }
@@ -220,284 +212,7 @@ pub(crate) fn stdio_only(cmd: &mut std::process::Command) {
 }
 
 #[cfg(target_os = "macos")]
-mod mac {
-    use std::collections::BTreeMap;
-    use std::ffi::{CString, OsString};
-    use std::os::fd::{AsRawFd, OwnedFd};
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::PermissionsExt;
-    use std::os::unix::process::ExitStatusExt;
-    use std::ptr::null_mut;
-    use std::sync::{Arc, Mutex};
-
-    use nix::libc::{
-        self, c_char, c_int, posix_spawn_file_actions_t as Actions, posix_spawnattr_t,
-    };
-    use tokio::sync::watch;
-
-    use super::*;
-
-    unsafe extern "C" {
-        fn posix_spawn_file_actions_addchdir_np(fa: *mut Actions, path: *const c_char) -> c_int;
-        fn posix_spawn_file_actions_addinherit_np(fa: *mut Actions, fd: c_int) -> c_int;
-    }
-
-    fn check(ret: c_int) -> io::Result<()> {
-        match ret {
-            0 => Ok(()),
-            e => Err(io::Error::from_raw_os_error(e)),
-        }
-    }
-
-    fn cstr(s: &OsStr) -> io::Result<CString> {
-        CString::new(s.as_bytes()).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
-    }
-
-    struct Attr(posix_spawnattr_t);
-
-    impl Drop for Attr {
-        fn drop(&mut self) {
-            // SAFETY: initialised in `spawn`, destroyed once.
-            unsafe { libc::posix_spawnattr_destroy(&mut self.0) };
-        }
-    }
-
-    struct FileActions(Actions);
-
-    impl Drop for FileActions {
-        fn drop(&mut self) {
-            // SAFETY: initialised in `spawn`, destroyed once.
-            unsafe { libc::posix_spawn_file_actions_destroy(&mut self.0) };
-        }
-    }
-
-    /// `program` found as `execvp` finds it: on the child's `PATH`.
-    fn resolve(program: &OsStr, env: &BTreeMap<OsString, OsString>) -> io::Result<CString> {
-        if program.as_bytes().contains(&b'/') {
-            return cstr(program);
-        }
-        let path = env.get(OsStr::new("PATH"));
-        let path = path.map_or(&b"/usr/bin:/bin"[..], |p| p.as_bytes());
-        for dir in path.split(|&b| b == b':') {
-            let file = Path::new(OsStr::from_bytes(if dir.is_empty() { b"." } else { dir }));
-            let file = file.join(program);
-            let meta = std::fs::metadata(&file);
-            if meta.is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0) {
-                return cstr(file.as_os_str());
-            }
-        }
-        Err(io::Error::from_raw_os_error(libc::ENOENT))
-    }
-
-    pub(super) fn spawn(cmd: &Command) -> io::Result<Child> {
-        let std = cmd.inner.as_std();
-        let mut env: BTreeMap<OsString, OsString> = if cmd.clear {
-            BTreeMap::new()
-        } else {
-            std::env::vars_os().collect()
-        };
-        for (key, value) in std.get_envs() {
-            match value {
-                Some(value) => env.insert(key.to_owned(), value.to_owned()),
-                None => env.remove(key),
-            };
-        }
-        let program = resolve(std.get_program(), &env)?;
-        let arg0 = cmd.arg0.as_deref().unwrap_or(std.get_program());
-        let argv = std::iter::once(arg0).chain(std.get_args()).map(cstr);
-        let argv = argv.collect::<io::Result<Vec<_>>>()?;
-        let envp = env
-            .iter()
-            .map(|(k, v)| cstr(&[k.as_os_str(), v.as_os_str()].join(OsStr::new("="))));
-        let envp = envp.collect::<io::Result<Vec<_>>>()?;
-
-        let mut attr = Attr(null_mut());
-        // SAFETY: `attr.0` is valid for writes; `Attr` destroys it.
-        check(unsafe { libc::posix_spawnattr_init(&mut attr.0) })?;
-        let mut actions = FileActions(null_mut());
-        // SAFETY: as above, for `FileActions`.
-        check(unsafe { libc::posix_spawn_file_actions_init(&mut actions.0) })?;
-        let fa = &mut actions.0;
-        // As std: no signal blocked, and SIGPIPE (which std ignores) default.
-        let mut flags = libc::POSIX_SPAWN_CLOEXEC_DEFAULT
-            | libc::POSIX_SPAWN_SETSIGMASK
-            | libc::POSIX_SPAWN_SETSIGDEF;
-        // SAFETY: plain calls on initialised attributes and signal sets.
-        unsafe {
-            let mut set: libc::sigset_t = std::mem::zeroed();
-            libc::sigemptyset(&mut set);
-            check(libc::posix_spawnattr_setsigmask(&mut attr.0, &set))?;
-            libc::sigaddset(&mut set, libc::SIGPIPE);
-            check(libc::posix_spawnattr_setsigdefault(&mut attr.0, &set))?;
-            if let Some(group) = cmd.group {
-                flags |= libc::POSIX_SPAWN_SETPGROUP;
-                check(libc::posix_spawnattr_setpgroup(&mut attr.0, group))?;
-            }
-            check(libc::posix_spawnattr_setflags(
-                &mut attr.0,
-                flags as libc::c_short,
-            ))?;
-        }
-        if let Some(dir) = std.get_current_dir() {
-            let dir = cstr(dir.as_os_str())?;
-            // SAFETY: the actions copy `dir`.
-            check(unsafe { posix_spawn_file_actions_addchdir_np(fa, dir.as_ptr()) })?;
-        }
-        // Under CLOEXEC_DEFAULT only fds named by a file action survive.
-        let mut ours: [Option<OwnedFd>; 3] = Default::default();
-        let mut theirs = Vec::new();
-        for (fd, how) in cmd.stdio.iter().enumerate() {
-            let target = fd as c_int;
-            // SAFETY: `fa` is initialised; the actions copy the path.
-            match how {
-                Stdio::Inherit => {
-                    check(unsafe { posix_spawn_file_actions_addinherit_np(fa, target) })?
-                }
-                Stdio::Null => {
-                    let mode = if fd == 0 {
-                        libc::O_RDONLY
-                    } else {
-                        libc::O_WRONLY
-                    };
-                    let null = c"/dev/null".as_ptr();
-                    check(unsafe {
-                        libc::posix_spawn_file_actions_addopen(fa, target, null, mode, 0)
-                    })?
-                }
-                Stdio::Piped => {
-                    let (read, write) = io::pipe()?;
-                    let (mine, child): (OwnedFd, OwnedFd) = match fd {
-                        0 => (write.into(), read.into()),
-                        _ => (read.into(), write.into()),
-                    };
-                    let raw = child.as_raw_fd();
-                    check(unsafe { libc::posix_spawn_file_actions_adddup2(fa, raw, target) })?;
-                    ours[fd] = Some(mine);
-                    theirs.push(child);
-                }
-            }
-        }
-
-        let ptrs = |v: &[CString]| -> Vec<*mut c_char> {
-            let p = v.iter().map(|s| s.as_ptr().cast_mut());
-            p.chain(std::iter::once(null_mut())).collect()
-        };
-        let (argv_p, envp_p) = (ptrs(&argv), ptrs(&envp));
-        let mut pid = 0;
-        // SAFETY: every pointer is valid and NUL-terminated for the call.
-        check(unsafe {
-            libc::posix_spawn(
-                &mut pid,
-                program.as_ptr(),
-                fa,
-                &attr.0,
-                argv_p.as_ptr(),
-                envp_p.as_ptr(),
-            )
-        })?;
-        drop(theirs);
-        let process = Process::start(pid, cmd.kill_on_drop)?;
-        let [stdin, stdout, stderr] = ours;
-        Ok(Child {
-            stdin: stdin
-                .map(|fd| ChildStdin::from_std(fd.into()))
-                .transpose()?,
-            stdout: stdout
-                .map(|fd| ChildStdout::from_std(fd.into()))
-                .transpose()?,
-            stderr: stderr
-                .map(|fd| ChildStderr::from_std(fd.into()))
-                .transpose()?,
-            process,
-        })
-    }
-
-    /// The exit of a `posix_spawn`ed child, reaped on its own thread.
-    pub(super) struct Process {
-        pid: libc::pid_t,
-        kill_on_drop: bool,
-        /// Set under the lock as the child is reaped, so a kill made while
-        /// it is unset still reaches this child (or its zombie), never a
-        /// reused pid.
-        reaped: Arc<Mutex<bool>>,
-        status: watch::Receiver<Option<Result<ExitStatus, i32>>>,
-    }
-
-    fn lock(m: &Mutex<bool>) -> std::sync::MutexGuard<'_, bool> {
-        m.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    impl Process {
-        fn start(pid: libc::pid_t, kill_on_drop: bool) -> io::Result<Process> {
-            let (tx, status) = watch::channel(None);
-            let reaped = Arc::new(Mutex::new(false));
-            let flag = Arc::clone(&reaped);
-            let reaper = move || {
-                // Waits without reaping: the pid stays this child's until
-                // `waitpid` below, under the lock.
-                // SAFETY: a zeroed siginfo_t is valid, and waitid only writes it.
-                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-                let (exited, nowait) = (libc::WEXITED, libc::WNOWAIT);
-                // SAFETY: `info` outlives the call.
-                while unsafe {
-                    libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, exited | nowait)
-                } != 0
-                    && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted
-                {
-                }
-                let mut done = lock(&flag);
-                let mut raw = 0;
-                // SAFETY: `raw` outlives the call.
-                let got = match unsafe { libc::waitpid(pid, &mut raw, 0) } {
-                    -1 => Err(io::Error::last_os_error()
-                        .raw_os_error()
-                        .unwrap_or(libc::ECHILD)),
-                    _ => Ok(ExitStatus::from_raw(raw)),
-                };
-                *done = true;
-                drop(done);
-                let _ = tx.send(Some(got));
-            };
-            let thread = std::thread::Builder::new().name("grofe-reap".into());
-            if let Err(e) = thread.stack_size(64 * 1024).spawn(reaper) {
-                // SAFETY: plain syscalls on our own unreaped child.
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
-                    libc::waitpid(pid, null_mut(), 0);
-                }
-                return Err(e);
-            }
-            Ok(Process {
-                pid,
-                kill_on_drop,
-                reaped,
-                status,
-            })
-        }
-
-        pub(super) fn id(&self) -> Option<u32> {
-            u32::try_from(self.pid).ok()
-        }
-
-        pub(super) async fn wait(&mut self) -> io::Result<ExitStatus> {
-            let got = self.status.wait_for(Option::is_some).await;
-            let got = got.map_err(|_| io::Error::other("child reaper ended"))?;
-            (*got)
-                .unwrap_or(Err(libc::ECHILD))
-                .map_err(io::Error::from_raw_os_error)
-        }
-    }
-
-    impl Drop for Process {
-        fn drop(&mut self) {
-            let reaped = lock(&self.reaped);
-            if self.kill_on_drop && !*reaped {
-                // SAFETY: not reaped, so `pid` is still this child.
-                unsafe { libc::kill(self.pid, libc::SIGKILL) };
-            }
-        }
-    }
-}
+mod mac;
 
 #[cfg(test)]
 mod tests {
@@ -545,18 +260,17 @@ mod tests {
         use tokio::io::AsyncWriteExt;
         let dir = tempfile::tempdir().expect("tempdir");
         let mut cmd = Command::new("sh");
-        cmd.args([
-            "-c",
-            "read l; echo \"$l $V $(pwd -P)\"; echo e >&2; ps -o pgid= -p $$",
-        ])
-        .env("V", "v")
-        .current_dir(dir.path())
-        .process_group(0)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        cmd.args(["-c", "read l; echo \"$l $V $(pwd -P)\"; echo e >&2"])
+            .env("V", "v")
+            .current_dir(dir.path())
+            .process_group(0)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         let mut child = spawn(&mut cmd).expect("spawn");
-        let pid = child.id().expect("pid");
+        let pid = nix::unistd::Pid::from_raw(child.id().expect("pid") as i32);
+        // Still running: it waits on its stdin.
+        assert_eq!(nix::unistd::getpgid(Some(pid)), Ok(pid));
         let mut stdin = child.stdin.take().expect("stdin");
         stdin.write_all(b"in\n").await.expect("write");
         drop(stdin);
@@ -564,13 +278,69 @@ mod tests {
         assert!(out.status.success());
         let real = dir.path().canonicalize().expect("canonical");
         let text = String::from_utf8_lossy(&out.stdout);
-        let want = format!("in v {}\n", real.display());
-        assert_eq!(text.lines().next(), want.lines().next());
-        assert_eq!(
-            text.lines().nth(1).map(str::trim),
-            Some(pid.to_string().as_str())
-        );
+        assert_eq!(text, format!("in v {}\n", real.display()));
         assert_eq!(out.stderr, b"e\n");
+    }
+
+    /// The child starts as std starts one: SIGPIPE (which Rust ignores) at
+    /// its default, and no signal blocked even when the spawning thread
+    /// blocks one.
+    #[tokio::test]
+    async fn a_child_has_sigpipe_at_default_and_no_signal_blocked() {
+        use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
+        use std::os::unix::process::ExitStatusExt;
+        let run = |script: &str| {
+            let mut cmd = sh(script, None);
+            cmd.stdout(Stdio::piped());
+            spawn(&mut cmd).expect("spawn")
+        };
+        let out = run("kill -PIPE $$; echo alive").wait_with_output().await;
+        let out = out.expect("wait");
+        assert_eq!(out.status.signal(), Some(Signal::SIGPIPE as i32));
+        assert!(out.stdout.is_empty());
+        let mut usr1 = SigSet::empty();
+        usr1.add(Signal::SIGUSR1);
+        pthread_sigmask(SigmaskHow::SIG_BLOCK, Some(&usr1), None).expect("block");
+        let child = run("kill -USR1 $$; echo alive");
+        pthread_sigmask(SigmaskHow::SIG_UNBLOCK, Some(&usr1), None).expect("unblock");
+        let out = child.wait_with_output().await.expect("wait");
+        assert_eq!(out.status.signal(), Some(Signal::SIGUSR1 as i32));
+        assert!(out.stdout.is_empty());
+    }
+
+    /// Whether the child `pid` has exited (`Some(true)`, a zombie until it
+    /// is reaped) or runs (`Some(false)`); `None` once it is reaped. Never
+    /// reaps it.
+    fn exited(pid: u32) -> Option<bool> {
+        use nix::libc;
+        // SAFETY: a zeroed siginfo_t is valid, and waitid only writes it.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let flags = libc::WEXITED | libc::WNOWAIT | libc::WNOHANG;
+        // SAFETY: `info` outlives the call.
+        let r = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, flags) };
+        (r == 0).then_some(info.si_signo == libc::SIGCHLD)
+    }
+
+    async fn until(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !done() {
+            assert!(std::time::Instant::now() < deadline, "never {what}");
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    /// A child that exited stays a zombie until it is waited on, so its pid
+    /// and group id stay its own; once waited on it has no id.
+    #[tokio::test]
+    async fn an_exited_child_is_reaped_only_by_its_wait() {
+        let mut child = spawn(&mut sh("exit 3", None)).expect("spawn");
+        let pid = child.id().expect("pid");
+        until("exited", || exited(pid) == Some(true)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(exited(pid), Some(true), "reaped before its wait");
+        assert_eq!(child.wait().await.expect("wait").code(), Some(3));
+        assert_eq!(child.id(), None);
+        assert_eq!(exited(pid), None);
     }
 
     /// A program that is not there fails the spawn, and `kill_on_drop` ends
@@ -582,12 +352,8 @@ mod tests {
         let mut cmd = Command::new("sleep");
         cmd.arg("30").kill_on_drop(true);
         let child = spawn(&mut cmd).expect("spawn");
-        let pid = nix::unistd::Pid::from_raw(child.id().expect("pid") as i32);
+        let pid = child.id().expect("pid");
         drop(child);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while nix::sys::signal::kill(pid, None).is_ok() {
-            assert!(std::time::Instant::now() < deadline, "still running");
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        until("killed", || exited(pid) != Some(false)).await;
     }
 }
