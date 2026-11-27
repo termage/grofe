@@ -17,10 +17,11 @@
 
 use crate::cmd::NoVars;
 use crate::server::spawn;
+use crate::server::spawn::Stdio;
 use std::collections::BTreeMap;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
-use std::process::{ExitStatus, Stdio};
+use std::process::ExitStatus;
 use std::time::{Duration, Instant};
 
 use tokio::sync::oneshot;

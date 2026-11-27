@@ -4,10 +4,9 @@
 //! goes through a shell.
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::process::Command as Process;
+use crate::server::spawn::{self, Command as Process, Stdio};
 
 use crate::cmd::{AgentNew, Command, NewWindow, Resolve, SplitWindow, Target};
 use crate::protocol::ClientCtx;
@@ -283,7 +282,7 @@ async fn capture(cmd: &mut Process) -> Result<String, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let child = crate::server::spawn::spawn(cmd).map_err(|e| format!("{e}"))?;
+    let child = spawn::spawn(cmd).map_err(|e| format!("{e}"))?;
     let out = tokio::time::timeout(WORKTREE_TIMEOUT, child.wait_with_output())
         .await
         .map_err(|_| "worktree command timed out after 30s".to_string())?

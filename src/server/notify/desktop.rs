@@ -1,5 +1,5 @@
 //! Desktop notification delivery (agents spec §6.4).
-use std::process::Stdio;
+use crate::server::spawn::{self, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -169,13 +169,13 @@ impl Runner {
 }
 
 async fn run_one(argv: &[String], timeout: Duration) {
-    let mut cmd = tokio::process::Command::new(&argv[0]);
+    let mut cmd = spawn::Command::new(&argv[0]);
     cmd.args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    let Ok(mut child) = crate::server::spawn::spawn(&mut cmd) else {
+    let Ok(mut child) = spawn::spawn(&mut cmd) else {
         return;
     };
     // dropping the child on timeout kills it

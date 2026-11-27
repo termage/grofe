@@ -18,7 +18,6 @@
 // is full is dropped, so a command that stops reading never holds the pane.
 
 use std::io as stdio;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -29,7 +28,7 @@ use tokio::task::JoinHandle;
 
 use super::io::InputQueue;
 use super::lock;
-use crate::server::spawn;
+use crate::server::spawn::{self, Stdio};
 
 /// Reads the pane's output may wait for the command.
 const QUEUE_READS: usize = 1024;

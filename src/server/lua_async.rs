@@ -1,14 +1,13 @@
 //! Timers, event subscriptions and child processes for Lua callbacks. Each
 //! runs off the actor and posts a `Job` that calls `lua_host::call_job`.
 
+use crate::server::spawn::{Command, Stdio};
 use std::collections::HashMap;
 use std::os::unix::process::ExitStatusExt;
-use std::process::Stdio;
 use std::time::Duration;
 
 use nix::sys::signal::Signal;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::{AbortHandle, JoinHandle};
 
