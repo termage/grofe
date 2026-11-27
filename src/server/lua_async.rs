@@ -176,7 +176,7 @@ async fn run_system(
     if let Some(cwd) = &job.cwd {
         cmd.current_dir(cwd);
     }
-    let mut child = match cmd.spawn() {
+    let mut child = match crate::server::spawn::spawn(&mut cmd) {
         Ok(c) => c,
         Err(e) => return failed(format!("{prog}: {e}")),
     };

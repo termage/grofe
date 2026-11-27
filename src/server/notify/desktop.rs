@@ -169,14 +169,13 @@ impl Runner {
 }
 
 async fn run_one(argv: &[String], timeout: Duration) {
-    let Ok(mut child) = tokio::process::Command::new(&argv[0])
-        .args(&argv[1..])
+    let mut cmd = tokio::process::Command::new(&argv[0]);
+    cmd.args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-    else {
+        .kill_on_drop(true);
+    let Ok(mut child) = crate::server::spawn::spawn(&mut cmd) else {
         return;
     };
     // dropping the child on timeout kills it

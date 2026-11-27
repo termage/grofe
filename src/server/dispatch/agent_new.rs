@@ -279,13 +279,11 @@ async fn make_worktree(template: &[String], dir: &Path, branch: &str) -> Result<
 
 /// Runs `cmd` with a timeout; its stdout, or its stderr as the error.
 async fn capture(cmd: &mut Process) -> Result<String, String> {
-    let child = cmd
-        .stdin(Stdio::null())
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| format!("{e}"))?;
+        .kill_on_drop(true);
+    let child = crate::server::spawn::spawn(cmd).map_err(|e| format!("{e}"))?;
     let out = tokio::time::timeout(WORKTREE_TIMEOUT, child.wait_with_output())
         .await
         .map_err(|_| "worktree command timed out after 30s".to_string())?
