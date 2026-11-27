@@ -343,14 +343,15 @@ async fn auto_no_client_runs_command() {
         .to_vec(),
     );
     apply(&mut state, pane, blocked("perm", 1));
-    for _ in 0..100 {
-        if file.exists() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // `>` creates the file before `printf` writes it: wait for the text.
+    let want = "a:1.1 blocked: perm";
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut text = String::new();
+    while text != want && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        text = std::fs::read_to_string(&file).unwrap_or_default();
     }
-    let text = std::fs::read_to_string(&file).expect("command ran");
-    assert_eq!(text, "a:1.1 blocked: perm");
+    assert_eq!(text, want);
 }
 
 /// `auto` (spec §6.4): with a client attached and none known unfocused
