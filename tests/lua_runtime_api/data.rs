@@ -156,13 +156,15 @@ fn config_parse_error_names_file_and_line() {
 // Pack-relative require and pack_dir
 
 #[test]
-fn notify_rejects_an_unknown_level_and_a_missing_pane() {
+fn notify_rejects_an_unknown_level_and_posts_with_no_session() {
     let srv = TestServer::start();
     let e = lua(&srv, "grofe.notify('x', {level = 'loud'})").expect_err("bad level");
     assert!(e.contains("level"), "{e}");
-    let e = lua(&srv, "grofe.notify('x')").expect_err("no pane at all");
-    assert!(e.contains("pane"), "{e}");
     assert_eq!(srv.cmd(&["notify", "list"]).expect("list").trim(), "");
+    // The tray is server-wide: with no session the entry is the server's.
+    lua_ok(&srv, "grofe.notify('server-wide')");
+    let list = srv.cmd(&["notify", "list"]).expect("list");
+    assert!(list.contains("server-wide"), "{list}");
 }
 
 #[test]

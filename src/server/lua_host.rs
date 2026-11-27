@@ -4,7 +4,7 @@
 
 use crate::cmd;
 use crate::lua::api::{self, Host, Payload, PromptJob, SystemJob};
-use crate::lua::runtime::{Limits, LuaError, Runtime};
+use crate::lua::runtime::{Limits, LuaError, Runtime, compile, compile_eval};
 use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
 use crate::server::agents::{headless, valid_kind};
@@ -263,15 +263,26 @@ impl Host for StateHost<'_> {
     }
 
     fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String> {
-        let target = match pane {
-            Some(p) => cmd::target::parse_target(p).map_err(|e| e.to_string())?,
-            None => cmd::target::Target::Current,
+        let model = &self.state.model;
+        let pane = match pane {
+            Some(p) => {
+                let target = cmd::target::parse_target(p).map_err(|e| e.to_string())?;
+                let id = cmd::Resolve::resolve_pane(model, &target, &self.ctx)
+                    .map_err(|e| format!("no pane to notify for: {e}"))?;
+                Some(id)
+            }
+            // The tray is server-wide: with no session there is no current
+            // pane, and the entry is the server's own.
+            None => {
+                cmd::Resolve::resolve_pane(model, &cmd::target::Target::Current, &self.ctx).ok()
+            }
         };
-        let pane = cmd::Resolve::resolve_pane(&self.state.model, &target, &self.ctx)
-            .map_err(|e| format!("no pane to notify for: {e}"))?;
-        let uid = match self.state.model.panes.get(&pane) {
-            Some(p) => p.uid.clone(),
-            None => return Err(format!("no pane {pane}")),
+        let uid = match pane {
+            Some(id) => match model.panes.get(&id) {
+                Some(p) => p.uid.clone(),
+                None => return Err(format!("no pane {id}")),
+            },
+            None => String::new(),
         };
         self.state
             .notify
@@ -474,10 +485,7 @@ pub(crate) fn load_pack(
             pack::register(lua, name, dir, options)?;
             let env = pack::env_of(lua, name)?;
             let value = api::in_pack(lua, || {
-                lua.load(&src)
-                    .set_name(name)
-                    .set_environment(env)
-                    .eval::<mlua::Value>()
+                compile_eval(lua, src.as_bytes(), name, Some(env))?.call::<mlua::Value>(())
             })?;
             api::set_plugin(rt, name, value).map_err(mlua::Error::external)
         })
@@ -516,7 +524,7 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
     let r = with_client_less_host(state, |rt, host| {
         api::enter(rt, host, &who, |lua| {
             require::set_dir(lua, config_dir)?;
-            lua.load(&src).set_name(&who).exec()
+            compile(lua, lua.load(&src).set_name(&who))?.call::<()>(())
         })
     });
     if let Err(e) = r {
@@ -527,7 +535,8 @@ pub(crate) fn load_init(state: &mut State, config_dir: &Path) {
 pub(crate) fn run_chunk(state: &mut State, ctx: &ClientCtx, src: &str) -> Result<String, String> {
     with_host(state, ctx.clone(), false, |rt, host| {
         api::enter(rt, host, "lua", |lua| {
-            let values = lua.load(src).set_name("lua").eval::<mlua::MultiValue>()?;
+            let values =
+                compile_eval(lua, src.as_bytes(), "lua", None)?.call::<mlua::MultiValue>(())?;
             let parts: Result<Vec<String>, _> = values.iter().map(|v| v.to_string()).collect();
             Ok(parts?.join(" "))
         })

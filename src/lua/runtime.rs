@@ -36,6 +36,9 @@ pub struct Runtime {
     deadline: Arc<Mutex<Option<Instant>>>,
 }
 
+/// The running call's deadline, where code holding only the `Lua` finds it.
+struct Deadline(Arc<Mutex<Option<Instant>>>);
+
 fn lock(d: &Mutex<Option<Instant>>) -> std::sync::MutexGuard<'_, Option<Instant>> {
     d.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -63,6 +66,7 @@ impl Runtime {
         super::require::install(&lua).map_err(setup)?;
         lua.sandbox(true).map_err(setup)?;
         lua.set_memory_limit(limits.memory).map_err(setup)?;
+        lua.set_app_data(Deadline(deadline.clone()));
         Ok(Runtime {
             lua,
             budget,
@@ -70,7 +74,8 @@ impl Runtime {
         })
     }
 
-    /// Runs `f` under the time budget. A nested call keeps the earlier deadline.
+    /// Runs `f` under the time budget. A nested call keeps the earlier deadline,
+    /// and what [`compile`] took off the inner call's is off the outer's too.
     pub fn guarded<R>(
         &self,
         who: &str,
@@ -78,9 +83,12 @@ impl Runtime {
     ) -> Result<R, LuaError> {
         let outer = *lock(&self.deadline);
         let mine = Instant::now() + self.budget;
-        *lock(&self.deadline) = Some(outer.map_or(mine, |o| o.min(mine)));
+        let set = outer.map_or(mine, |o| o.min(mine));
+        *lock(&self.deadline) = Some(set);
         let result = f(&self.lua);
-        *lock(&self.deadline) = outer;
+        let moved =
+            lock(&self.deadline).map_or(Duration::ZERO, |at| at.saturating_duration_since(set));
+        *lock(&self.deadline) = outer.map(|o| o + moved);
         result.map_err(|e| LuaError {
             who: who.to_string(),
             message: clean(&e),
@@ -88,12 +96,47 @@ impl Runtime {
     }
 
     pub fn exec(&self, who: &str, src: &str) -> Result<(), LuaError> {
-        self.guarded(who, |lua| lua.load(src).set_name(who).exec())
+        self.guarded(who, |lua| {
+            compile(lua, lua.load(src).set_name(who))?.call(())
+        })
     }
 
     pub fn lua(&self) -> &mlua::Lua {
         &self.lua
     }
+}
+
+/// Compiles `chunk` off the budget: the running call's deadline moves on by
+/// the time the compile took, so only running the code counts. A debug build
+/// takes ~30 ms to compile 64 KiB of Luau, most of the budget.
+pub fn compile(lua: &mlua::Lua, chunk: mlua::chunk::Chunk) -> mlua::Result<mlua::Function> {
+    let start = Instant::now();
+    let f = chunk.into_function();
+    if let Some(d) = lua.app_data_ref::<Deadline>()
+        && let Some(at) = lock(&d.0).as_mut()
+    {
+        *at += start.elapsed();
+    }
+    f
+}
+
+/// [`compile`] for a chunk run as `Chunk::eval` runs one: as an expression
+/// when `src` is one, else as a block.
+pub fn compile_eval(
+    lua: &mlua::Lua,
+    src: &[u8],
+    name: &str,
+    env: Option<mlua::Table>,
+) -> mlua::Result<mlua::Function> {
+    let chunk = |src: Vec<u8>| {
+        let c = lua.load(src).set_name(name);
+        match &env {
+            Some(env) => c.set_environment(env.clone()),
+            None => c,
+        }
+    };
+    let expression = [b"return ".as_slice(), src].concat();
+    compile(lua, chunk(expression)).or_else(|_| compile(lua, chunk(src.to_vec())))
 }
 
 /// The innermost error text, without mlua's wrapper and traceback.

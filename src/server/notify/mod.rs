@@ -175,8 +175,9 @@ impl Notifier {
 
     /// Adds an entry a script asked for, past the raise rules: no toast, no
     /// desktop message. `level` is the entry's state.
-    pub fn post(&mut self, pane: PaneId, uid: &str, level: &str, text: &str, now: Instant) {
-        self.push(Some(pane), uid, None, level, Some(text), None, now);
+    /// With no `pane` it is the server's own (`uid` empty).
+    pub fn post(&mut self, pane: Option<PaneId>, uid: &str, level: &str, text: &str, now: Instant) {
+        self.push(pane, uid, None, level, Some(text), None, now);
     }
 
     /// Marks the pane's notifications read; true if any changed.
@@ -382,7 +383,7 @@ mod tests {
     fn post_adds_an_unread_entry_past_the_rules() {
         let mut n = Notifier::default();
         n.cfg.enabled = false;
-        n.post(PaneId(1), "u", "warn", "hello", Instant::now());
+        n.post(Some(PaneId(1)), "u", "warn", "hello", Instant::now());
         assert_eq!(n.unread(), 1);
         assert_eq!(n.items()[0].msg.as_deref(), Some("hello"));
         assert_eq!(n.items()[0].state, "warn");

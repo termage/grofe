@@ -2,7 +2,7 @@
 //! mlua's global `require`, so `init.luau` can split itself into modules.
 
 use super::pack;
-use mlua::{Lua, Table, Value};
+use mlua::{Function, Lua, Table, Value};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,10 @@ const DIR: &str = "grofe_require_dir";
 const CACHE: &str = "grofe_require_cache";
 /// Modules whose chunk is running, to catch cycles.
 const LOADING: &str = "grofe_require_loading";
+/// Module key to its source and what compiling that gave (`f` or `err`), for
+/// the runtime's life: compiling is off the budget, so a module required again
+/// (after it raised, say) must not be compiled again.
+const COMPILED: &str = "grofe_require_compiled";
 fn err(e: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(e.to_string())
 }
@@ -114,12 +118,9 @@ fn require(lua: &Lua, dir: &Path, name: &str, env: Option<Table>) -> mlua::Resul
         )));
     };
     let src = std::fs::read(file).map_err(|e| err(format!("require: {}: {e}", file.display())))?;
+    let f = compiled(lua, &key, &src, name, env)?;
     loading.set(key.as_str(), true)?;
-    let mut chunk = lua.load(src).set_name(name);
-    if let Some(env) = env {
-        chunk = chunk.set_environment(env);
-    }
-    let result = chunk.eval::<Value>();
+    let result = f.call::<Value>(());
     loading.set(key.as_str(), Value::Nil)?;
     let value = match result? {
         Value::Nil => Value::Boolean(true),
@@ -129,9 +130,61 @@ fn require(lua: &Lua, dir: &Path, name: &str, env: Option<Table>) -> mlua::Resul
     Ok(value)
 }
 
+/// `src` compiled once per runtime under `key` (again only if it changed).
+fn compiled(
+    lua: &Lua,
+    key: &str,
+    src: &[u8],
+    name: &str,
+    env: Option<Table>,
+) -> mlua::Result<Function> {
+    let all = match lua.named_registry_value::<Option<Table>>(COMPILED)? {
+        Some(t) => t,
+        None => {
+            let t = lua.create_table()?;
+            lua.set_named_registry_value(COMPILED, &t)?;
+            t
+        }
+    };
+    let entry = match all.get::<Option<Table>>(key)? {
+        Some(e) if *e.get::<mlua::LuaString>("src")?.as_bytes() == *src => e,
+        _ => {
+            let e = lua.create_table()?;
+            e.set("src", lua.create_string(src)?)?;
+            let compiled = super::runtime::compile_eval(lua, src, name, env);
+            match &compiled {
+                Ok(f) => e.set("f", f)?,
+                Err(error) => e.set("err", Value::Error(Box::new(error.clone())))?,
+            }
+            all.set(key, &e)?;
+            return compiled;
+        }
+    };
+    match entry.get::<Value>("f")? {
+        Value::Function(f) => Ok(f),
+        _ => match entry.get::<Value>("err")? {
+            Value::Error(e) => Err(*e),
+            other => Err(err(format!("require: no compiled '{name}': {other:?}"))),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::relative;
+    use super::{compiled, relative};
+
+    #[test]
+    fn a_module_compiles_once_until_it_changes() {
+        // Compiling is off the budget: compiled anew each time, a
+        // `pcall(require, ...)` loop on a raising module would barely spend it.
+        let lua = mlua::Lua::new();
+        let get = |src: &str| compiled(&lua, "k", src.as_bytes(), "m", None);
+        let first = get("error('x')").unwrap();
+        assert_eq!(get("error('x')").unwrap(), first);
+        assert_ne!(get("error('y')").unwrap(), first);
+        let bad = get("x =").unwrap_err().to_string();
+        assert_eq!(get("x =").unwrap_err().to_string(), bad);
+    }
 
     #[test]
     fn names_map_to_relative_paths() {

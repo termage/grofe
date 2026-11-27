@@ -524,3 +524,72 @@ async fn jobs_queued_before_a_reload_are_ignored_by_the_new_runtime() {
     assert_eq!(state.lua.as_ref().map(|l| l.async_.len()), Some(2));
     assert!(!callback_freed(&state, 1) && !callback_freed(&state, 2));
 }
+
+/// About `kib` KiB of Luau that is slow to compile and fast to run: one
+/// function it never calls, then `tail`.
+fn big_chunk(kib: usize, tail: &str) -> String {
+    let mut src = String::from("local function unused()\n  local M = {}\n");
+    for i in 0..kib * 1024 / 120 {
+        src.push_str(&format!(
+            "  function M.f{i}(a, b)\n    if a == b then return a .. '{i}' end\n    return string.format('%s-%d', b, {i})\n  end\n"
+        ));
+    }
+    src.push_str("  return M\nend\n");
+    src.push_str(tail);
+    src
+}
+
+#[test]
+fn compiling_a_cold_pack_is_off_the_budget() {
+    // A debug build takes ~30 ms to compile 64 KiB. Without the fix the
+    // compile alone runs past 50 ms: the init and the module each fail.
+    let module = big_chunk(512, "return { ok = 'yes' }\n");
+    let t = Instant::now();
+    mlua::Lua::new().load(&module).into_function().unwrap();
+    let compile = t.elapsed();
+    let init = big_chunk(512, "return { mod = require('mod') }\n");
+    let dir = folder(&init, &[("mod.luau", &module)]);
+    let config = folder("", &[]);
+    let mut state = test_state();
+    // As a server load does: `require`'s cache starts with the config folder.
+    reset_at(&mut state, config.path());
+    let t = Instant::now();
+    let r = load_pack(&mut state, "big", dir.path(), &serde_json::json!({}));
+    assert_eq!(r, Ok(()), "one compile {compile:?}, load {:?}", t.elapsed());
+    let r = run_chunk(&mut state, &test_ctx(), "return grofe.plugin('big').mod.ok");
+    assert_eq!(r, Ok("yes".into()));
+}
+
+#[test]
+fn requiring_a_raising_module_in_a_loop_still_ends() {
+    // The module's compile is off the budget; its runs are not, so the
+    // loop still ends.
+    let module = big_chunk(64, "error('raised')\n");
+    let dir = folder("", &[("bad.luau", &module)]);
+    let mut state = test_state();
+    load_init(&mut state, dir.path());
+    let t = Instant::now();
+    let e = run_chunk(
+        &mut state,
+        &test_ctx(),
+        "while true do pcall(require, 'bad') end",
+    )
+    .unwrap_err();
+    assert!(e.contains("budget"), "{e}");
+    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+}
+
+#[test]
+fn notify_with_no_session_posts_a_server_entry() {
+    let mut state = test_state();
+    let ctx = test_ctx();
+    assert_eq!(
+        run_chunk(&mut state, &ctx, "grofe.notify('hi')"),
+        Ok("".into())
+    );
+    let n = &state.notify.items()[0];
+    assert_eq!((n.pane, n.msg.as_deref()), (None, Some("hi")));
+    // A pane asked for by name must still exist.
+    let e = run_chunk(&mut state, &ctx, "grofe.notify('x', {pane = '%9'})").unwrap_err();
+    assert!(e.contains("no pane"), "{e}");
+}

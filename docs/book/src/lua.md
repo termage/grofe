@@ -36,7 +36,8 @@ require("keymaps")                  -- runs keymaps.luau
   Every `reload` starts with an empty cache, so edited modules run again.
 - `require` also works in callbacks that run later, such as a key binding or a timer, and in
   the `lua` command, even when the folder has no `init.luau`.
-- A required module shares the call's 50 ms budget and memory limit.
+- Running a required module shares the call's 50 ms budget and memory limit; compiling it does
+  not count. A module is compiled once per load, again only when its file changes.
 - Symlinks are followed. A module linked into the folder from elsewhere (stow, chezmoi) loads.
 
 Each of these is a Lua error, logged like any other:
@@ -60,14 +61,14 @@ Every entry into Lua (the init file, a key, an event, a timer, a `system` callba
 command) is one call with its own limits:
 
 - 50 ms of run time. After that every step raises an error, so even a `pcall` loop ends within
-  twice the budget.
+  twice the budget. Compiling the code is not run time: a large file costs nothing of it.
 - 64 MiB of memory.
 - No `io`, no `os.execute`, no `loadstring`, no native modules. `require` loads modules from
   your config folder, or from a pack's own folder (see [Modules with `require`](#modules-with-require)).
 - Calling the `lua` command from Lua is an error, not a deadlock.
 
 When a call goes over, grofe aborts it, logs `<script>: over its 50 ms budget` and carries on. The
-worst case is a stutter of one budget. Anything slow (a `git` call, a network fetch) belongs in
+worst case is a stutter of one budget, plus compiling the code. Anything slow (a `git` call, a network fetch) belongs in
 `grofe.system`, which runs outside the server and calls you back with the result.
 
 ## The API (`grofe.api == 1`)
@@ -144,8 +145,8 @@ text loses its control characters but newline and tab. See
 
 `grofe.notify(text, { pane = ..., level = ... })` adds an entry to the notification tray (see
 `notify list`). `text` must be a string. `pane` is a pane id such as `"%3"`; without it the
-entry belongs to the active pane. A tray entry always belongs to a pane (the tray jumps to it),
-so with no pane given and no session, or with an unknown pane, the call raises an error. `level` is `"info"`
+entry belongs to the active pane, or, with no session, to the server (the tray has nothing to
+jump to and only marks it read). An unknown pane raises an error. `level` is `"info"`
 (default), `"warn"` or `"error"` and is shown as the entry's state. It never raises a toast or
 a desktop message by itself.
 
