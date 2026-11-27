@@ -18,6 +18,9 @@ macro_rules! e2e_or_skip {
 
 mod attach;
 mod bootstrap;
+#[path = "../../src/test_exec.rs"]
+#[allow(dead_code)]
+mod exec;
 mod forward;
 mod harness;
 mod predict;

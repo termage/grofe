@@ -720,10 +720,6 @@ mod tests {
         std::fs::create_dir(&bin).unwrap();
         let exe = bin.join("grofe");
         crate::test_exec::write_script(&exe, "#!/bin/sh\necho \"$@\"\n");
-        // The run below execs it inside `sh`, where a busy script is only
-        // exit 126: once one exec of it succeeds no writer is left, so a
-        // direct run first, retried while busy (see `crate::test_exec`).
-        crate::test_exec::retry_busy(|| std::process::Command::new(&exe).output()).unwrap();
         let v = merge(&CLAUDE, json!({}), &exe.to_string_lossy());
         let cmd = v["hooks"]["Stop"][0]["hooks"][0]["command"]
             .as_str()

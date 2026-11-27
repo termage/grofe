@@ -18,7 +18,7 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, symlink};
 use std::path::{Path, PathBuf};
 
 use crate::fe_1::grofe_cli;
@@ -38,17 +38,16 @@ const CLIPBOARD_TOOLS: &[&str] = &[
 /// tools, the other clipboard helpers tmux-yank looks for, and `tmux`.
 const NEVER_LINKED: &[&str] = &["reattach-to-user-namespace", "putclip", "tmux"];
 
-/// grofe as `tmux` ([`grofe_cli`]) with the clipboard tools stubbed. `PATH` is only `bin` (grofe's `tmux` and the
-/// stubs) and `tools`, links to the system's own commands without any
-/// clipboard tool, as tp_11's rig does, so no scenario can reach the
-/// machine's real clipboard.
+/// grofe as `tmux` ([`grofe_cli`]) with the clipboard tools stubbed.
+/// `PATH` is only `bin` (grofe's `tmux` and the stubs) and `tools`, links
+/// to the system's own commands without any clipboard tool, as tp_11's rig
+/// does, so no scenario can reach the machine's real clipboard.
 fn copy_cli(dir: &Path) -> Cli {
     let mut cli = grofe_cli(dir);
     let bin = dir.join("bin");
     for tool in CLIPBOARD_TOOLS {
         let path = bin.join(tool);
-        fs::write(&path, format!("#!/bin/sh\ncat >> \"$HOME/{tool}.out\"\n")).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::exec::write_script(&path, &format!("#!/bin/sh\ncat >> \"$HOME/{tool}.out\"\n"));
     }
     let tools = dir.join("tools");
     fs::create_dir_all(&tools).unwrap();

@@ -344,14 +344,11 @@ fn open_url_without_a_subscriber_says_so() {
 
 /// A script standing in for `open`/`xdg-open`: writes its argument to `out`.
 fn fake_opener(srv: &TestServer, out: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = srv.home.join("opener");
-    fs::write(
+    crate::common::exec::write_script(
         &path,
-        format!("#!/bin/sh\nprintf '%s' \"$1\" > {}\n", out.display()),
-    )
-    .expect("write the opener");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        &format!("#!/bin/sh\nprintf '%s' \"$1\" > {}\n", out.display()),
+    );
     path
 }
 
@@ -638,9 +635,7 @@ fn the_links_go_when_the_server_exits() {
 
 /// Writes an executable `sh` script at `path`.
 fn script(path: &Path, body: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    fs::write(path, format!("#!/bin/sh\n{body}\n")).expect("write the script");
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::common::exec::write_script(path, &format!("#!/bin/sh\n{body}\n"));
 }
 
 /// Runs `grofe open <url>` in a new pane of `srv`; its exit status, once

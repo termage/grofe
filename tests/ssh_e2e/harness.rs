@@ -113,8 +113,7 @@ impl Local {
             root = root.display(),
         );
         let ssh = root.join("ssh");
-        fs::write(&ssh, script).expect("write the ssh wrapper");
-        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).expect("chmod the wrapper");
+        crate::exec::write_script(&ssh, &script);
         Local { dir, sock }
     }
 

@@ -114,7 +114,7 @@ fn rig(real: Option<&Path>, binaries: &Path) -> Opensessions {
         "lazydiff",
         ".opensessions-version",
     ] {
-        fs::copy(binaries.join(f), bin.join(f)).unwrap();
+        crate::common::exec::copy_program(&binaries.join(f), &bin.join(f));
     }
     let port = TcpListener::bind("127.0.0.1:0")
         .unwrap()

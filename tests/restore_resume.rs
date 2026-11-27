@@ -11,7 +11,6 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -43,12 +42,9 @@ impl Agent {
         fs::create_dir_all(&bin).expect("bin dir");
         fs::create_dir_all(&home).expect("agent home");
         let agent = bin.join("fake-agent");
-        fs::copy(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent"),
-            &agent,
-        )
-        .expect("copy fake-agent");
-        fs::set_permissions(&agent, fs::Permissions::from_mode(0o755)).expect("chmod");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent");
+        let text = fs::read_to_string(fixture).expect("read fake-agent");
+        crate::common::exec::write_script(&agent, &text);
         Agent {
             _dir: dir,
             bin,
@@ -767,8 +763,7 @@ fn a_one_word_spawn_command_is_resolved_only_when_plain() {
     let agent = Agent::new();
     let srv = TestServer::builder().path_env("/usr/bin:/bin").start();
     let idle = agent.bin.join("idle");
-    fs::write(&idle, "#!/bin/sh\nexec sleep 100\n").expect("write idle");
-    fs::set_permissions(&idle, fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::common::exec::write_script(&idle, "#!/bin/sh\nexec sleep 100\n");
     ok(
         &srv,
         &["new-session", "-d", "-s", "main", "-x", "80", "-y", "24"],

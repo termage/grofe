@@ -13,7 +13,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -432,7 +431,7 @@ fn a_pressed_c_h_binding_behaves_as_in_tmux() {
     // symlink would not do (macOS names the process after its target), nor
     // a copy of a system binary (macOS kills it).
     let nvim = dir.path().join("home/nvim");
-    fs::copy(env!("CARGO_BIN_EXE_grofe"), &nvim).unwrap();
+    crate::exec::copy_program(Path::new(env!("CARGO_BIN_EXE_grofe")), &nvim);
     out(
         &cli,
         &[
@@ -1214,9 +1213,9 @@ fn fzf_tmux_selection_reaches_the_caller() {
     let cli = grofe_cli(dir.path());
     let picked = dir.path().join("picked");
     let script = dir.path().join("pick.sh");
-    fs::write(
+    crate::exec::write_script(
         &script,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf 'apple\\nbanana\\ncherry\\n' | '{}' --tmux center,50%,50% > '{}.tmp'\n\
              echo $? >> '{}.tmp'\nmv '{}.tmp' '{}'\nexec cat\n",
             fzf.display(),
@@ -1225,9 +1224,7 @@ fn fzf_tmux_selection_reaches_the_caller() {
             picked.display(),
             picked.display(),
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     out(
         &cli,
         &[

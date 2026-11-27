@@ -7,7 +7,6 @@ mod common;
 mod harness;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -76,8 +75,7 @@ fn wait_agents(srv: &TestServer, n: usize) {
 /// A kind `claude` whose command is a harmless script that sleeps.
 fn write_claude_kind(srv: &TestServer) {
     let script = srv.home.join("fake-claude.sh");
-    fs::write(&script, "#!/bin/sh\nexec sleep 30\n").expect("write script");
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::common::exec::write_script(&script, "#!/bin/sh\nexec sleep 30\n");
     let conf = srv.config_home.join("grofe").join("conf.d");
     fs::create_dir_all(&conf).expect("conf.d");
     fs::write(

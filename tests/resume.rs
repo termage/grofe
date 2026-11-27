@@ -8,7 +8,6 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -55,12 +54,9 @@ impl Fixture {
         fs::create_dir_all(&bin).expect("bin dir");
         fs::create_dir_all(&agent_home).expect("agent home");
         let agent = bin.join("fake-agent");
-        fs::copy(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent"),
-            &agent,
-        )
-        .expect("copy fake-agent");
-        fs::set_permissions(&agent, fs::Permissions::from_mode(0o755)).expect("chmod");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent");
+        let text = fs::read_to_string(fixture).expect("read fake-agent");
+        crate::common::exec::write_script(&agent, &text);
         let home = format!("FAKE_AGENT_HOME={}", agent_home.display());
         srv.cmd(&[
             "new-session",
@@ -626,7 +622,7 @@ fn a_spawn_command_resume_clears_when_its_process_exits_and_the_pane_stays() {
 fn a_cli_from_another_grofe_binary_binds_to_its_shell() {
     let f = Fixture::new();
     let other = f.bin.join("grofe-upgraded");
-    fs::copy(env!("CARGO_BIN_EXE_grofe"), &other).expect("copy grofe");
+    crate::common::exec::copy_program(Path::new(env!("CARGO_BIN_EXE_grofe")), &other);
     f.type_line(
         "main",
         &format!(

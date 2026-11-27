@@ -23,7 +23,7 @@ use crate::common;
 use crate::setup::attach_mouse;
 
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -196,8 +196,7 @@ nnoremap <silent> <C-l> <Cmd>call Nav('l')<CR>
     /// whole environment could pass the tty's line length limit.
     fn typed(&self) -> String {
         let script = self.path("run-nvim");
-        fs::write(&script, format!("#!/bin/sh\n{}\n", self.command())).expect("run-nvim");
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+        crate::common::exec::write_script(&script, &format!("#!/bin/sh\n{}\n", self.command()));
         format!("'{}'", script.display())
     }
 
@@ -208,18 +207,16 @@ nnoremap <silent> <C-l> <Cmd>call Nav('l')<CR>
         let real = which("nvim").expect("nvim on PATH");
         let real = fs::canonicalize(&real).unwrap_or(real);
         let copy = self.path("editor-bin");
-        fs::copy(&real, &copy).expect("copy nvim");
+        crate::common::exec::copy_program(&real, &copy);
         let wrapper = self.path("wrapper");
-        fs::write(
+        crate::common::exec::write_script(
             &wrapper,
-            format!(
+            &format!(
                 "#!/usr/bin/env bash\nexec -a nvim '{}' {}\n",
                 copy.display(),
                 self.args()
             ),
-        )
-        .expect("wrapper");
-        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).expect("chmod");
+        );
         // A copy outside its install finds no runtime of its own.
         format!(
             "exec env {} '{}'",

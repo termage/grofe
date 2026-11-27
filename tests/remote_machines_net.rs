@@ -10,7 +10,6 @@ mod common;
 mod harness;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -88,8 +87,7 @@ exec /bin/sh -c "exec $*"
             beta = env(&beta),
         );
         let ssh = root.join("ssh");
-        fs::write(&ssh, script).unwrap();
-        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::common::exec::write_script(&ssh, &script);
         let f = Fleet {
             local,
             alpha,
@@ -654,12 +652,10 @@ fn a_switched_to_machine_forwards_urls() {
     f.alpha.cmd(&["new-session", "-d", "-s", "main"]).unwrap();
     let out = f.root().join("opened");
     let opener = f.root().join("opener");
-    fs::write(
+    crate::common::exec::write_script(
         &opener,
-        format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n", out.display()),
-    )
-    .unwrap();
-    fs::set_permissions(&opener, fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n", out.display()),
+    );
     let mut cmd = f.grofe(&["--machines"]);
     cmd.env(grofe::open::OPENER_ENV, &opener);
     let mut h = Harness::spawn(cmd, 100, 30);
