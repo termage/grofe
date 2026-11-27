@@ -54,8 +54,9 @@ i=0
 until check "$@"; do
   i=$((i + 1))
   if [ "$i" -ge 100 ]; then
-    echo "wait.sh: timed out: $what $*" >&2
-    break
+    # On stdout, so the golden or the diff shows the miss.
+    echo "wait.sh: timed out waiting for $what $*"
+    exit 1
   fi
   sleep 0.1
 done
