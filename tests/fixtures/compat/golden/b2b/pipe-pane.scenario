@@ -12,9 +12,11 @@ $ run-shell 'sleep 1; cat -v "$HOME/pp1.1"'
 $ pipe-pane -o -t main 'cat >> "$HOME/pp2"'
 $ display -p -t main 'pipe=#{pane_pipe}'
 $ send-keys -t main one Enter
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp2" 2'
 $ pipe-pane -o -t main 'cat >> "$HOME/pp2"'
 $ display -p -t main 'pipe=#{pane_pipe}'
 $ send-keys -t main two Enter
+$ run-shell 'sh {fixtures}/wait.sh shows main two 2'
 $ pipe-pane -o -t main 'cat >> "$HOME/pp2"'
 $ display -p -t main 'pipe=#{pane_pipe}'
 $ send-keys -t main three Enter
@@ -33,8 +35,11 @@ $ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp5" 2; cat -v "$HOME/pp5"'
 $ pipe-pane -t nosuch 'cat'
 $ pipe-pane -Z 'cat'
 $ pipe-pane -t main 'a' 'b'
-$ pipe-pane -t main 'true'
+# A command that stops reading: the pipe stays open until a write fails.
+# It closes its stdin, then says so, so the write after it is sure to fail.
+$ pipe-pane -t main 'exec 0<&-; : > "$HOME/pp6"'
 $ display -p -t main 'pipe=#{pane_pipe}'
+$ run-shell 'sh {fixtures}/wait.sh exists "$HOME/pp6"'
 $ send-keys -t main six Enter
 $ run-shell 'sh {fixtures}/wait.sh format main "##{pane_pipe}" 0'
 $ display -p -t main 'pipe=#{pane_pipe}'

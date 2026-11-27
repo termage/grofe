@@ -32,12 +32,16 @@ pipe=1
 ? 0
 $ send-keys -t main one Enter
 ? 0
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/pp2" 2'
+? 0
 $ pipe-pane -o -t main 'cat >> "$HOME/pp2"'
 ? 0
 $ display -p -t main 'pipe=#{pane_pipe}'
 pipe=0
 ? 0
 $ send-keys -t main two Enter
+? 0
+$ run-shell 'sh {fixtures}/wait.sh shows main two 2'
 ? 0
 $ pipe-pane -o -t main 'cat >> "$HOME/pp2"'
 ? 0
@@ -92,10 +96,12 @@ $ pipe-pane -Z 'cat'
 $ pipe-pane -t main 'a' 'b'
 ! command pipe-pane: too many arguments (need at most 1)
 ? 1
-$ pipe-pane -t main 'true'
+$ pipe-pane -t main 'exec 0<&-; : > "$HOME/pp6"'
 ? 0
 $ display -p -t main 'pipe=#{pane_pipe}'
 pipe=1
+? 0
+$ run-shell 'sh {fixtures}/wait.sh exists "$HOME/pp6"'
 ? 0
 $ send-keys -t main six Enter
 ? 0
