@@ -201,3 +201,38 @@ pub(super) fn draw(state: &State, client: ClientId, screen: &mut Screen) -> bool
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::{test_ctx, test_state};
+
+    #[test]
+    fn a_preview_is_skipped_in_a_box_under_three_columns() {
+        let mut state = test_state();
+        let job = ChooseJob {
+            labels: vec!["a".into()],
+            previews: vec!["PREVIEW".into()],
+            title: None,
+        };
+        state.pickers.choosers.open.insert(
+            ClientId(1),
+            Choice {
+                generation: 0,
+                id: 1,
+                press: test_ctx(),
+                job,
+                list: ListState::default(),
+            },
+        );
+        for cols in [0, 1, 2, 3, 4, 5] {
+            let mut screen = Screen::new(cols, 20);
+            assert!(draw(&state, ClientId(1), &mut screen));
+            let (_, preview) = layout((cols, 20), true);
+            let wide = preview.is_some_and(|a| a.cols >= 3);
+            assert_eq!(wide, cols >= 5, "{cols} columns");
+            let text: String = screen.cells.iter().map(|c| c.c).collect();
+            assert_eq!(text.contains('P'), wide, "{cols} columns");
+        }
+    }
+}

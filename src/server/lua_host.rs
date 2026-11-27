@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-mod ui;
+pub(crate) mod ui;
 pub(crate) use ui::Inputs;
 
 const PLUGIN: &str = "lua";

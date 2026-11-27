@@ -19,7 +19,7 @@ pub(crate) struct Inputs(Arc<Mutex<Open>>);
 struct Open {
     clients: BTreeSet<ClientId>,
     /// Callbacks whose answer found the job queue full, freed at the next
-    /// input.
+    /// input, the next drained job or a reload.
     stranded: Vec<(u64, u32)>,
 }
 
@@ -30,7 +30,11 @@ fn lock(open: &Mutex<Open>) -> MutexGuard<'_, Open> {
 /// A reload ends the runtime the open input prompts' callbacks live in, so
 /// they close unanswered.
 pub(crate) fn clear(state: &mut State) {
-    let clients = std::mem::take(&mut lock(&state.pickers.inputs.0).clients);
+    let clients = {
+        let mut open = lock(&state.pickers.inputs.0);
+        open.stranded.clear();
+        std::mem::take(&mut open.clients)
+    };
     for client in clients {
         prompt::client_gone(state, client);
         clients::mark_dirty(state, client);
@@ -89,6 +93,14 @@ impl Drop for Reply {
     }
 }
 
+/// Frees the callbacks whose answer found the job queue full.
+pub(crate) fn release_stranded(state: &State) {
+    let stranded = std::mem::take(&mut lock(&state.pickers.inputs.0).stranded);
+    for (generation, id) in stranded {
+        lua_host::release_once(state, generation, id);
+    }
+}
+
 /// Opens a one-line prompt on `client` whose answer goes to callback `id`
 /// of runtime `generation`.
 pub(super) fn input(
@@ -99,10 +111,7 @@ pub(super) fn input(
     label: &str,
 ) {
     let open = state.pickers.inputs.0.clone();
-    let stranded = std::mem::take(&mut lock(&open).stranded);
-    for (generation, id) in stranded {
-        lua_host::release_once(state, generation, id);
-    }
+    release_stranded(state);
     let mut reply = Reply {
         generation,
         id,
@@ -145,5 +154,61 @@ mod tests {
         assert_eq!(lock(&open).stranded, [(7, 3)]);
         drop(reply);
         assert!(lock(&open).clients.is_empty());
+    }
+
+    /// A state with callbacks 1 and 2 registered; its queue is full, and
+    /// callback 1 has been stranded by a dropped Reply.
+    fn stranded_state() -> (State, mpsc::Receiver<Job>) {
+        let (mut state, rx) = crate::server::test_state_at("/nonexistent/ui.sock".into());
+        let code = "grofe.every(3600000, function() end) grofe.every(3600000, function() end)";
+        lua_host::run_chunk(&mut state, &test_ctx(), code).unwrap();
+        while state.jobs.try_send(Box::new(|_: &mut State| {})).is_ok() {}
+        let generation = state.lua.as_ref().unwrap().async_.generation();
+        let reply = Reply {
+            generation,
+            id: 1,
+            press: test_ctx(),
+            jobs: state.jobs.clone(),
+            client: ClientId(4),
+            open: state.pickers.inputs.0.clone(),
+            sent: false,
+        };
+        drop(reply);
+        (state, rx)
+    }
+
+    fn freed(state: &State, id: u32) -> bool {
+        let lua = state.lua.as_ref().unwrap();
+        let callbacks: mlua::Table = lua
+            .rt
+            .lua()
+            .named_registry_value("grofe_callbacks")
+            .unwrap();
+        matches!(callbacks.get::<mlua::Value>(id), Ok(mlua::Value::Nil))
+    }
+
+    #[tokio::test]
+    async fn a_stranded_callback_is_freed_at_the_next_input() {
+        let (mut state, _rx) = stranded_state();
+        assert!(!freed(&state, 1));
+        let generation = state.lua.as_ref().unwrap().async_.generation();
+        input(&mut state, ClientId(5), test_ctx(), (generation, 2), "q");
+        assert!(freed(&state, 1));
+        assert!(!freed(&state, 2));
+    }
+
+    #[tokio::test]
+    async fn a_stranded_callback_is_freed_when_a_job_drains_without_another_input() {
+        let (mut state, mut rx) = stranded_state();
+        let job = rx.recv().await.unwrap();
+        crate::server::run_job(&mut state, job);
+        assert!(freed(&state, 1));
+    }
+
+    #[tokio::test]
+    async fn a_reload_forgets_the_stranded_callbacks() {
+        let (mut state, _rx) = stranded_state();
+        clear(&mut state);
+        assert!(lock(&state.pickers.inputs.0).stranded.is_empty());
     }
 }
