@@ -343,23 +343,15 @@ fn git_log_pages_and_q_returns() {
     let dir = tempfile::tempdir().expect("tempdir");
     let repo = dir.path();
     let git = |args: &[&str]| {
-        let out = Command::new("git")
-            .args([
-                "-c",
-                "user.name=t36",
-                "-c",
-                "user.email=t36@example.invalid",
-            ])
-            .args(args)
-            .current_dir(repo)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .output()
-            .expect("run git");
+        let out = common::git(repo).args(args).output().expect("run git");
         assert!(out.status.success(), "git {args:?}: {out:?}");
     };
     git(&["init", "-q"]);
-    let message: String = (1..=60).map(|n| format!("line-{n}\n\n")).collect();
+    // A Conventional Commits subject, so a commit-msg check the machine's
+    // git runs anyway (one set in the environment) takes it.
+    let message: String = std::iter::once("test: line-1\n\n".to_string())
+        .chain((2..=60).map(|n| format!("line-{n}\n\n")))
+        .collect();
     git(&["commit", "-q", "--allow-empty", "-m", &message]);
     let srv = start(&format!(
         "cd {}; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 PAGER=less LESS=FRX \
@@ -377,16 +369,16 @@ fn git_log_pages_and_q_returns() {
 
 const NESTED_TMUX: &str = "grofe-t36-nested";
 
-/// Kills the private nested tmux server, and only that one. `tmux` is the
-/// one on `PATH` (the harness's `require_tool` found it), the same one the
-/// pane runs by [`real_tmux`]'s full path.
+/// Kills the private nested tmux server, and only that one, through the
+/// same real tmux ([`real_tmux`]) the pane runs.
 struct NestedTmux {
+    tmux: PathBuf,
     tmpdir: tempfile::TempDir,
 }
 
 impl NestedTmux {
     fn command(&self) -> Command {
-        let mut cmd = Command::new("tmux");
+        let mut cmd = Command::new(&self.tmux);
         cmd.env_remove("TMUX")
             .env("TMUX_TMPDIR", self.tmpdir.path())
             .args(["-L", NESTED_TMUX]);
@@ -404,16 +396,24 @@ impl Drop for NestedTmux {
     }
 }
 
-/// Real tmux's full path, from this process's `PATH`: inside grofe `tmux`
-/// is grofe (spec D12), so a pane reaches real tmux only by its path.
-fn real_tmux() -> PathBuf {
-    std::env::var_os("PATH")
-        .and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join("tmux"))
-                .find(|bin| bin.is_file())
+/// Real tmux's full path: `GROFE_TEST_TMUX`, else the first `tmux` on
+/// `PATH` that is not grofe. Inside grofe `tmux` is grofe (spec D12), and a
+/// machine running grofe has its `tmux` link to the `grofe` binary on `PATH`,
+/// so a pane reaches real tmux only by its path.
+// ponytail: a grofe copied (not linked) to the name `tmux` passes for
+// tmux; set GROFE_TEST_TMUX on such a machine.
+fn real_tmux() -> Option<PathBuf> {
+    if let Some(tmux) = std::env::var_os("GROFE_TEST_TMUX") {
+        return Some(PathBuf::from(tmux)).filter(|t| t.is_file());
+    }
+    let grofe = fs::canonicalize(env!("CARGO_BIN_EXE_grofe")).ok();
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join("tmux"))
+        .filter(|bin| bin.is_file())
+        .find(|bin| {
+            let real = fs::canonicalize(bin).unwrap_or_else(|_| bin.clone());
+            real.file_name().is_some_and(|n| n != "grofe") && Some(&real) != grofe.as_ref()
         })
-        .unwrap_or_else(|| PathBuf::from("tmux"))
 }
 
 /// Real tmux in a pane (`env -u TMUX`, a private `-L` server with no config
@@ -421,10 +421,17 @@ fn real_tmux() -> PathBuf {
 /// sent through grofe's `send-prefix` (`C-b C-b c`) makes an inner window.
 #[test]
 fn nested_tmux_renders_and_takes_its_prefix() {
-    if !require_tool("tmux") {
+    let Some(tmux) = real_tmux() else {
+        let missing = "a real tmux (GROFE_TEST_TMUX, or a tmux on PATH that is not grofe)";
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{missing} not found (required under CI)"
+        );
+        eprintln!("skipping: {missing} not found");
         return;
-    }
+    };
     let nested = NestedTmux {
+        tmux: tmux.clone(),
         tmpdir: tempfile::Builder::new()
             .prefix("t36")
             .tempdir_in("/tmp")
@@ -434,7 +441,7 @@ fn nested_tmux_renders_and_takes_its_prefix() {
         "TMUX_TMPDIR={} SHELL=/bin/sh exec env -u TMUX {} \
          -L {NESTED_TMUX} -f /dev/null new-session -s nested",
         shell_quote(&nested.tmpdir.path().display().to_string()),
-        shell_quote(&real_tmux().display().to_string()),
+        shell_quote(&tmux.display().to_string()),
     ));
     let mut a = attach(&srv, "");
     a.wait_for("[nested] 0:");

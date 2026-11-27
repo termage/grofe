@@ -8,7 +8,6 @@ mod harness;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use common::{TestServer, display_main as display, try_wait_until, wait_prompt};
@@ -143,14 +142,7 @@ fn agent_new_opens_window_with_record() {
 }
 
 fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["-c", "commit.gpgsign=false", "-c", "user.name=t", "-c"])
-        .arg("user.email=t@example.com")
-        .args(args)
-        .output()
-        .expect("run git");
+    let out = common::git(dir).args(args).output().expect("run git");
     assert!(
         out.status.success(),
         "git {args:?}: {}",

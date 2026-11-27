@@ -832,6 +832,19 @@ pub fn wait_child(mut child: Child, timeout: Duration) -> Result<ExitStatus, Str
     }
 }
 
+/// `git` in the test's own repo `dir`, apart from the user's git setup: no
+/// global or system config file, no template hooks, and a fixed author.
+pub fn git(dir: &Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_TEMPLATE_DIR", "")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+        .args(["-c", "commit.gpgsign=false"]);
+    cmd
+}
+
 /// Whether `path` exists (as any file type, including a socket).
 pub fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()

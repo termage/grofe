@@ -4,20 +4,12 @@ mod common;
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use common::{CMD_TIMEOUT, CmdOutput, TestServer, run_bounded};
 
 fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .output()
-        .expect("run git");
+    let out = common::git(dir).args(args).output().expect("run git");
     assert!(
         out.status.success(),
         "git {args:?}: {}",
