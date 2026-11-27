@@ -16,7 +16,7 @@ eof
 ? 0
 $ new-window -d -t main -n w3 'true'
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh format main:w3 "##{pane_dead}" 1'
 ? 0
 $ display -p -t main:w3 '#{pane_dead} pipe=#{pane_pipe}'
 1 pipe=0

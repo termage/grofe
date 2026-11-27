@@ -2,7 +2,7 @@
 # copy-mode-match-style, the one under the cursor in
 # copy-mode-current-match-style, then both options changed.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/golden/tm_3/search.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last foo8 near the bottom"'
 client 80x25 attach -t main
 $ copy-mode -t main
 $ send-keys -t main -X history-top

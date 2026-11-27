@@ -12,7 +12,6 @@ mod common;
 mod harness;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -78,8 +77,7 @@ exec /bin/sh -c "exec $*"
             cfg = srv.config_home.display(),
         );
         let ssh = root.join("ssh");
-        fs::write(&ssh, script).unwrap();
-        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::common::exec::write_script(&ssh, &script);
         Remote { srv, dir }
     }
 
@@ -209,12 +207,10 @@ fn release_dir(root: &Path, tamper: bool) -> PathBuf {
         let stage = root.join("stage").join(&name);
         fs::create_dir_all(&stage).unwrap();
         let bin = stage.join("grofe");
-        fs::write(
+        crate::common::exec::write_script(
             &bin,
-            format!("#!/bin/sh\nexec '{}' \"$@\"\n", env!("CARGO_BIN_EXE_grofe")),
-        )
-        .unwrap();
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+            &format!("#!/bin/sh\nexec '{}' \"$@\"\n", env!("CARGO_BIN_EXE_grofe")),
+        );
         let archive = dir.join(archive_name(VERSION, target));
         let ok = Command::new("tar")
             .arg("czf")

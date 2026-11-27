@@ -11,7 +11,7 @@ $ new-window -d -n act 'sleep 1; echo hi; sleep 30'
 $ set -w -t main:act monitor-activity on
 ? 0
 client 60x15 attach -t main
-$ run-shell 'sleep 2'
+$ run-shell 'sh {fixtures}/wait.sh format main:2 "##{window_activity_flag}" 1'
 ? 0
 screen 2:act
 |
@@ -73,7 +73,7 @@ $ set -g visual-activity on
 ? 0
 $ send-keys -t main:2 x Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main:2 x'
 ? 0
 screen Activity
 |
@@ -95,7 +95,7 @@ $ set -g visual-activity both
 ? 0
 $ send-keys -t main:2 y Enter
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main:2 y'
 ? 0
 screen window 2
 |

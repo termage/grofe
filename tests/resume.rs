@@ -8,7 +8,6 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -55,12 +54,9 @@ impl Fixture {
         fs::create_dir_all(&bin).expect("bin dir");
         fs::create_dir_all(&agent_home).expect("agent home");
         let agent = bin.join("fake-agent");
-        fs::copy(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent"),
-            &agent,
-        )
-        .expect("copy fake-agent");
-        fs::set_permissions(&agent, fs::Permissions::from_mode(0o755)).expect("chmod");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent");
+        let text = fs::read_to_string(fixture).expect("read fake-agent");
+        crate::common::exec::write_script(&agent, &text);
         let home = format!("FAKE_AGENT_HOME={}", agent_home.display());
         srv.cmd(&[
             "new-session",
@@ -194,18 +190,33 @@ fn prompt_shown(capture: &str) -> bool {
         .any(|l| l.trim_end().ends_with(PROMPT.trim_end()))
 }
 
-/// The pid of the one process whose command line holds `needle`.
-fn pid_with(needle: &str) -> i32 {
+/// The pid of the one process in pane `target` whose command line holds
+/// `needle`: the pane's own process or a child of it, so a process
+/// elsewhere on the machine (another run's agent) cannot match.
+fn pid_in_pane(f: &Fixture, target: &str, needle: &str) -> i32 {
+    let pane: i32 = f
+        .fmt(target, "#{pane_pid}")
+        .trim()
+        .parse()
+        .expect("pane_pid");
     let ps = std::process::Command::new("ps")
-        .args(["-A", "-o", "pid=", "-o", "args="])
+        .args(["-A", "-o", "pid=", "-o", "ppid=", "-o", "args="])
         .output()
         .expect("ps");
     let pids: Vec<i32> = String::from_utf8_lossy(&ps.stdout)
         .lines()
-        .filter(|l| l.contains(needle) && !l.contains("ps -A"))
-        .filter_map(|l| l.split_whitespace().next()?.parse().ok())
+        .filter_map(|l| {
+            let mut w = l.split_whitespace();
+            let pid: i32 = w.next()?.parse().ok()?;
+            let ppid: i32 = w.next()?.parse().ok()?;
+            ((pid == pane || ppid == pane) && l.contains(needle)).then_some(pid)
+        })
         .collect();
-    assert_eq!(pids.len(), 1, "one process with {needle}: {pids:?}");
+    assert_eq!(
+        pids.len(),
+        1,
+        "one process in {target} with {needle}: {pids:?}"
+    );
     pids[0]
 }
 
@@ -386,7 +397,7 @@ fn a_stopped_agent_keeps_its_resume() {
             "stopme",
         ])
         .expect("pane-set-resume");
-    let pid = pid_with("--session-id stopme");
+    let pid = pid_in_pane(&f, "main", "--session-id stopme");
     let pid = nix::unistd::Pid::from_raw(pid);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGSTOP).expect("SIGSTOP");
     common::quiet_period(SEVERAL_SAMPLES);
@@ -626,7 +637,7 @@ fn a_spawn_command_resume_clears_when_its_process_exits_and_the_pane_stays() {
 fn a_cli_from_another_grofe_binary_binds_to_its_shell() {
     let f = Fixture::new();
     let other = f.bin.join("grofe-upgraded");
-    fs::copy(env!("CARGO_BIN_EXE_grofe"), &other).expect("copy grofe");
+    crate::common::exec::copy_program(Path::new(env!("CARGO_BIN_EXE_grofe")), &other);
     f.type_line(
         "main",
         &format!(

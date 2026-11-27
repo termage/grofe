@@ -9,5 +9,5 @@ $ send-keys -t main -X select-line
 $ send-keys -t main -X copy-pipe-no-clear 'cat > "$HOME/cp.#S.#I"'
 $ send-keys -t main -X pipe-no-clear 'cat > "$HOME/pl.#S.#P"'
 $ send-keys -t main -X copy-pipe -- 'cat > "$HOME/cq.#S"'
-$ run-shell 'sleep 1; cd "$HOME" && ls pf.* cp.* pl.* cq.*'
+$ run-shell 'cd "$HOME" && sh {fixtures}/wait.sh exists pf.main.1.1 cp.main.1 pl.main.1 cq.main && ls pf.* cp.* pl.* cq.*'
 $ pipe-pane -t main

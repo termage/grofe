@@ -12,7 +12,6 @@ mod harness;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -73,8 +72,7 @@ exec /bin/sh -c "exec $*"
             cfg = srv.config_home.display(),
         );
         let ssh = root.join("ssh");
-        fs::write(&ssh, script).unwrap();
-        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::common::exec::write_script(&ssh, &script);
         Remote { srv, dir }
     }
 
@@ -284,27 +282,23 @@ fn grofe_open_in_a_remote_pane_runs_the_local_opener() {
     let r = Remote::new();
     let out = r.root().join("opened");
     let opener = r.root().join("opener");
-    fs::write(
+    crate::common::exec::write_script(
         &opener,
-        format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n", out.display()),
-    )
-    .unwrap();
-    fs::set_permissions(&opener, fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n", out.display()),
+    );
     r.srv.cmd(&["new-session", "-d", "-s", "other"]).unwrap();
     let mut h = r.attach(&[(grofe::open::OPENER_ENV, opener.to_str().unwrap())]);
     // The remote's own opener, which `grofe open` falls back to when no
     // client opens the url.
     let theirs = r.root().join("opened-there");
     let remote_opener = r.root().join("remote-opener");
-    fs::write(
+    crate::common::exec::write_script(
         &remote_opener,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n",
             theirs.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&remote_opener, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let open = |session: &str, url: &str| {
         let command = format!(
             "GROFE_OPENER={} {} open '{url}'",

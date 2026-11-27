@@ -4,7 +4,7 @@
 # with no upper-case letter ignores case. The readout is the cursor,
 # then search_present, search_count and search_match.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/golden/tm_3/search.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last foo8 near the bottom"'
 $ copy-mode -t main
 $ display -p -t main '#{copy_cursor_x},#{copy_cursor_y},#{scroll_position} #{search_present} #{search_count} #{search_match}'
 $ send-keys -t main -X history-top

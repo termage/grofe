@@ -19,7 +19,7 @@ last line of text
 $ list-buffers -F '#{buffer_name} #{buffer_size}'
 buffer0 18
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last line of text" 2'
 ? 0
 $ capture-pane -p -t main -S 18
   {

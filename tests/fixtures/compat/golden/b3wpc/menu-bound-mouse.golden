@@ -25,7 +25,7 @@ screen Horizontal
 |         └──────────────────────┘
 | [main] 1:first* 2:second
 keys Escape '[<2;21;6m'
-screen
+screen !Horizontal
 |
 |
 |
@@ -59,6 +59,7 @@ screen Horizontal
 |         └──────────────────────┘
 | [main] 1:first* 2:second
 keys Escape '[<34;21;11M'
+drawn
 styles 2-13
 ~ 7 10-13 fg=default bg=default dim
 ~ 7 15-20 fg=default bg=default dim
@@ -69,7 +70,7 @@ styles 2-13
 ~ 10 30-30 fg=default bg=yellow
 ~ 12 10-13 fg=default bg=default dim
 keys Escape '[<2;21;11m'
-screen
+screen !Horizontal
 |
 |
 |
@@ -106,7 +107,7 @@ screen Swap
 |        └────────────────┘
 | [main] 1:first* 2:second
 keys Escape '[<2;10;15m'
-screen
+screen !Swap
 |
 |
 |
@@ -140,7 +141,7 @@ screen Horizontal
 |         └──────────────────────┘
 | [main] 1:first* 2:second
 keys Escape '[<10;21;6m'
-screen
+screen !Horizontal
 |
 |
 |
@@ -174,7 +175,7 @@ screen Renumber
 | └─────────────────┘
 | [main] 1:first* 2:second
 keys Escape '[<2;3;15m'
-screen
+screen !Renumber
 |
 |
 |
@@ -192,6 +193,8 @@ screen
 | [main] 1:first* 2:second
 keys Escape '[<0;20;15M'
 keys Escape '[<0;20;15m'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{window_index}" 2'
+? 0
 $ display -p -t main '#{window_index}'
 2
 ? 0

@@ -8,7 +8,7 @@ $ set-hook -g pane-exited 'neww -d -t =x -n fired cat; setw -t =x:fired @via hoo
 ? 0
 $ new-window -d -t xy -n brief true
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh format x:1 "##{pane_index}" 2'
 ? 0
 $ list-windows -t x -F '#{window_index} #{window_name} #{@via}'
 1 one 

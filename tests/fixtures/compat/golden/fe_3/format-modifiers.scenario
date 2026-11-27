@@ -140,7 +140,7 @@ $ display -p -t main:1.1 '[#{c:grey50}][#{c:gray}][#{c:grey101}][#{c:orange}][#{
 $ display -p -t main:1.1 '[#{c:brightblack}][#{c:90}][#{c:7}][#{c:8}][#{c:terminal}][#{c:COLOUR9}][#{c:color5}]'
 # searching a pane's screen
 $ send-keys -t main:1.1 needle Enter
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main:1.1 needle 2'
 $ display -p -t main:1.1 '[#{C:needle}][#{C:need}][#{C/i:NEED}][#{C:NEED}][#{C/r:^ne+dle$}][#{C/ri:^NE+DLE$}][#{C:zzz}][#{C/r:(}][#{C:}]'
 $ display -p -t main:1.2 '[#{C:needle}]'
 $ display -p -t main:1.1 '[#{C:#{@opt}}][#{C;=1:needle}]'

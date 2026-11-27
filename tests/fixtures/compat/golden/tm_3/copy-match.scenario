@@ -2,7 +2,7 @@
 # or just before it, as tmux's window_copy_get_selection does; with no
 # match there, it copies nothing.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/golden/tm_3/search.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last foo8 near the bottom"'
 $ copy-mode -t main
 $ send-keys -t main -X copy-selection
 $ list-buffers -F '#{buffer_name}: #{buffer_sample}'

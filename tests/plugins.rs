@@ -30,10 +30,7 @@ fn write_config(srv: &TestServer, text: &str) {
 /// A script in the test's home, executable; its absolute path.
 fn script(srv: &TestServer, name: &str, body: &str) -> PathBuf {
     let path = srv.home.join(name);
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write script");
-    let mut perms = fs::metadata(&path).expect("stat").permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
-    fs::set_permissions(&path, perms).expect("chmod");
+    crate::common::exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
     path
 }
 
@@ -651,14 +648,10 @@ fn a_relative_cmd_runs_from_the_config_file_s_directory() {
     fs::create_dir_all(dir.join("bin")).expect("bin dir");
     let marker = srv.home.join("marker");
     let path = dir.join("bin/p.sh");
-    fs::write(
+    crate::common::exec::write_script(
         &path,
-        format!("#!/bin/sh\ntouch {}\nexec sleep 600\n", marker.display()),
-    )
-    .expect("script");
-    let mut perms = fs::metadata(&path).expect("stat").permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
-    fs::set_permissions(&path, perms).expect("chmod");
+        &format!("#!/bin/sh\ntouch {}\nexec sleep 600\n", marker.display()),
+    );
     let srv = start_with(srv, "[plugins.p]\ncmd = [\"bin/p.sh\"]\n", None);
     running(&srv, "p");
     try_wait_until(|| marker.exists(), WAIT).expect("the script ran");

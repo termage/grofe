@@ -4,29 +4,29 @@ $ set-option -g default-shell {fixtures}/default-shell-probe.sh
 ? 0
 $ new-window -d -n one 'echo "pane ${SHELL##*/}" > "$HOME/one.out"; sleep 30'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/one.out"'
 ? 0
 $ new-window -d -n two /bin/sh -c 'echo words > "$HOME/two.out"'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/two.out"'
 ? 0
 $ split-window -d -t main:one 'echo "split ${SHELL##*/}" > "$HOME/split.out"'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/split.out"'
 ? 0
 $ respawn-pane -k -t main:one 'echo respawn > "$HOME/respawn.out"; sleep 30'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/respawn.out"'
 ? 0
 $ new-session -d -s other 'echo "session ${SHELL##*/}" > "$HOME/session.out"'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/session.out"'
 ? 0
 $ set-option -g default-command 'echo "dc ${SHELL##*/}" > "$HOME/dc.out"'
 ? 0
 $ new-window -d -n dc
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/dc.out"'
 ? 0
 $ run-shell 'cat "$HOME/probe.log"'
 probe -c echo "pane ${SHELL##*/}" > "$HOME/one.out"; sleep 30

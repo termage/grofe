@@ -8,10 +8,10 @@ $ new-session -d -s ns
 $ send-keys -t ns 'echo "ns:$0" > "$HOME/ns.out"' Enter
 $ new-window -d -t first -n w
 $ respawn-pane -k -t first:w
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/ns.out"; sh {fixtures}/wait.sh has first:w "$"'
 $ send-keys -t first:w 'echo "rp:$0" > "$HOME/rp.out"' Enter
 $ split-window -t first:w
 $ send-keys -t first:w 'echo "sp:$0" > "$HOME/sp.out"' Enter
 $ new-window -d -t first -n c 'echo "cmd:$0" > "$HOME/cmd.out"'
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/rp.out" "$HOME/sp.out" "$HOME/cmd.out"'
 $ run-shell 'cat "$HOME/ns.out" "$HOME/rp.out" "$HOME/sp.out" "$HOME/cmd.out"'

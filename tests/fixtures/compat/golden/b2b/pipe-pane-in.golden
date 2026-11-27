@@ -2,7 +2,7 @@ $ new-session -d -s main -x 80 -y 24 cat
 ? 0
 $ pipe-pane -I -t main 'echo injected; sleep 1'
 ? 0
-$ run-shell 'sleep 2'
+$ run-shell 'sh {fixtures}/wait.sh shows main injected 2'
 ? 0
 $ capture-pane -p -t main
 injected
@@ -34,7 +34,7 @@ $ pipe-pane -I -t main 'cat > "$HOME/in1"; echo done >> "$HOME/in1"'
 ? 0
 $ send-keys -t main typed Enter
 ? 0
-$ run-shell 'sleep 1; echo in1:; cat -v "$HOME/in1"'
+$ run-shell 'sh {fixtures}/wait.sh line "$HOME/in1" done; echo in1:; cat -v "$HOME/in1"'
 in1:
 done
 ? 0
@@ -44,7 +44,7 @@ $ pipe-pane -IO -t main 'n=0; while read l; do case "$l" in ping*) n=$((n+1)); [
 ? 0
 $ send-keys -t main ping Enter
 ? 0
-$ run-shell 'sleep 2'
+$ run-shell 'sh {fixtures}/wait.sh shows main pong 2'
 ? 0
 $ capture-pane -p -t main
 injected
@@ -86,7 +86,7 @@ $ pipe-pane -I -o -t main 'echo never'
 $ display -p -t main 'pipe=#{pane_pipe}'
 pipe=0
 ? 0
-$ run-shell 'sleep 1; cat -v "$HOME/in2"'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/in2" 2; cat -v "$HOME/in2"'
 x^M
 x^M
 ? 0

@@ -6,7 +6,7 @@ $ new-session -d -s x -n one -x 80 -y 24 cat
 $ split-window -d -t x:1 cat
 $ set-hook -g pane-exited 'neww -d -t =x -n fired cat; setw -t =x:fired @via hook; select-pane -t =x:1.2'
 $ new-window -d -t xy -n brief true
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh format x:1 "##{pane_index}" 2'
 $ list-windows -t x -F '#{window_index} #{window_name} #{@via}'
 $ list-windows -t xy -F '#{window_index} #{window_name} #{@via}'
 $ display -p -t x:1 '#{pane_index}'

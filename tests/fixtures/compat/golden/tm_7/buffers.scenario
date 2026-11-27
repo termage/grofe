@@ -19,7 +19,7 @@ $ delete-buffer -b renamed
 $ deleteb -b renamed
 $ paste-buffer -t main -s '|'
 $ pasteb -t main -b buffer0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh has main herehello'
 $ capture-pane -p -t main -S 0 -E 2
 $ delete-buffer
 $ delete-buffer

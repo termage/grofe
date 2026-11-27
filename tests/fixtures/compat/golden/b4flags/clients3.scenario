@@ -2,7 +2,7 @@
 $ new-session -d -s main -x 60 -y 10 'sleep 100000'
 $ split-window -d -k -t main:1 'echo gone; exit 0'
 client 60x12 attach -t main
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:1.2 "##{pane_dead}" 1'
 $ list-panes -t main:1 -F '#{pane_index} #{pane_dead} #{remain-on-exit}'
 $ select-pane -t main:1.2
 keys x

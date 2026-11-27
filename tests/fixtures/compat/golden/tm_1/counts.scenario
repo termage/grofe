@@ -3,7 +3,7 @@
 # that count; : prompts for goto-line; q and C-c leave. A key that opens
 # a prompt is typed on its own, so the prompt is open before the next.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/../copy/fixture.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last line of text"'
 client 80x25 attach -t main
 $ display -p -t main '#{pane_width}x#{pane_height} #{pane_in_mode}'
 keys C-b [

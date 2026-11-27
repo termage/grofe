@@ -23,7 +23,9 @@
 //! - `screen [<text>]`: wait until the client's screen shows `<text>` (if
 //!   given) and its output has settled, then record the screen, each row as
 //!   `| <row>` with trailing blanks trimmed. Give `<text>` whenever the screen
-//!   is waiting on something a step started, or the capture races it.
+//!   is waiting on something a step started, or the capture races it;
+//!   `!<text>` waits until the screen no longer shows `<text>` (a menu that
+//!   closes).
 //! - `styles <first>-<last> [<text>]`: as `screen`, but record how rows
 //!   `<first>` to `<last>` look rather than what they say: each run of cells
 //!   with the same non-default colours or attributes as `~ <row>
@@ -38,6 +40,9 @@
 //!   read as Meta with the next step's key. Recorded as the `keys` line
 //!   only; follow it with `screen <text>` to see what the keys did, and
 //!   before typing into a menu a key opened.
+//! - `drawn`: wait until the client has drawn something since the last
+//!   `keys` and its output has settled, for keys whose effect no text shows
+//!   (a menu row highlighted). Recorded as the `drawn` line only.
 //!
 //! In `$`, `$&` and `client` args, `{client}` expands to the client's tty
 //! (for `-c`) and `{fixtures}` to `tests/fixtures/compat` (for `source-file`).
@@ -117,25 +122,12 @@ impl Cli {
         limit: Duration,
     ) -> Option<(ExitStatus, String, String)> {
         let deadline = Instant::now() + limit;
-        // A script just written can be busy (ETXTBSY) for a moment: another
-        // test thread's fork inherits its write handle until that child
-        // execs. Retried briefly, as the classic fix for that race.
-        let mut tries = 0;
-        let mut child = loop {
-            let spawned = self
-                .command(argv)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn();
-            match spawned {
-                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
-                    tries += 1;
-                    thread::sleep(Duration::from_millis(10));
-                }
-                other => break other.unwrap_or_else(|e| panic!("spawning {argv:?}: {e}")),
-            }
-        };
+        let mut cmd = self.command(argv);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = crate::exec::retry_busy(|| cmd.spawn())
+            .unwrap_or_else(|e| panic!("spawning {argv:?}: {e}"));
         let stdout = drain(child.stdout.take());
         let stderr = drain(child.stderr.take());
         let status = loop {
@@ -383,12 +375,11 @@ pub fn replay(cli: &Cli, steps: &[Step]) -> Transcript {
                 let argv = expand(argv, live.client.as_ref());
                 out.push_str(&format!("{line}\n"));
                 if *background {
-                    let child = cli
-                        .command(&argv)
-                        .stdin(Stdio::null())
+                    let mut cmd = cli.command(&argv);
+                    cmd.stdin(Stdio::null())
                         .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .spawn()
+                        .stderr(Stdio::null());
+                    let child = crate::exec::retry_busy(|| cmd.spawn())
                         .unwrap_or_else(|e| panic!("spawning {argv:?}: {e}"));
                     live.background.push(child);
                     continue;
@@ -450,6 +441,14 @@ pub fn replay(cli: &Cli, steps: &[Step]) -> Transcript {
                 // read as Meta with an Escape here.
                 thread::sleep(KEYS_PAUSE);
                 out.push_str(&format!("{line}\n"));
+            }
+            Step::Drawn => {
+                let client = live
+                    .client
+                    .as_ref()
+                    .expect("drawn needs a client step first");
+                client.drawn();
+                out.push_str("drawn\n");
             }
             Step::Bells => {
                 let client = live
@@ -521,6 +520,8 @@ pub enum Step {
     },
     /// The bell the client rang since the last `bells` step.
     Bells,
+    /// The client drew something after the last `keys`.
+    Drawn,
     Screen {
         until: Option<String>,
     },
@@ -630,6 +631,8 @@ pub fn parse_scenario(text: &str) -> Result<Vec<Step>, String> {
             });
         } else if line == "bells" {
             steps.push(Step::Bells);
+        } else if line == "drawn" {
+            steps.push(Step::Drawn);
         } else if line == "screen" {
             steps.push(Step::Screen { until: None });
         } else if let Some(text) = line.strip_prefix("screen ") {
@@ -740,6 +743,8 @@ struct PtyClient {
     output: Arc<Mutex<(Vec<u8>, Instant)>>,
     /// How many bytes of output `bells` has counted.
     counted: std::cell::Cell<usize>,
+    /// How many bytes of output there were when `keys` last typed.
+    typed_at: std::cell::Cell<usize>,
     cols: u16,
     rows: u16,
 }
@@ -768,7 +773,7 @@ impl PtyClient {
                 Ok(())
             });
         }
-        let child = cmd.spawn().expect("spawn pty client");
+        let child = crate::exec::retry_busy(|| cmd.spawn()).expect("spawn pty client");
         drop(pty.slave);
 
         let output = Arc::new(Mutex::new((Vec::new(), Instant::now())));
@@ -792,6 +797,7 @@ impl PtyClient {
             input,
             output,
             counted: std::cell::Cell::new(0),
+            typed_at: std::cell::Cell::new(0),
             cols,
             rows,
         }
@@ -800,6 +806,13 @@ impl PtyClient {
     /// Type `bytes` on the client's terminal.
     fn type_bytes(&mut self, bytes: &[u8]) {
         use std::io::Write;
+        let drawn = self
+            .output
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .0
+            .len();
+        self.typed_at.set(drawn);
         self.input.write_all(bytes).expect("write to the pty");
     }
 
@@ -807,7 +820,7 @@ impl PtyClient {
     /// has passed without output, then return every row.
     fn screen(&self, until: Option<&str>) -> Vec<String> {
         let bytes = self.settled(until);
-        self.render(&bytes)
+        render(&bytes, self.cols, self.rows)
     }
 
     /// Wait as [`PtyClient::screen`] does, then return the style runs of
@@ -834,6 +847,26 @@ impl PtyClient {
         runs
     }
 
+    /// Wait until the client has printed something since [`PtyClient::type_bytes`]
+    /// and [`SCREEN_QUIET`] has passed without output.
+    fn drawn(&self) {
+        let deadline = Instant::now() + CMD_TIMEOUT;
+        loop {
+            thread::sleep(Duration::from_millis(50));
+            let (len, quiet) = {
+                let out = self.output.lock().unwrap_or_else(|e| e.into_inner());
+                (out.0.len(), out.1.elapsed() >= SCREEN_QUIET)
+            };
+            if quiet && len > self.typed_at.get() {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "client drew nothing after its keys"
+            );
+        }
+    }
+
     /// Everything the client printed, once it shows `until` (if given) and
     /// [`SCREEN_QUIET`] has passed without output.
     fn settled(&self, until: Option<&str>) -> Vec<u8> {
@@ -845,8 +878,9 @@ impl PtyClient {
                 (out.0.clone(), out.1.elapsed() >= SCREEN_QUIET)
             };
             if quiet && !bytes.is_empty() {
-                let rows = self.render(&bytes);
-                if until.is_none_or(|t| rows.iter().any(|r| r.contains(t))) {
+                let rows = render(&bytes, self.cols, self.rows);
+                let shows = |t: &str| rows.iter().any(|r| r.contains(t));
+                if until.is_none_or(|t| t.strip_prefix('!').map_or(shows(t), |t| !shows(t))) {
                     return bytes;
                 }
             }
@@ -889,24 +923,31 @@ impl PtyClient {
     }
     /// Replay everything the client printed into a fresh emulator.
     fn term(&self, bytes: &[u8]) -> Term<VoidListener> {
-        let size = TermSize::new(self.cols.into(), self.rows.into());
-        let mut term = Term::new(Config::default(), &size, VoidListener);
-        let mut parser: Processor = Processor::new();
-        parser.advance(&mut term, bytes);
-        term
+        emulate(bytes, self.cols, self.rows)
     }
+}
 
-    fn render(&self, bytes: &[u8]) -> Vec<String> {
-        let term = self.term(bytes);
-        let grid = term.grid();
-        (0..grid.screen_lines())
-            .map(|y| {
-                let row = &grid[Line(y as i32)];
-                let text: String = (0..grid.columns()).map(|x| row[Column(x)].c).collect();
-                text.trim_end().to_string()
-            })
-            .collect()
-    }
+/// `bytes` replayed into a fresh emulator of `cols` by `rows`.
+fn emulate(bytes: &[u8], cols: u16, rows: u16) -> Term<VoidListener> {
+    let size = TermSize::new(cols.into(), rows.into());
+    let mut term = Term::new(Config::default(), &size, VoidListener);
+    let mut parser: Processor = Processor::new();
+    parser.advance(&mut term, bytes);
+    term
+}
+
+/// The rows `bytes` leave on a screen of `cols` by `rows`, each with its
+/// trailing blanks trimmed.
+pub fn render(bytes: &[u8], cols: u16, rows: u16) -> Vec<String> {
+    let term = emulate(bytes, cols, rows);
+    let grid = term.grid();
+    (0..grid.screen_lines())
+        .map(|y| {
+            let row = &grid[Line(y as i32)];
+            let text: String = (0..grid.columns()).map(|x| row[Column(x)].c).collect();
+            text.trim_end().to_string()
+        })
+        .collect()
 }
 
 const ANSI_NAMES: [&str; 16] = [
@@ -973,10 +1014,8 @@ fn style_of(cell: &Cell) -> Option<String> {
 }
 
 fn script_cli(dir: &Path, body: &str) -> Cli {
-    use std::os::unix::fs::PermissionsExt;
     let program = dir.join("tmux");
-    fs::write(&program, format!("#!/bin/sh\n{body}")).unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::exec::write_script(&program, &format!("#!/bin/sh\n{body}"));
     Cli {
         program,
         prefix: Vec::new(),

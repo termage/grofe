@@ -7,7 +7,7 @@ $ new-window -d -t main -n second -e FOO=win sh -c 'echo "$FOO" > $HOME/e2.log; 
 $ new-pane -d -t main:1 -e FOO=float sh -c 'echo "$FOO" > $HOME/e3.log; exec cat'
 $ new-session -d -s envs -e ONLY=session sh -c 'echo "$ONLY" > $HOME/e4.log; exec cat'
 $ new-window -d -t envs: -n w sh -c 'echo "$ONLY" > $HOME/e5.log; exec cat'
-$ run-shell 'sleep 1'
+$ run-shell 'cd "$HOME" && sh {fixtures}/wait.sh file e1.log e2.log e3.log e4.log e5.log'
 $ run-shell 'cat $HOME/e1.log $HOME/e2.log $HOME/e3.log $HOME/e4.log $HOME/e5.log'
 $ kill-session -t envs
 $ list-windows -t main -F '#{window_index}:#{window_name}:#{window_zoomed_flag}'

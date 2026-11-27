@@ -2,7 +2,7 @@ $ new-session -d -s main -n br -x 80 -y 24 'printf "\033[?2004h"; stty raw -echo
 ? 0
 $ new-window -d -n plain -t main 'stty raw -echo; exec cat -v'
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh noecho main:br main:plain; sh {fixtures}/wait.sh format main:br "##{bracket_paste_flag}" 1'
 ? 0
 $ set-buffer -b one hello
 ? 0
@@ -24,7 +24,7 @@ $ if-shell -F 1 'set-buffer -b esc "a\e[201~b\tc\ad"'
 ? 0
 $ paste-buffer -p -d -b esc -t main:br
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh has main:br "c^Gd^[[201~"; sh {fixtures}/wait.sh has main:plain l1XXl2'
 ? 0
 $ capture-pane -p -t main:br
 ^[[200~hello^[[201~hello^[[200~a^[[201~b	c^Gd^[[201~

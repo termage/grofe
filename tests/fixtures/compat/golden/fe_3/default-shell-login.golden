@@ -10,7 +10,7 @@ $ new-window -d -t first -n w
 ? 0
 $ respawn-pane -k -t first:w
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/ns.out"; sh {fixtures}/wait.sh has first:w "$"'
 ? 0
 $ send-keys -t first:w 'echo "rp:$0" > "$HOME/rp.out"' Enter
 ? 0
@@ -20,7 +20,7 @@ $ send-keys -t first:w 'echo "sp:$0" > "$HOME/sp.out"' Enter
 ? 0
 $ new-window -d -t first -n c 'echo "cmd:$0" > "$HOME/cmd.out"'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh file "$HOME/rp.out" "$HOME/sp.out" "$HOME/cmd.out"'
 ? 0
 $ run-shell 'cat "$HOME/ns.out" "$HOME/rp.out" "$HOME/sp.out" "$HOME/cmd.out"'
 ns:-sh

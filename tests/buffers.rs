@@ -77,12 +77,16 @@ fn split_words(s: &str) -> Vec<String> {
 
 fn load(name: &str) -> Vec<Step> {
     let text = fs::read_to_string(golden_dir().join(format!("{name}.golden"))).unwrap();
+    let fixtures = golden_dir().join("../..").display().to_string();
     let mut steps: Vec<Step> = Vec::new();
     for line in text.lines() {
         if let Some(args) = line.strip_prefix("$ ") {
             steps.push(Step {
                 line: line.to_string(),
-                args: split_words(args),
+                args: split_words(args)
+                    .into_iter()
+                    .map(|a| a.replace("{fixtures}", &fixtures))
+                    .collect(),
                 stdout: String::new(),
                 stderr: String::new(),
                 status: 0,

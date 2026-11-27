@@ -26,25 +26,11 @@ fn command_at(srv: &TestServer, exe: &std::path::Path) -> Command {
     cmd
 }
 
-/// Runs the command, retrying while exec fails with "Text file busy". `fs::copy`
-/// leaves the new file open for writing until it returns, and a concurrent test
-/// thread that forks in that window inherits the descriptor until its own exec
-/// closes it, so executing the fresh copy can briefly fail. Not a grofe bug.
+/// Runs the command, retrying while exec fails with "Text file busy". The
+/// copies are made by `copy_program`, which leaves no write handle to them
+/// here (see `common::exec`); the retry stays as a backstop. Not a grofe bug.
 fn status_retrying_etxtbsy(mut make: impl FnMut() -> Command) -> std::process::ExitStatus {
-    let mut result = None;
-    common::wait_until(
-        "the copied grofe to be executable",
-        common::CMD_TIMEOUT,
-        || match make().status() {
-            Ok(status) => {
-                result = Some(status);
-                true
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => false,
-            Err(e) => panic!("run grofe: {e}"),
-        },
-    );
-    result.expect("status set")
+    common::exec::retry_busy(|| make().status()).unwrap_or_else(|e| panic!("run grofe: {e}"))
 }
 
 #[test]
@@ -53,7 +39,8 @@ fn attaching_to_a_server_whose_binary_was_replaced_warns_about_the_old_build() {
     let bin = srv.home.join("bin");
     fs::create_dir_all(&bin).expect("create bin dir");
     let exe = bin.join("grofe");
-    fs::copy(env!("CARGO_BIN_EXE_grofe"), &exe).expect("copy grofe");
+    let grofe = std::path::Path::new(env!("CARGO_BIN_EXE_grofe"));
+    common::exec::copy_program(grofe, &exe);
 
     let made = status_retrying_etxtbsy(|| {
         let mut cmd = command_at(&srv, &exe);
@@ -65,9 +52,9 @@ fn attaching_to_a_server_whose_binary_was_replaced_warns_about_the_old_build() {
     // An upgrade, the way an installer does it: a new file renamed over the
     // old one, so the running server keeps its own (now unlinked) copy.
     let next = bin.join("grofe.new");
-    fs::copy(env!("CARGO_BIN_EXE_grofe"), &next).expect("copy the new build");
-    // The attach below execs the replacement; wait until no stray descriptor
-    // keeps it busy.
+    common::exec::copy_program(grofe, &next);
+    // The attach below execs the replacement; a backstop wait until no stray
+    // descriptor keeps it busy.
     status_retrying_etxtbsy(|| {
         let mut cmd = Command::new(&next);
         cmd.arg("--version");

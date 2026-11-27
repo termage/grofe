@@ -149,14 +149,14 @@ $ kill-session -t other
 $ new-window -d -t main -n brief true
 after-new-window brief
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh line "$HOME/hooks.log" pane-exited'
 ? 0
 $ set -g remain-on-exit on
 ? 0
 $ new-window -d -t main -n dies true
 after-new-window dies
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh line "$HOME/hooks.log" pane-died'
 ? 0
 $ set -g remain-on-exit off
 ? 0
@@ -190,7 +190,7 @@ screen
 |
 $ switch-client -t main
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/hooks.log" 7'
 ? 0
 $ run-shell 'cat $HOME/hooks.log'
 session-created other

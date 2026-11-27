@@ -16,7 +16,7 @@
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use ulid::Ulid;
@@ -53,15 +53,27 @@ const LIVE_TIMEOUT: Duration = Duration::from_secs(2);
 /// [`from_live_tmux`] with the program and the wait named, killing the
 /// program when the wait ends.
 fn from_tmux_program(program: &str, timeout: Duration) -> Result<Snapshot, String> {
-    let mut child = Command::new(program)
-        .env_remove("TMUX")
+    let child = list_panes(program)
+        .spawn()
+        .map_err(|e| format!("tmux: {e}"))?;
+    from_listing(child, timeout)
+}
+
+/// `program list-panes` over every session, in [`LIVE_FORMAT`].
+fn list_panes(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.env_remove("TMUX")
         .env_remove("TMUX_PANE")
         .args(["list-panes", "-a", "-F", LIVE_FORMAT])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("tmux: {e}"))?;
+        .stderr(Stdio::null());
+    cmd
+}
+
+/// The sessions a [`list_panes`] child prints, killing it once `timeout`
+/// has passed.
+fn from_listing(mut child: Child, timeout: Duration) -> Result<Snapshot, String> {
     // Read on a thread, so a full pipe cannot stall the program the wait
     // below is timing.
     let mut stdout = child.stdout.take();
@@ -544,31 +556,28 @@ fn json_layout(text: &str, uid: &PaneKey) -> Option<LayoutGeometry<String>> {
 #[cfg(test)]
 mod tests {
 
-    /// Runs a fake `tmux` just written, retrying while exec fails with
-    /// ETXTBSY: another test thread's fork can hold the script's write
-    /// handle until that child execs (as tests/compat/replay.rs does).
+    /// A fake `tmux` running `body`, written once to a fresh tempdir.
+    fn fake_tmux(body: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let fake = dir.path().join("tmux");
+        crate::test_exec::write_script(&fake, body);
+        (dir, fake)
+    }
+
+    /// [`from_tmux_program`] on a fake `tmux` just written, its spawn
+    /// retried while busy (see [`crate::test_exec`]).
     fn run_fake(fake: &std::path::Path, timeout: Duration) -> Result<Snapshot, String> {
         let program = fake.to_str().expect("utf8");
-        for _ in 0..50 {
-            match from_tmux_program(program, timeout) {
-                Err(e) if e.contains("Text file busy") => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                r => return r,
-            }
-        }
-        from_tmux_program(program, timeout)
+        let child = crate::test_exec::retry_busy(|| list_panes(program).spawn())
+            .map_err(|e| format!("tmux: {e}"))?;
+        from_listing(child, timeout)
     }
 
     /// A `tmux` that never answers is killed when the wait ends, and the
     /// error says so (the script's own `sleep` keeps the pipe open).
     #[test]
     fn a_tmux_that_exits_but_leaves_the_pipe_open_does_not_block() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tempdir");
-        let fake = dir.path().join("tmux");
-        std::fs::write(&fake, "#!/bin/sh\nsleep 30 &\nexit 0\n").expect("write");
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let (_dir, fake) = fake_tmux("#!/bin/sh\nsleep 30 &\nexit 0\n");
         let started = Instant::now();
         let r = run_fake(&fake, Duration::from_millis(300));
         assert_eq!(r.err().as_deref(), Some("tmux did not answer in time"));
@@ -577,11 +586,7 @@ mod tests {
 
     #[test]
     fn a_tmux_that_hangs_is_killed_at_the_timeout() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tempdir");
-        let fake = dir.path().join("tmux");
-        std::fs::write(&fake, "#!/bin/sh\nsleep 30\n").expect("write");
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let (_dir, fake) = fake_tmux("#!/bin/sh\nsleep 30\n");
         let started = Instant::now();
         let r = run_fake(&fake, Duration::from_millis(200));
         assert_eq!(r.err().as_deref(), Some("tmux did not answer in time"));

@@ -11,22 +11,22 @@ client 40x8 attach -t main
 screen first
 bells
 $ send-keys -t main:1 one Enter
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 1'
 bells
 $ send-keys -t main:1 three Enter
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 2'
 bells
 $ show -gv @n
 $ send-keys -t main:2 three Enter
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 3'
 bells
 $ show -gv @n
 $ set -g visual-bell both
 $ send-keys -t main:2 three Enter
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 4'
 bells
 $ send-keys -t main:1 three Enter
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@n}" 5'
 bells
 $ show -gv @n
 $ set -g bell-action none

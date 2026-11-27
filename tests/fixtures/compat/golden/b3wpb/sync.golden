@@ -8,7 +8,7 @@ $ set-option -w -t main synchronize-panes on
 ? 0
 $ send-keys -t main:.1 one Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.1 one 2; sh {fixtures}/wait.sh shows main:.2 one 2; sh {fixtures}/wait.sh shows main:.3 one 2'
 ? 0
 $ capture-pane -p -t main:.1
 one
@@ -32,7 +32,7 @@ $ send-keys -t main:.1 two Enter
 ? 0
 $ send-keys -t main:.2 solo Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.1 two 2; sh {fixtures}/wait.sh shows main:.2 solo 2; sh {fixtures}/wait.sh shows main:.3 two 2'
 ? 0
 $ capture-pane -p -t main:.1
 two
@@ -59,7 +59,7 @@ off=1 sync=1
 ? 0
 $ send-keys -t main:.1 three Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.1 three 2; sh {fixtures}/wait.sh shows main:.2 three 2'
 ? 0
 $ capture-pane -p -t main:.2
 three
@@ -81,7 +81,7 @@ $ resize-pane -Z -t main:.1
 ? 0
 $ send-keys -t main:.1 four Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.1 four 2'
 ? 0
 $ resize-pane -Z -t main:.1
 ? 0
@@ -93,7 +93,7 @@ $ copy-mode -t main:.3
 ? 0
 $ send-keys -t main:.1 five Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.1 five 2; sh {fixtures}/wait.sh shows main:.2 five 2'
 ? 0
 $ send-keys -t main:.3 -X cancel
 ? 0
@@ -112,7 +112,7 @@ $ set-option -w -t main synchronize-panes off
 ? 0
 $ send-keys -t main:.1 six Enter
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main:.1 six 2'
 ? 0
 $ capture-pane -p -t main:.2
 five

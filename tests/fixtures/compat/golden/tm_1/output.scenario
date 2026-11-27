@@ -2,12 +2,12 @@
 # the pane on entry); refresh-from-pane (r) takes the new output, keeping
 # the distance from the top of history; q goes back to the live pane.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/../copy/fixture.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last line of text"'
 $ copy-mode -t main
 $ send-keys -t main -X -N 5 cursor-up
 $ display -p -t main '#{copy_cursor_x},#{copy_cursor_y},#{scroll_position}'
 $ run-shell -t main 'seq 1 50 > #{pane_tty}'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main 50'
 $ display -p -t main '#{pane_in_mode} #{history_size}'
 $ display -p -t main '#{copy_cursor_x},#{copy_cursor_y},#{scroll_position}'
 $ send-keys -t main -X -N 3 page-up

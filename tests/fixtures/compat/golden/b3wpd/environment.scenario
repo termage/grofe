@@ -57,5 +57,5 @@ $ set-environment -g PROBE1 yes
 $ set-environment -g PROBE2 yes
 $ set-environment -gr PROBE1
 $ new-window -d -t main:2 'env | sort | grep PROBE; sleep 100000'
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main:2 PROBE2=yes'
 $ capture-pane -p -t main:2

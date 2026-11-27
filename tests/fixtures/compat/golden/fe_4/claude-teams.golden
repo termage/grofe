@@ -31,7 +31,7 @@ $ list-panes -t @0 -F '#{pane_id} #{pane_width} #{pane_active} #{pane_title}'
 ? 0
 $ respawn-pane -k -t %1 -- 'echo teammate-started; exec cat'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows %1 teammate-started'
 ? 0
 $ capture-pane -p -t %1
 teammate-started

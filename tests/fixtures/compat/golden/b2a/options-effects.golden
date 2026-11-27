@@ -2,7 +2,7 @@ $ new-session -d -s w -n one -x 200 -y 60 sh -c 'printf "\033]2;first\007"; exec
 ? 0
 $ split-window -d -t w sh -c 'printf "\033]2;second\007"; exec cat'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format w:.1 "##{pane_title}" first; sh {fixtures}/wait.sh format w:.2 "##{pane_title}" second'
 ? 0
 $ list-panes -t w -F '#{pane_index} #{pane_title}'
 1 first
@@ -10,9 +10,9 @@ $ list-panes -t w -F '#{pane_index} #{pane_title}'
 ? 0
 $ set -gw allow-set-title off
 ? 0
-$ split-window -d -t w sh -c 'printf "\033]2;third\007"; exec cat'
+$ split-window -d -t w sh -c 'printf "\033]2;third\007"; echo third; exec cat'
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows w:.2 third'
 ? 0
 $ list-panes -t w -F '#{pane_index} #{pane_title}'
 1 first

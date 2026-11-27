@@ -1,6 +1,6 @@
 $ new-session -d -s main -x 80 -y 24 'seq 1 30; printf "a\tb\tc\n\tindented by a tab\n\033[31mred\033[0m \033[1;42mbold green\033[0m\tafter.tab word-sep\nx\t\ty\n"; exec sleep 100000'
 ? 0
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh has main "$(printf "x\t\ty")"'
 ? 0
 $ copy-mode -t main
 ? 0

@@ -10,5 +10,5 @@ $ send-keys -t main M-y
 $ display -p -t main '#{pane_in_mode} #{copy_cursor_x},#{copy_cursor_y},#{scroll_position}'
 $ show-buffer
 $ list-buffers -F '#{buffer_name} #{buffer_size}'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last line of text" 2'
 $ capture-pane -p -t main -S 18

@@ -7,9 +7,7 @@ mod common;
 mod harness;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use common::{TestServer, display_main as display, try_wait_until, wait_prompt};
@@ -76,8 +74,7 @@ fn wait_agents(srv: &TestServer, n: usize) {
 /// A kind `claude` whose command is a harmless script that sleeps.
 fn write_claude_kind(srv: &TestServer) {
     let script = srv.home.join("fake-claude.sh");
-    fs::write(&script, "#!/bin/sh\nexec sleep 30\n").expect("write script");
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::common::exec::write_script(&script, "#!/bin/sh\nexec sleep 30\n");
     let conf = srv.config_home.join("grofe").join("conf.d");
     fs::create_dir_all(&conf).expect("conf.d");
     fs::write(
@@ -145,14 +142,7 @@ fn agent_new_opens_window_with_record() {
 }
 
 fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["-c", "commit.gpgsign=false", "-c", "user.name=t", "-c"])
-        .arg("user.email=t@example.com")
-        .args(args)
-        .output()
-        .expect("run git");
+    let out = common::git(dir).args(args).output().expect("run git");
     assert!(
         out.status.success(),
         "git {args:?}: {}",

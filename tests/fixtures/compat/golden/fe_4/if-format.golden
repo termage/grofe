@@ -4,7 +4,7 @@ $ split-window -d -h -t main 'cp "$(command -v tmux)" "$HOME/nvim"; "$HOME/nvim"
 ? 0
 $ wait-for fe4-ready
 ? 0
-$ run-shell 'sleep 1.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:1.2 "##{pane_current_command}" nvim'
 ? 0
 $ display -p -t main:1.2 '#{pane_current_command}'
 nvim
@@ -16,7 +16,7 @@ $ if -F '#{m/r:^n?vim$,#{pane_current_command}}' 'send C-h' 'select-pane -L'
 $ display -p -t main '#{pane_index}'
 2
 ? 0
-$ run-shell 'sleep 0.3'
+$ run-shell 'sh {fixtures}/wait.sh shows main:1.2 ^H'
 ? 0
 $ capture-pane -p -t main:1.2
 ^H

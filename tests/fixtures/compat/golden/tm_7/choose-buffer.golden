@@ -21,7 +21,7 @@ buffer0 first
 $ display -p -t main '#{pane_in_mode}'
 0
 ? 0
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh shows main second'
 ? 0
 $ capture-pane -p -t main -S 0 -E 0
 second

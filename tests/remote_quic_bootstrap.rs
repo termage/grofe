@@ -6,7 +6,6 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use grofe::remote::connect::{NO_ANSWER, TEST_HELLO_ENV};
@@ -27,8 +26,7 @@ exit 255
         root = root.display()
     );
     let ssh = root.join("ssh");
-    fs::write(&ssh, script).unwrap();
-    fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::common::exec::write_script(&ssh, &script);
     // SAFETY: the only test in this binary; no other thread reads the
     // environment while it is set.
     unsafe {

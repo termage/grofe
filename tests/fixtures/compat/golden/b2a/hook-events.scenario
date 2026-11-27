@@ -23,54 +23,54 @@ $ set-hook -g client-detached 'run-shell "echo #{hook} sn=#{hook_session_name} s
 $ set-hook -g session-window-changed 'run-shell "echo #{hook} sn=#{hook_session_name} s=#{hook_session} w=#{hook_window} wn=#{hook_window_name} p=#{hook_pane} c=#{hook_client} ctx=#{session_name}:#{window_index}.#{pane_index} >> $HOME/h.log"'
 $ run-shell 'echo == rename-session >> $HOME/h.log'
 $ rename-session -t other renamed
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 2'
 $ run-shell 'echo == rename-window >> $HOME/h.log'
 $ rename-window -t main:2 two
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 4'
 $ run-shell 'echo == select-pane >> $HOME/h.log'
 $ select-pane -t main:1.2
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 6'
 $ run-shell 'echo == select-window >> $HOME/h.log'
 $ select-window -t main:2
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 8'
 $ run-shell 'echo == split-window >> $HOME/h.log'
 $ split-window -d -t main:1 cat
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 10'
 $ run-shell 'echo == new-window >> $HOME/h.log'
 $ new-window -d -t main -n third cat
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 12'
 $ run-shell 'echo == link-window >> $HOME/h.log'
 $ link-window -d -s main:3 -t renamed:9
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 14'
 $ run-shell 'echo == unlink-window >> $HOME/h.log'
 $ unlink-window -t renamed:9
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 16'
 $ run-shell 'echo == kill-window >> $HOME/h.log'
 $ kill-window -t main:3
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 18'
 $ run-shell 'echo == resize-window >> $HOME/h.log'
 $ resize-window -t main:1 -x 70
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 21'
 $ run-shell 'echo == select-pane-title >> $HOME/h.log'
 $ select-pane -t main:1.1 -T hello
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 23'
 $ run-shell 'echo == attach >> $HOME/h.log'
 client 80x24 attach -t main
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 28'
 $ run-shell 'echo == split-attached >> $HOME/h.log'
 $ split-window -d -t main:2 cat
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 30'
 $ run-shell 'echo == select-pane-attached >> $HOME/h.log'
 $ select-pane -t main:2.2
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 34'
 $ run-shell 'echo == select-window-attached >> $HOME/h.log'
 $ select-window -t main:1
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 38'
 $ set-hook -g command-error 'run-shell "echo #{hook} >> $HOME/h.log"'
 $ run-shell 'echo == command-error >> $HOME/h.log'
 $ rename-window -t nope x
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 40'
 $ run-shell 'echo == detach >> $HOME/h.log'
 $ detach-client -s main
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh lines "$HOME/h.log" 43'
 $ run-shell 'cat $HOME/h.log'

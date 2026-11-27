@@ -7,7 +7,7 @@ $ set -g remain-on-exit failed
 $ split-window -d -t main 'exit 0'
 $ split-window -d -t main 'exit 3'
 $ split-window -d -t main 'kill -9 $$'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{window_panes}" 3; sh {fixtures}/wait.sh format main:1.2 "##{pane_dead}" 1; sh {fixtures}/wait.sh format main:1.3 "##{pane_dead}" 1'
 $ list-panes -t main -F '#{pane_index} #{pane_dead}'
 $ set -g remain-on-exit
 $ show -gv remain-on-exit

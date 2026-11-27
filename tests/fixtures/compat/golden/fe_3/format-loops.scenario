@@ -124,7 +124,7 @@ $ display -p -t main:1.1 '#{server_sessions}|#{pane_zoomed_flag}|#{window_active
 $ display -p -t main:2.1 '#{window_active_sessions}|[#{window_active_sessions_list}]|#{window_linked_sessions_list}'
 $ display -p -t main:1.1 '[#{session_alert}][#{session_alerts}]'
 $ send-keys -t main:3.1 C-g Enter
-$ run-shell 'sleep 0.5'
+$ run-shell 'sh {fixtures}/wait.sh format main:1.1 "##{session_alerts}" 3!'
 $ display -p -t main:1.1 '[#{session_alert}][#{session_alerts}]'
 $ display -p -t main:1.1 '#{W:#{window_bell_flag}#{window_flags} }'
 # a custom status-format that loops, on an attached client

@@ -10,7 +10,6 @@ mod common;
 mod harness;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -97,8 +96,7 @@ unset GROFE_PANE TMUX
             delay = DELAY.as_secs_f64(),
         );
         let ssh = root.join("ssh");
-        fs::write(&ssh, script).unwrap();
-        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::common::exec::write_script(&ssh, &script);
         Remote { srv, dir }
     }
 

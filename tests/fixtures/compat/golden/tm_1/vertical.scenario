@@ -4,7 +4,7 @@
 # with 500 lines of history. Counts through -N; the column sticks to the
 # end of a line as tmux's lastcx does.
 $ new-session -d -s main -x 80 -y 24 'cat {fixtures}/../copy/fixture.txt; exec sleep 100000'
-$ run-shell 'sleep 1'
+$ run-shell 'sh {fixtures}/wait.sh shows main "last line of text"'
 $ copy-mode -t main
 $ send-keys -t main k
 $ display -p -t main '#{copy_cursor_x},#{copy_cursor_y},#{scroll_position}'
