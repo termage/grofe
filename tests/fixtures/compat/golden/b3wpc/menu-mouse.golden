@@ -11,6 +11,7 @@ $& display-menu -c {client} -M -x 10 -y 10 -T Menu Alpha a 'set -g @r alpha' Bet
 styles 3-9 Menu
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<32;13;6M'
+drawn
 styles 3-9
 ~ 5 11-11 fg=default bg=yellow
 ~ 5 12-15 fg=black bg=yellow
@@ -19,9 +20,11 @@ styles 3-9
 ~ 5 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<32;13;7M'
+drawn
 styles 3-9
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<32;13;8M'
+drawn
 styles 3-9
 ~ 7 11-11 fg=default bg=yellow
 ~ 7 12-16 fg=black bg=yellow
@@ -30,9 +33,11 @@ styles 3-9
 ~ 7 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<32;13;9M'
+drawn
 styles 3-9
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<32;24;6M'
+drawn
 styles 3-9
 ~ 5 11-11 fg=default bg=yellow
 ~ 5 12-15 fg=black bg=yellow
@@ -41,9 +46,11 @@ styles 3-9
 ~ 5 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<32;25;6M'
+drawn
 styles 3-9
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<64;13;6M'
+drawn
 styles 3-9
 ~ 5 11-11 fg=default bg=yellow
 ~ 5 12-15 fg=black bg=yellow
@@ -52,14 +59,17 @@ styles 3-9
 ~ 5 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<65;45;5M'
+drawn
 styles 3-9
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<32;13;8M'
 keys Escape '[<35;13;6M'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@r}" gamma'
+? 0
 $ show -gv @r
 gamma
 ? 0
-screen
+screen !Menu
 |
 |
 |
@@ -93,7 +103,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<35;13;6M'
-screen
+screen !Menu
 |
 |
 |
@@ -130,6 +140,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<0;13;6M'
+drawn
 styles 3-9
 ~ 5 11-11 fg=default bg=yellow
 ~ 5 12-15 fg=black bg=yellow
@@ -138,10 +149,12 @@ styles 3-9
 ~ 5 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<0;13;6m'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@r}" beta'
+? 0
 $ show -gv @r
 beta
 ? 0
-screen
+screen !Menu
 |
 |
 |
@@ -176,10 +189,12 @@ screen Menu
 | [main] 1:first*
 keys Escape '[<0;13;5M'
 keys Escape '[<0;13;8m'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@r}" alpha'
+? 0
 $ show -gv @r
 alpha
 ? 0
-screen
+screen !Menu
 |
 |
 |
@@ -213,10 +228,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<0;13;5m'
-$ show -gv @r
-alpha
-? 0
-screen
+screen !Menu
 |
 |
 |
@@ -232,6 +244,9 @@ screen
 |
 |
 | [main] 1:first*
+$ show -gv @r
+alpha
+? 0
 $& display-menu -c {client} -M -x 10 -y 10 -T Menu Alpha a 'set -g @r alpha' Beta b 'set -g @r beta' '' Gamma g 'set -g @r gamma' -Dim d 'set -g @r dim'
 screen Menu
 |
@@ -251,10 +266,7 @@ screen Menu
 | [main] 1:first*
 keys Escape '[<0;13;7M'
 keys Escape '[<0;13;7m'
-$ show -gv @r
-alpha
-? 0
-screen
+screen !Menu
 |
 |
 |
@@ -270,6 +282,9 @@ screen
 |
 |
 | [main] 1:first*
+$ show -gv @r
+alpha
+? 0
 $& display-menu -c {client} -M -x 10 -y 10 -T Menu Alpha a 'set -g @r alpha' Beta b 'set -g @r beta' '' Gamma g 'set -g @r gamma' -Dim d 'set -g @r dim'
 screen Menu
 |
@@ -289,10 +304,7 @@ screen Menu
 | [main] 1:first*
 keys Escape '[<0;13;9M'
 keys Escape '[<0;13;9m'
-$ show -gv @r
-alpha
-? 0
-screen
+screen !Menu
 |
 |
 |
@@ -308,6 +320,9 @@ screen
 |
 |
 | [main] 1:first*
+$ show -gv @r
+alpha
+? 0
 $& display-menu -c {client} -M -x 10 -y 10 -T Menu Alpha a 'set -g @r alpha' Beta b 'set -g @r beta' '' Gamma g 'set -g @r gamma' -Dim d 'set -g @r dim'
 screen Menu
 |
@@ -326,14 +341,13 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<0;13;6M'
+drawn
 keys Escape '[<0;45;5M'
+drawn
 styles 3-9
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<0;45;5m'
-$ show -gv @r
-alpha
-? 0
-screen
+screen !Menu
 |
 |
 |
@@ -349,6 +363,9 @@ screen
 |
 |
 | [main] 1:first*
+$ show -gv @r
+alpha
+? 0
 $& display-menu -c {client} -M -x 10 -y 10 -T Menu Alpha a 'set -g @r alpha' Beta b 'set -g @r beta' '' Gamma g 'set -g @r gamma' -Dim d 'set -g @r dim'
 screen Menu
 |
@@ -367,6 +384,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<2;13;8M'
+drawn
 styles 3-9
 ~ 7 11-11 fg=default bg=yellow
 ~ 7 12-16 fg=black bg=yellow
@@ -375,6 +393,8 @@ styles 3-9
 ~ 7 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<2;13;8m'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@r}" gamma'
+? 0
 $ show -gv @r
 gamma
 ? 0
@@ -396,10 +416,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<0;13;6M'
-$ show -gv @r
-gamma
-? 0
-screen
+screen !Menu
 |
 |
 |
@@ -415,6 +432,9 @@ screen
 |
 |
 | [main] 1:first*
+$ show -gv @r
+gamma
+? 0
 $& display-menu -c {client} -M -O -x 10 -y 10 -T Menu Alpha a 'set -g @r alpha' Beta b 'set -g @r beta' '' Gamma g 'set -g @r gamma' -Dim d 'set -g @r dim'
 screen Menu
 |
@@ -433,6 +453,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<35;13;6M'
+drawn
 styles 3-9
 ~ 5 11-11 fg=default bg=yellow
 ~ 5 12-15 fg=black bg=yellow
@@ -441,6 +462,7 @@ styles 3-9
 ~ 5 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<35;45;5M'
+drawn
 styles 3-9
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<0;45;5m'
@@ -462,10 +484,12 @@ screen Menu
 | [main] 1:first*
 keys Escape '[<35;13;6M'
 keys Escape '[<0;13;6M'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@r}" beta'
+? 0
 $ show -gv @r
 beta
 ? 0
-screen
+screen !Menu
 |
 |
 |
@@ -517,10 +541,12 @@ screen Menu
 | [main] 1:first*
 keys Escape '[<35;13;5M'
 keys Escape '[<0;13;5m'
+$ run-shell 'sh {fixtures}/wait.sh format main "##{@r}" alpha'
+? 0
 $ show -gv @r
 alpha
 ? 0
-screen
+screen !Menu
 |
 |
 |
@@ -590,7 +616,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<0;45;5M'
-screen
+screen !Menu
 |
 |
 |
@@ -631,7 +657,7 @@ styles 3-9
 ~ 4 21-21 fg=default bg=yellow
 ~ 8 12-14 fg=default bg=default dim
 keys Escape '[<0;13;6m'
-screen
+screen !Menu
 |
 |
 |
@@ -668,7 +694,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<64;13;6M'
-screen
+screen !Menu
 |
 |
 |
@@ -702,7 +728,7 @@ screen Menu
 |
 | [main] 1:first*
 keys Escape '[<2;13;6M'
-screen
+screen !Menu
 |
 |
 |
