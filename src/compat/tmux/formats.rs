@@ -43,7 +43,8 @@
 //! and a copy-mode pipe's (`send-keys -X copy-pipe` and the rest); prompt,
 //! popup and menu texts; `select-pane -T`; `rename-window`/`rename-session`; and
 //! the value of `set` for the options tmux reads as formats, or for any
-//! option with `-F`. `set` keeps the value as sent (`SetOption::shown`),
+//! option with `-F`, and for a user option (`@name`) whose value holds a
+//! `#{` or `#[`, which `#{E:@name}` expands in tmux's language. `set` keeps the value as sent (`SetOption::shown`),
 //! which a tmux-dialect `show` prints; with no option name, `show` names
 //! tmux's table (session, window or server), listed from
 //! `fe_3/tmux-tables.golden`.
@@ -52,6 +53,7 @@ use std::fmt::Write as _;
 
 use super::{Arg, GrofeTarget, Invocation, Rewrite, Rewritten, Row, TmuxError, row};
 use crate::cmd::format::SHORT_FORMS;
+use crate::cmd::format::modify::skip1;
 use crate::cmd::{Command, RegisterSource};
 
 // ---- Format rewriting ------------------------------------------------------
@@ -100,6 +102,8 @@ impl Rewriter {
     fn convert(&mut self, s: &str, in_body: bool) -> String {
         let mut out = String::with_capacity(s.len());
         let mut i = 0;
+        // Where the `#[...]` being passed ends: a short form before it stays.
+        let mut style_end = None;
         while let Some(ch) = s[i..].chars().next() {
             if ch != '#' {
                 out.push(ch);
@@ -110,6 +114,14 @@ impl Rewriter {
             let Some(next) = s[i + 1..].chars().next() else {
                 break;
             };
+            // `#[`, and `##[` with any number of `#`, start a style.
+            let p = i + s[i..].bytes().take_while(|&b| b == b'#').count();
+            if s[p..].starts_with('[') {
+                style_end = skip1(&s[i..], b"]").map(|e| i + e);
+                out.push_str(&s[i..=p]);
+                i = p + 1;
+                continue;
+            }
             match next {
                 '#' => {
                     out.push_str("##");
@@ -151,7 +163,11 @@ impl Rewriter {
                     i += 2 + len + 1;
                 }
                 c => {
-                    match SHORT_FORMS.iter().find(|(f, _)| *f == c) {
+                    let short = SHORT_FORMS
+                        .iter()
+                        .find(|(f, _)| *f == c)
+                        .filter(|_| style_end.is_none_or(|e| i + 1 + c.len_utf8() > e));
+                    match short {
                         Some((_, name)) => {
                             let _ = write!(out, "#{{{name}}}");
                         }
@@ -384,9 +400,10 @@ fn format_arg(_: &Invocation<'_>, value: &str) -> Result<Rewritten, TmuxError> {
 
 /// `set`'s value: rewritten for an option tmux reads as a format, for a
 /// style that holds a format (tmux expands a style only then, so a
-/// `#F5F5F5` colour stays a colour), and for any option with `-F`, which
-/// expands it now. A user option's value is text: tmux never expands it
-/// when a format reads it.
+/// `#F5F5F5` colour stays a colour), for a user option whose value holds a
+/// `#{` or `#[` (`#{E:@x}` expands it in tmux's language, where grofe's
+/// expander would leave `#h` literal), and for any option with `-F`, which
+/// expands it now.
 fn option_value(inv: &Invocation<'_>, value: &str) -> Result<Rewritten, TmuxError> {
     if inv.getopt().has('F') {
         return Ok(to_native(value, Jobs::Empty));
@@ -396,7 +413,8 @@ fn option_value(inv: &Invocation<'_>, value: &str) -> Result<Rewritten, TmuxErro
     };
     let base = name.split('[').next().unwrap_or(name);
     let style = base.ends_with("-style") && value.contains("#{");
-    if FORMAT_OPTIONS.contains(&base) || style {
+    let user = base.starts_with('@') && (value.contains("#{") || value.contains("#["));
+    if FORMAT_OPTIONS.contains(&base) || style || user {
         Ok(to_native(value, Jobs::Sources))
     } else {
         Ok(Rewritten::value(value))
@@ -929,6 +947,7 @@ pub(crate) fn rows() -> Vec<Row> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::spell;
     use super::*;
     use crate::cmd::NoVars;
 
@@ -968,6 +987,48 @@ mod tests {
             native("#[fg=red]#S#[default]"),
             "#[fg=red]#{session_name}#[default]"
         );
+    }
+
+    /// tmux's `format_expand1` skips a short form inside `#[...]` and still
+    /// expands a `#{...}` there.
+    #[test]
+    fn short_forms_stay_inside_styles() {
+        assert_eq!(native("#[fg=#FFD700]#S"), "#[fg=#FFD700]#{session_name}");
+        assert_eq!(native("#[fg=#{@c}]#h"), "#[fg=#{@c}]#{host_short}");
+        assert_eq!(
+            native("#[fg=#{?1,#F,#S}]#S"),
+            "#[fg=#{?1,#{window_flags},#{session_name}}]#{session_name}"
+        );
+    }
+
+    /// `set -g @x <value>`: the stored value and what `show` prints.
+    fn set_user(value: &str) -> (Option<String>, Option<String>) {
+        let argv: Vec<String> = ["set", "-g", "@x", value]
+            .iter()
+            .map(|w| w.to_string())
+            .collect();
+        let (commands, _) = spell(&argv).expect("translates");
+        match &commands[..] {
+            [Command::SetOption(set)] => (set.value.clone(), set.shown.clone()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_user_option_with_a_format_is_rewritten() {
+        let raw = "#[fg=red]L#[bold] #h #{session_name}";
+        let (value, shown) = set_user(raw);
+        assert_eq!(
+            value.as_deref(),
+            Some("#[fg=red]L#[bold] #{host_short} #{session_name}")
+        );
+        assert_eq!(shown.as_deref(), Some(raw));
+    }
+
+    #[test]
+    fn a_user_option_colour_stays_raw() {
+        assert_eq!(set_user("#F5F5F5"), (Some("#F5F5F5".into()), None));
+        assert_eq!(set_user("#a89984"), (Some("#a89984".into()), None));
     }
 
     #[test]

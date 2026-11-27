@@ -211,6 +211,23 @@ fn compat_identity_in_config_overrides_a_grofe_start() {
     assert_eq!(var(&env, "TERM_PROGRAM_VERSION"), "3.7b");
 }
 
+/// A tmux client's user option is read back by `#{E:@x}` in tmux's language:
+/// the short forms expand, and `show` prints the text as sent.
+#[test]
+fn a_tmux_set_user_option_expands_in_tmux_s_language() {
+    let srv = TestServer::unstarted();
+    grofe(&srv, &["start-server"]).expect("start-server");
+    grofe(&srv, &["new-session", "-d", "-s", "seg"]).expect("session");
+    let raw = "#[fg=red]L#[bold] #h #S ";
+    let out = tmux(&srv, &["set", "-g", "@seg", raw]);
+    assert!(out.status.success(), "set: {}", out.stderr);
+    let shown = tmux(&srv, &["show", "-gv", "@seg"]);
+    assert_eq!(shown.stdout.trim_end_matches('\n'), raw);
+    let got = grofe(&srv, &["display", "-p", "-t", "seg", "#{E:@seg}"]).expect("display");
+    assert!(got.contains("seg"), "{got}");
+    assert!(!got.contains("#S") && !got.contains("#h"), "{got}");
+}
+
 /// What a pane of a new session `name` reads back, as `od -c` prints it
 /// with the blanks removed, after it sends XTVERSION (`CSI > q`, `CSI > 0
 /// q`), `CSI > 1 q` (not XTVERSION) and DA1 as a fence.

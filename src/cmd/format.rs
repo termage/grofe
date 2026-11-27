@@ -7,7 +7,7 @@
 
 use std::cell::{Cell, RefCell};
 
-mod modify;
+pub(crate) mod modify;
 mod names;
 pub(crate) mod time;
 mod x11;
