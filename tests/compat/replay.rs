@@ -117,25 +117,12 @@ impl Cli {
         limit: Duration,
     ) -> Option<(ExitStatus, String, String)> {
         let deadline = Instant::now() + limit;
-        // A script just written can be busy (ETXTBSY) for a moment: another
-        // test thread's fork inherits its write handle until that child
-        // execs. Retried briefly, as the classic fix for that race.
-        let mut tries = 0;
-        let mut child = loop {
-            let spawned = self
-                .command(argv)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn();
-            match spawned {
-                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
-                    tries += 1;
-                    thread::sleep(Duration::from_millis(10));
-                }
-                other => break other.unwrap_or_else(|e| panic!("spawning {argv:?}: {e}")),
-            }
-        };
+        let mut cmd = self.command(argv);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = crate::exec::retry_busy(|| cmd.spawn())
+            .unwrap_or_else(|e| panic!("spawning {argv:?}: {e}"));
         let stdout = drain(child.stdout.take());
         let stderr = drain(child.stderr.take());
         let status = loop {
@@ -383,12 +370,11 @@ pub fn replay(cli: &Cli, steps: &[Step]) -> Transcript {
                 let argv = expand(argv, live.client.as_ref());
                 out.push_str(&format!("{line}\n"));
                 if *background {
-                    let child = cli
-                        .command(&argv)
-                        .stdin(Stdio::null())
+                    let mut cmd = cli.command(&argv);
+                    cmd.stdin(Stdio::null())
                         .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .spawn()
+                        .stderr(Stdio::null());
+                    let child = crate::exec::retry_busy(|| cmd.spawn())
                         .unwrap_or_else(|e| panic!("spawning {argv:?}: {e}"));
                     live.background.push(child);
                     continue;
@@ -768,7 +754,7 @@ impl PtyClient {
                 Ok(())
             });
         }
-        let child = cmd.spawn().expect("spawn pty client");
+        let child = crate::exec::retry_busy(|| cmd.spawn()).expect("spawn pty client");
         drop(pty.slave);
 
         let output = Arc::new(Mutex::new((Vec::new(), Instant::now())));
@@ -973,10 +959,8 @@ fn style_of(cell: &Cell) -> Option<String> {
 }
 
 fn script_cli(dir: &Path, body: &str) -> Cli {
-    use std::os::unix::fs::PermissionsExt;
     let program = dir.join("tmux");
-    fs::write(&program, format!("#!/bin/sh\n{body}")).unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::exec::write_script(&program, &format!("#!/bin/sh\n{body}"));
     Cli {
         program,
         prefix: Vec::new(),

@@ -3,8 +3,10 @@
 //! test binary: it sets `GROFE_SSH` in this process's environment and
 //! counts this process's unreaped children.
 
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
+#[path = "../src/test_exec.rs"]
+#[allow(dead_code)]
+mod exec;
+
 use std::time::{Duration, Instant};
 
 use grofe::remote::connect::{ConnectOpts, Link, Transport};
@@ -24,8 +26,7 @@ fn a_proxy_that_exits_after_its_hello_leaves_no_zombie() {
         hello.trim_end().to_string() + "\n"
     );
     let ssh = dir.path().join("ssh");
-    fs::write(&ssh, script).unwrap();
-    fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::exec::write_script(&ssh, &script);
     // SAFETY: this binary's only test; nothing reads the environment
     // concurrently.
     unsafe { std::env::set_var(SSH_ENV, &ssh) };

@@ -3,7 +3,6 @@
 //! fake kind whose resume template is the vendored `fake-agent` fixture.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crate::common::TestServer;
@@ -17,12 +16,9 @@ fn transcript(home: &Path, id: &str) -> String {
 /// kind `fake` runs and resumes the `fake-agent` fixture.
 fn start(dir: &Path) -> (TestServer, std::path::PathBuf) {
     let agent = dir.join("fake-agent");
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent"),
-        &agent,
-    )
-    .expect("copy fake-agent");
-    fs::set_permissions(&agent, fs::Permissions::from_mode(0o755)).expect("chmod");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-agent");
+    let text = fs::read_to_string(fixture).expect("read fake-agent");
+    crate::common::exec::write_script(&agent, &text);
     let home = dir.join("agent-home");
     let srv = TestServer::builder()
         .restore_on_start(true)

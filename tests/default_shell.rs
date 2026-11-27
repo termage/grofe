@@ -4,7 +4,6 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,12 +13,10 @@ use common::TestServer;
 fn a_new_pane_starts_the_default_shell_when_it_is_set() {
     let srv = TestServer::start();
     let shell = srv.home.join("marker-shell");
-    fs::write(
+    crate::common::exec::write_script(
         &shell,
         "#!/bin/sh\necho \"started $0 with SHELL=$SHELL\"\nexec /bin/sh\n",
-    )
-    .unwrap();
-    fs::set_permissions(&shell, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let shell = shell.display().to_string();
 
     srv.cmd(&["new-session", "-d", "-s", "before"]).unwrap();
@@ -157,15 +154,13 @@ fn a_respawn_keeps_its_shell_and_several_words_skip_it() {
     // A shell that logs each start tells whether it was used.
     let logger = srv.home.join("logger");
     let log = srv.home.join("logger.log");
-    fs::write(
+    crate::common::exec::write_script(
         &logger,
-        format!(
+        &format!(
             "#!/bin/sh\necho started >> {}\nexec /bin/sh \"$@\"\n",
             log.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&logger, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     srv.cmd(&[
         "set-option",
         "-g",

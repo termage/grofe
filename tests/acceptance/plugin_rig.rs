@@ -118,6 +118,8 @@ fn copy_tree(from: &Path, to: &Path) {
         let dst = to.join(e.file_name());
         if e.file_type().unwrap().is_dir() {
             copy_tree(&e.path(), &dst);
+        } else if e.metadata().unwrap().permissions().mode() & 0o111 != 0 {
+            crate::common::exec::copy_program(&e.path(), &dst);
         } else {
             fs::copy(e.path(), dst).unwrap();
         }
@@ -254,8 +256,7 @@ impl Rig {
     /// An executable `name` first on the rig's PATH.
     pub fn install(&self, name: &str, script: &str) {
         let path = self.path("bin").join(name);
-        fs::write(&path, script).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::common::exec::write_script(&path, script);
     }
 
     fn env(&self) -> Vec<(String, String)> {

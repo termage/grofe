@@ -863,8 +863,7 @@ fn tmux_c_runs_the_command_with_the_default_shell() {
 
     let srv = start_as_tmux();
     let shell = srv.home.join("marker-shell");
-    fs::write(&shell, "#!/bin/sh\necho \"marker $SHELL\"\n").unwrap();
-    fs::set_permissions(&shell, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    crate::common::exec::write_script(&shell, "#!/bin/sh\necho \"marker $SHELL\"\n");
     let shell = shell.display().to_string();
     let out = tmux(&srv, &["set", "-g", "default-shell", &shell]);
     assert!(out.status.success(), "{}", out.stderr);

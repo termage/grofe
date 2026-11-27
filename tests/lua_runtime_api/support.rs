@@ -8,7 +8,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use crate::common;
@@ -22,17 +21,7 @@ pub(crate) fn write(path: &Path, text: &str) {
 }
 
 pub(crate) fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        // Temp repos get no hooks from the user's template directory.
-        .env("GIT_TEMPLATE_DIR", "")
-        .output()
-        .expect("run git");
+    let out = common::git(dir).args(args).output().expect("run git");
     assert!(
         out.status.success(),
         "git {args:?}: {}",
