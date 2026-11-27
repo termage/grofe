@@ -97,10 +97,23 @@ fn bind_udp(ports: &RangeInclusive<u16>, seed: u16) -> io::Result<UdpSocket> {
     let mut last = io::Error::other("empty port range");
     for i in 0..span {
         let port = (low + (start + i) % span) as u16;
-        for any in [
+        let (v6, v4) = (
             SocketAddr::from(([0u16; 8], port)),
             SocketAddr::from(([0, 0, 0, 0], port)),
-        ] {
+        );
+        // macOS binds `[::]` beside another socket's `0.0.0.0` on the same
+        // port, and that one keeps the IPv4 clients (mosh, say, in the
+        // default range): the IPv4 side must be free too.
+        // ponytail: a socket bound to 0.0.0.0 between this probe and the
+        // bind below still takes the IPv4 clients.
+        match UdpSocket::bind(v4) {
+            Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
+                last = e;
+                continue;
+            }
+            probe => drop(probe),
+        }
+        for any in [v6, v4] {
             match UdpSocket::bind(any) {
                 Ok(s) => return Ok(s),
                 Err(e) => last = e,
@@ -664,6 +677,20 @@ mod tests {
         assert!((40000..=40999).contains(&port), "{port}");
         let b = bind_udp(&(port..=port), 0);
         assert!(b.is_err(), "the only port is taken");
+    }
+
+    /// A port another socket holds on IPv4 only is taken: a dual stack bind
+    /// beside it (macOS allows one) would never see the IPv4 clients.
+    #[test]
+    fn a_port_bound_on_ipv4_only_is_taken() {
+        let other = UdpSocket::bind("0.0.0.0:0").unwrap();
+        let port = other.local_addr().unwrap().port();
+        let got = bind_udp(&(port..=port), 0);
+        assert!(
+            got.is_err(),
+            "bound beside it: {:?}",
+            got.map(|s| s.local_addr())
+        );
     }
 
     #[test]
