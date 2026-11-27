@@ -3,7 +3,7 @@
 //! so the host can hold `&mut State`; a call that finds it taken is nested.
 
 use crate::cmd;
-use crate::lua::api::{self, Host, Payload, SystemJob};
+use crate::lua::api::{self, Host, Payload, PromptJob, SystemJob};
 use crate::lua::runtime::{Limits, LuaError, Runtime};
 use crate::lua::{pack, require};
 use crate::protocol::{ClientCtx, Dialect};
@@ -105,7 +105,7 @@ fn client_less_ctx() -> ClientCtx {
 }
 
 /// Adds `line` to the server's message log (`show-messages`) and stderr.
-fn log(state: &mut State, line: String) {
+pub(crate) fn log(state: &mut State, line: String) {
     eprintln!("grofe {line}");
     clients::log_error(state, "lua", &line);
 }
@@ -201,7 +201,19 @@ impl Host for StateHost<'_> {
         Ok(self.state.agents.history(id, n))
     }
 
+    fn agent_read(&mut self, pane: &str, n: usize) -> Result<String, String> {
+        let target = cmd::target::parse_target(pane).map_err(|e| e.to_string())?;
+        let id = cmd::Resolve::resolve_pane(&self.state.model, &target, &self.ctx)?;
+        dispatch::agent_control::read_lines(self.state, id, n)
+    }
+
+    fn agent_prompt(&mut self, req: PromptJob, id: u32) -> Result<(), String> {
+        let reply = (self.async_.generation(), id);
+        dispatch::agent_control::prompt_lua(self.state, &self.ctx, &req, reply)
+    }
+
     fn cancel(&mut self, id: u32) {
+        dispatch::agent_control::cancel_lua(self.state, self.async_.generation(), id);
         self.async_.cancel(id);
         headless::cancel(self.state, self.async_.generation(), id);
         let Some(r) = self.replaced.remove(&id) else {
@@ -347,6 +359,7 @@ pub(crate) fn reset(state: &mut State) {
         lua.async_.cancel_all();
     }
     headless::clear(state);
+    dispatch::agent_control::clear_lua(state);
     let ours = BindingSource::Plugin(PLUGIN.into());
     unbind_where(state, |b| b.source == ours);
 }
@@ -527,6 +540,26 @@ pub(crate) fn call_job(state: &mut State, id: u32, payload: Payload) {
     let r = with_client_less_host(state, |rt, host| api::call(rt, host, id, payload));
     if let Err(e) = r {
         log_error(state, &e);
+    }
+}
+
+/// [`call_job`] for a callback that runs once: it is freed after.
+pub(crate) fn call_once(state: &mut State, id: u32, payload: Payload) {
+    call_job(state, id, payload);
+    if let Some(lua) = state.lua.as_ref() {
+        api::release(&lua.rt, id);
+    }
+}
+
+/// Frees callback `id` of runtime `generation` when its [`call_once`] job
+/// could not be queued.
+pub(crate) fn release_once(state: &State, generation: u64, id: u32) {
+    if let Some(lua) = state
+        .lua
+        .as_ref()
+        .filter(|l| l.async_.generation() == generation)
+    {
+        api::release(&lua.rt, id);
     }
 }
 

@@ -16,7 +16,7 @@ mod parse_pin;
 mod table;
 pub mod target;
 
-pub use agent::{AgentCmd, AgentNew};
+pub use agent::{AgentCmd, AgentNew, AgentPrompt};
 pub use format::{
     FormatVars, Inner, LoopItem, LoopKind, LoopSort, NameKind, NoVars, SortOrder, all_variables,
     expand, expand_time, expand_traced,

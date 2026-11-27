@@ -28,6 +28,7 @@ use super::{
 };
 use crate::types::{CaptureBound, CaptureOpts, Dir, Edge, PaneId, SplitSize, WINDOW_MAXIMUM};
 
+mod agent_ctl;
 mod agent_new;
 
 /// `ParseError::Other` from any message.
@@ -743,8 +744,7 @@ pub(super) fn pane_set_resume(flags: &Args) -> Result<Command, ParseError> {
     }))
 }
 
-/// `agent report|list|next|seen` (grofe's own). The report's long flags
-/// take values, which `tokenize` does not do, so `report` is read by hand.
+/// `agent` (grofe's own); `report` has long flags with values, so it is read by hand.
 pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
     let (sub, rest) = flags
         .argv
@@ -777,7 +777,7 @@ pub(super) fn agent(flags: &Args) -> Result<Command, ParseError> {
             }))
         }
         "new" => agent_new::parse(rest),
-        other => Err(perr(format!("agent: unknown subcommand {other}"))),
+        other => agent_ctl::parse(other, rest),
     }
 }
 

@@ -15,6 +15,16 @@
 - The plugin repo is `termage/bifurc`, private for now (2026-11-26).
 - 2026-11-26 ruling: headless jobs are their own list, one entry per running job, shown as working rows in sidebar and grid (not `agent list`), not agents: no agent-changed events, hooks, agent next or attention counts; finish posts a done/error tray entry.
 - 2026-11-26 ruling: pane-created and pane-closed are emitted where panes enter and leave the model, not by snapshot diffing.
+- 2026-11-26 ruling: a shown `done` pane stays `done` with `agent_unseen` cleared; it does not turn `idle`.
+- 2026-11-26 ruling: the sidebar gets one header row per session with the most urgent state of its agent panes (blocked > done > working > idle); no window rows.
+- 2026-11-26 ruling: screen detection falls back to `idle`: when a pane's state came from the screen and is `working` or `blocked`, and the screen now matches no rule, it becomes `idle`. Idle rules stay optional, so the built-in files need none.
+- 2026-11-26 ruling: `grofe.agent.read(pane, n)` returns one string, lines joined by `\n`; `agent read` prints the same.
+- 2026-11-26 ruling: `agent prompt` types the text and Enter through the send-keys path; `--wait` waits on agent state changes, not by polling; exit 0 prints the state, 1 is a timeout, 2 a closed pane; a non-agent pane or an unknown `--until` state is an error (exit 1) naming it. `grofe.agent.prompt(pane, text, {until?, timeout_ms?}, fn(state))` is async over the generation-checked callback path.
+- 2026-11-26 ruling: prompt text is untrusted (Part B sends issue comments). `agent prompt` and `grofe.agent.prompt` strip C0 and C1 control characters except newline and tab, then write to the target pane only (never its synchronize-panes targets), and only to a pane that takes input (else an error naming the pane): a pane with bracketed paste on gets one bracketed paste and Enter, any other pane gets newlines and tabs as spaces and Enter. A `Clear` report (agent left, pane open) ends waits with "agent left pane %N", exit 2; "pane %N closed" is for a gone pane. This supersedes the send-keys path above.
+- 2026-11-26 ruling: detection files are TOML with `working`, `blocked`, `idle` (a regex string or an array of them) and `lines` (default 20); the built-in files for claude, codex, gemini, opencode and aider are embedded in the binary and conservative; `<config dir>/agents/<kind>.toml` replaces the built-in one; an invalid regex keeps the built-in file and reports file and key in `show-messages`; screen detection applies only to a record that has had no report.
+- 2026-11-26 ruling: `agent explain <pane>` prints kind, state and source (`report`, `osc`, `screen`, `bell`), and for `screen` the file and the matching rule.
+- 2026-11-26 ruling: resume after a restore needs no change; its tests pass today.
+- 2026-11-27 ruling: `agent prompt` marks the agent working with source `prompt`. For a screen-detected pane (kind has a detect file, agents enabled, no report yet), a prompt-set working state ends as idle when the pane has printed output since the prompt and then been quiet for 1 s with no working or blocked rule matching; a matching rule sets the state as usual. No polling: the existing output-quiet debounce schedules the read, with a 1 s quiet window for prompted panes. Panes that cannot be screen-judged are never armed.
 - Herdr-style additions (2026-11-26): `agent prompt --wait` and `agent read`, per-kind detection files with `agent explain`, worktrees grouped under their repo, the unseen `done` state rolled up, and agents resumed after a restore. Herdr's mobile app and plugin marketplace are not copied.
 
 ## Agent profiles
@@ -53,7 +63,7 @@ Audit of src/lua, src/server/lua_host.rs, src/server/pack_load.rs, src/server/ag
   - `agent read <pane> [-n <lines>]` prints the last n lines of the pane, from the alternate screen when the agent uses one, otherwise visible screen plus scrollback. Lua: `grofe.agent.read(pane, n)`.
   - Detection files: `<config dir>/agents/<kind>.toml` with `working`, `blocked` and `idle` regexes matched on the last `lines` (default 20) of the screen, checked in that order; grofe ships files for claude, codex, gemini, opencode and aider; a user file replaces the built-in one for that kind; hooks and reports still win over screen detection.
   - `agent explain <pane>` prints the kind, the state, its source (`hooks`, `report`, `osc`, `screen`, `bell`), and for `screen` the file and the rule that matched.
-  - Unseen `done`: `done` stays until a client shows the pane, then turns `idle` (exists today); sidebar session and window rows show the most urgent state of their panes (`blocked` > `done` > `working` > `idle`). Tests prove both; only the roll-up is new code if missing.
+  - Unseen `done`: `done` stays `done` and counts as unseen until a client shows the pane (exists today); the sidebar has one header row per session showing the most urgent state of its agent panes (`blocked` > `done` > `working` > `idle`); windows have no rows, their roll-up is the `window_agent_state` format. Tests prove both; only the header row is new code.
   - Resume after restore: a restored agent pane runs its kind's resume command with the reported session id (exists today in src/server/restore.rs). An e2e test proves it for a fake kind; gaps found are fixed here.
 - A3 UI (PR 4):
   - `grofe.choose(items, fn, {title?, preview?})` opens the fuzzy chooser and calls `fn(item)` (nil on cancel).
@@ -89,7 +99,7 @@ Audit of src/lua, src/server/lua_host.rs, src/server/pack_load.rs, src/server/ag
 - AC11 `gh` and agent errors show in the tray with the plugin's name and never stop the pack; sessions survive `grofe reload`.
 - AC12 `agent prompt --wait` returns the state the agent reached, exits 1 on timeout and 2 when the pane closes; `agent read` returns the agent's last lines, alternate screen included.
 - AC13 A user detection file for a kind changes that kind's screen state, and `agent explain` names the file and rule.
-- AC14 A session with one `blocked` pane shows `blocked` on its sidebar row; a `done` pane turns `idle` once shown.
+- AC14 A session with one `blocked` pane shows `blocked` on its sidebar row; a `done` pane stops counting as unseen once shown.
 - AC15 After a restore, an agent pane with a resume command and session id runs that command.
 - AC16 Two worktrees of one repo show grouped under that repo in the sidebar.
 

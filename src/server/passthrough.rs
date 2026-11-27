@@ -796,7 +796,7 @@ pub(crate) fn on_pane_event(state: &mut State, pane: PaneId, kind: PaneEventKind
                     session_id: None,
                     ts,
                 };
-                crate::server::dispatch::agent::apply(state, pane, report);
+                crate::server::dispatch::agent::apply_osc(state, pane, report);
             }
             None => {}
         },

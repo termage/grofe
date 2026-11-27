@@ -9,6 +9,7 @@
 //! ponytail: right side only; a left side needs a `window_left` at every
 //! `window_top` site.
 
+mod headers;
 mod jobs;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -20,7 +21,6 @@ use super::agents::{Agent, Rank, rank};
 use super::borders::{PaneBox, PaneLines};
 use super::clients;
 use super::dispatch::agent;
-use super::dispatch::options::{FormatCtx, ServerVars};
 use super::frameopts;
 use super::input::{Input, InputHook, MouseButton, MouseKind, Routed};
 use super::listview::{ListAction, ListState};
@@ -28,7 +28,6 @@ use super::pane::{CellFlags, SnapCell};
 use super::render::{self, Frame, Overlay, OverlayCtx, Screen};
 use super::status::{self, Style};
 pub(crate) use crate::cmd::SidebarOp;
-use crate::cmd::expand;
 use crate::types::{ClientId, PaneId};
 
 /// Per client: whether the strip was switched on or off, and its list.
@@ -116,56 +115,13 @@ pub(crate) fn client_gone(state: &mut State, client: ClientId) {
     state.sidebars.clients.remove(&client);
 }
 
-/// One agent entry: its pane (none for a job) and the window it is labelled
-/// with, after the session's name when that is not the client's own.
+/// One row: an agent (its pane and the window it is labelled with, after the
+/// session's name when that is not the client's own), a session's header, or
+/// a job (no pane).
 struct Row {
     pane: Option<PaneId>,
     label: String,
-}
-
-fn field(state: &State, pane: PaneId, format: &str) -> String {
-    let vars = FormatCtx::new(&state.model, pane);
-    expand(format, &ServerVars::fresh(state, pane, &vars))
-}
-
-/// Agents grouped by session, the client's own session first, then by the
-/// most urgent agent in each; urgency order inside a group; jobs last.
-fn rows(state: &State, client: ClientId) -> Vec<Row> {
-    let own = state
-        .clients
-        .get(&client)
-        .and_then(|c| state.model.sessions.get(&c.session))
-        .map(|s| s.name.clone());
-    let mut groups: Vec<(String, Vec<PaneId>)> = Vec::new();
-    for pane in state.agents.by_urgency() {
-        if !state.model.panes.contains_key(&pane) {
-            continue;
-        }
-        let session = field(state, pane, "#{session_name}");
-        match groups.iter_mut().find(|(s, _)| *s == session) {
-            Some((_, panes)) => panes.push(pane),
-            None => groups.push((session, vec![pane])),
-        }
-    }
-    if let Some(at) = groups.iter().position(|(s, _)| Some(s) == own.as_ref()) {
-        let first = groups.remove(at);
-        groups.insert(0, first);
-    }
-    groups
-        .into_iter()
-        .flat_map(|(session, panes)| {
-            let prefix = if Some(&session) == own.as_ref() {
-                String::new()
-            } else {
-                format!("{session}:")
-            };
-            panes.into_iter().map(move |pane| Row {
-                pane: Some(pane),
-                label: format!("{prefix}{}", field(state, pane, "#{window_name}")),
-            })
-        })
-        .chain(jobs::rows(state))
-        .collect()
+    header: Option<headers::Header>,
 }
 
 /// The lines an entry takes: its name and its detail, then a blank line
@@ -343,7 +299,7 @@ impl InputHook for SidebarHook {
                 .map(|e| e.list.clone())
                 .unwrap_or_default();
             list.page = visible(inside.height());
-            Some((inside, rows(state, client), list))
+            Some((inside, headers::rows(state, client), list))
         };
         match input {
             Input::Mouse(m) if m.col >= x0 && m.row >= top && m.row - top < height => {
@@ -367,8 +323,11 @@ impl InputHook for SidebarHook {
             }
             Input::Key(key) if is_focused(state, client) => {
                 let (inside, rows, mut list) = list_for(state)?;
+                list.selected = headers::off_header(&rows, list.selected, true);
+                let from = list.selected;
                 let action = list.on_key(key, rows.len(), false);
-                list.selected = list.selected.min(rows.len().saturating_sub(1));
+                let to = list.selected.min(rows.len().saturating_sub(1));
+                list.selected = headers::off_header(&rows, to, to >= from);
                 list.top = first(rows.len(), &list, inside.height());
                 let picked = (action == ListAction::Enter)
                     .then(|| rows.get(list.selected).map(|r| r.pane))
@@ -456,10 +415,11 @@ impl Overlay for SidebarOverlay {
                 put_cell(screen, x0, y, '│', &dim);
             }
         }
-        let rows = rows(state, client);
+        let rows = headers::rows(state, client);
         if inside.framed {
             let (l, r) = render::tab_ends(&look.ends);
-            let title = format!("{l} {} {r} agents", rows.len());
+            let shown = rows.iter().filter(|r| r.header.is_none()).count();
+            let title = format!("{l} {shown} {r} agents");
             let content = PaneBox {
                 id: PaneId(0),
                 x: inside.x0 as i32,
@@ -489,7 +449,7 @@ impl Overlay for SidebarOverlay {
             .get(&client)
             .map(|e| e.list.clone())
             .unwrap_or_default();
-        list.selected = list.selected.min(rows.len() - 1);
+        list.selected = headers::off_header(&rows, list.selected, true);
         let h = inside.height();
         let from = first(rows.len(), &list, h);
         for (k, row) in rows.iter().enumerate().skip(from) {
@@ -758,7 +718,8 @@ mod tests {
     // 160 columns less 33: the window is 127 wide and ends in its one-cell
     // gap, so the strip's frame runs from column 127 to 158 with the gap
     // at 159; rows 1 to 48 under the window's top gap, meeting the status
-    // line on row 49. Entries take three lines from row 2.
+    // line on row 49. Rows take three lines from row 2, a header first for
+    // each session.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn framed_like_a_pane() {
         let (mut state, client, _p, _out) = setup(160);
@@ -769,14 +730,18 @@ mod tests {
         assert!(strip[1].starts_with("╭─ ( 3 ) agents ─"), "{:?}", strip[1]);
         assert!(strip[1].ends_with("─╮ "), "{:?}", strip[1]);
         let at = |y: usize| strip[y].trim_end().to_string();
-        assert_eq!(at(2), format!("│ ● claude · infra{}│", " ".repeat(13)));
-        assert_eq!(at(3).trim_matches(['│', ' ']), "busy");
-        assert_eq!(at(4).trim_matches(['│', ' ']), "", "blank between entries");
-        assert_eq!(at(5).trim_matches(['│', ' ']), "‖ claude · a:api");
-        assert_eq!(at(6).trim_matches(['│', ' ']), "ask me");
-        assert_eq!(at(7).trim_matches(['│', ' ']), "");
-        assert_eq!(at(8).trim_matches(['│', ' ']), "· claude · a:web");
-        assert_eq!(at(9).trim_matches(['│', ' ']), "idle");
+        let inner = |y: usize| at(y).trim_matches(['│', ' ']).to_string();
+        assert_eq!(at(2), format!("│ ● b · working{}│", " ".repeat(16)));
+        assert_eq!(inner(3), "1 agent");
+        assert_eq!(inner(4), "", "blank between rows");
+        assert_eq!(inner(5), "● claude · infra");
+        assert_eq!(inner(6), "busy");
+        assert_eq!(inner(8), "‖ a · blocked");
+        assert_eq!(inner(9), "2 agents");
+        assert_eq!(inner(11), "‖ claude · a:api");
+        assert_eq!(inner(12), "ask me");
+        assert_eq!(inner(14), "· claude · a:web");
+        assert_eq!(inner(15), "idle");
         assert!(strip[47].starts_with('│') && strip[47].ends_with("│ "));
         assert!(strip[48].starts_with("╰─") && strip[48].ends_with("─╯ "));
         assert!(strip[49].trim().is_empty(), "the status line's row");
@@ -793,10 +758,15 @@ mod tests {
         );
         let s = screen(&state, client, 160);
         let magenta = status::parse_style("fg=magenta").fg;
-        assert_eq!(cell(&s, 129, 5).c, '‖');
-        assert_eq!(cell(&s, 129, 5).fg, magenta, "blocked glyph");
-        assert!(cell(&s, 131, 5).flags.contains(CellFlags::BOLD), "name");
-        assert!(cell(&s, 131, 6).flags.contains(CellFlags::DIM), "detail");
+        assert_eq!(cell(&s, 129, 11).c, '‖');
+        assert_eq!(cell(&s, 129, 11).fg, magenta, "blocked glyph");
+        assert!(cell(&s, 131, 11).flags.contains(CellFlags::BOLD), "name");
+        assert!(cell(&s, 131, 12).flags.contains(CellFlags::DIM), "detail");
+        assert_eq!(
+            cell(&s, 129, 8).fg,
+            magenta,
+            "the header of session a rolls up blocked"
+        );
         let green = status::parse_style("fg=green").fg;
         assert_ne!(cell(&s, 127, 1).fg, green, "inactive frame");
         set(&mut state, client, SidebarOp::Focus).expect("focus");
@@ -813,15 +783,17 @@ mod tests {
         press(&mut state, client, "Down");
         let s = screen(&state, client, 160);
         let blue = status::parse_style("bg=blue").bg;
-        for y in [5, 6] {
+        // The selection starts on the first agent, so one Down reaches the
+        // second, past the header of session a.
+        for y in [11, 12] {
             for x in 128..158 {
                 assert_eq!(cell(&s, x, y).bg, blue, "({x}, {y})");
             }
         }
-        for y in [2, 3, 4, 7, 8] {
+        for y in [2, 3, 4, 5, 6, 8, 9, 14] {
             assert_ne!(cell(&s, 140, y).bg, blue, "row {y}");
         }
-        assert_ne!(cell(&s, 127, 5).bg, blue, "frame keeps its style");
+        assert_ne!(cell(&s, 127, 11).bg, blue, "frame keeps its style");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -836,7 +808,7 @@ mod tests {
         );
         set(&mut state, client, SidebarOp::On).expect("on");
         let strip = strip_of(&lines(&state, client, 160));
-        assert_eq!(strip[3], format!("│   {}… │ ", "x".repeat(25)));
+        assert_eq!(strip[6], format!("│   {}… │ ", "x".repeat(25)));
     }
 
     // The glyph is on column 129 and the label after it; text stops before
@@ -850,19 +822,19 @@ mod tests {
         run(&mut state, &["rename-window", "-t", "b:infra", &name]);
         set(&mut state, client, SidebarOp::On).expect("on");
         let s = screen(&state, client, 160);
-        let row: String = (129..158).map(|x| cell(&s, x, 2).c).collect();
+        let row: String = (129..158).map(|x| cell(&s, x, 5).c).collect();
         assert_eq!(
             row.replace(' ', ""),
             format!("●claude·x{}…", "漢".repeat(7)),
             "{row:?}"
         );
-        let flag = |x, f| cell(&s, x, 2).flags.contains(f);
+        let flag = |x, f| cell(&s, x, 5).flags.contains(f);
         assert!(flag(153, CellFlags::WIDE_CHAR));
         assert!(flag(154, CellFlags::WIDE_CHAR_SPACER), "last glyph whole");
-        assert_eq!(cell(&s, 155, 2).c, '…');
+        assert_eq!(cell(&s, 155, 5).c, '…');
         assert!(!flag(155, CellFlags::WIDE_CHAR) && !flag(156, CellFlags::WIDE_CHAR));
-        assert_eq!(cell(&s, 156, 2).c, ' ');
-        assert_eq!(cell(&s, 158, 2).c, '│');
+        assert_eq!(cell(&s, 156, 5).c, ' ');
+        assert_eq!(cell(&s, 158, 5).c, '│');
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -871,9 +843,10 @@ mod tests {
         run(&mut state, &["set", "-g", "pane-frames", "off"]);
         set(&mut state, client, SidebarOp::On).expect("on");
         let strip = strip_of(&lines(&state, client, 160));
-        assert!(strip[0].starts_with("│ ● claude · infra"), "{:?}", strip[0]);
-        assert!(strip[1].contains("busy"));
-        assert!(strip[3].starts_with("│ ‖ claude · a:api"));
+        assert!(strip[0].starts_with("│ ● b · working"), "{:?}", strip[0]);
+        assert!(strip[3].starts_with("│ ● claude · infra"), "{:?}", strip[3]);
+        assert!(strip[4].contains("busy"));
+        assert!(strip[9].starts_with("│ ‖ claude · a:api"));
         assert!(strip[48].starts_with('│'));
         assert!(strip[49].trim().is_empty());
     }
@@ -907,7 +880,7 @@ mod tests {
         set(&mut state, client, SidebarOp::On).expect("on");
         let active = |state: &State| state.model.sessions[&state.clients[&client].session].active;
         let before = active(&state);
-        for row in [1, 7] {
+        for row in [1, 7, 10] {
             assert!(matches!(
                 click(&mut state, client, 140, row),
                 Some(Routed::Consumed)
@@ -915,13 +888,17 @@ mod tests {
             assert_eq!(active(&state), before, "row {row} is no entry");
         }
         assert!(matches!(
-            click(&mut state, client, 140, 9),
+            click(&mut state, client, 140, 15),
             Some(Routed::Consumed)
         ));
         assert_eq!(active(&state), state.model.panes[&p[1]].window);
-        assert_eq!(state.sidebars.clients[&client].list.selected, 2);
-        // Now on session `a`, whose agents come first: p1 on rows 2 and 3.
-        click(&mut state, client, 130, 3);
+        assert_eq!(state.sidebars.clients[&client].list.selected, 4);
+        // A header jumps nowhere.
+        click(&mut state, client, 140, 8);
+        assert_eq!(active(&state), state.model.panes[&p[1]].window);
+        // Now on session `a`, whose rows come first: its header on rows 2 to
+        // 4, p0 on rows 5 and 6.
+        click(&mut state, client, 130, 6);
         assert_eq!(active(&state), state.model.panes[&p[0]].window);
         assert!(click(&mut state, client, 10, 8).is_none());
     }
@@ -936,7 +913,18 @@ mod tests {
             press(&mut state, client, "Down"),
             Some(Routed::Consumed)
         ));
+        // The first row is a header: the selection starts on the agent below
+        // it, and Down steps over the next header.
+        assert_eq!(state.sidebars.clients[&client].list.selected, 3);
+        press(&mut state, client, "Up");
         assert_eq!(state.sidebars.clients[&client].list.selected, 1);
+        press(&mut state, client, "Up");
+        assert_eq!(
+            state.sidebars.clients[&client].list.selected, 1,
+            "no row above"
+        );
+        press(&mut state, client, "Down");
+        assert_eq!(state.sidebars.clients[&client].list.selected, 3);
         assert!(matches!(
             press(&mut state, client, "x"),
             Some(Routed::Consumed)
@@ -949,7 +937,7 @@ mod tests {
         assert!(press(&mut state, client, "Down").is_none(), "keys back");
         // The strip stays shown.
         assert_eq!(reserved(&state, client, 160), 33);
-        // Enter jumps to the selected row (p1, blocked, second in the list).
+        // Enter jumps to the selected row (p0, blocked, fourth in the list).
         set(&mut state, client, SidebarOp::Focus).expect("focus");
         press(&mut state, client, "Enter");
         let window = state.model.panes[&p[0]].window;

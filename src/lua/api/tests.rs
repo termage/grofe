@@ -49,6 +49,14 @@ impl Host for FakeHost {
         self.jobs.push(job);
         Ok(())
     }
+    fn agent_read(&mut self, _: &str, _: usize) -> Result<String, String> {
+        Ok(String::new())
+    }
+
+    fn agent_prompt(&mut self, _: PromptJob, _: u32) -> Result<(), String> {
+        Ok(())
+    }
+
     fn agent_history(&mut self, pane: &str, n: usize) -> Result<Vec<String>, String> {
         Ok(vec![format!("{pane}:{n}")])
     }

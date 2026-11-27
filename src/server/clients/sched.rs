@@ -102,6 +102,7 @@ pub(crate) fn wake(state: &mut State) {
     crate::server::alerts::output(state, &dirty);
     crate::server::unseen::output(state, &dirty);
     scan_agents(state, &dirty);
+    crate::server::dispatch::agent_control::note_output(state, &dirty);
     if !dirty.is_empty() {
         arm_names(state, Instant::now());
     }
@@ -246,6 +247,7 @@ pub(crate) fn deadline(state: &State) -> Option<Instant> {
         crate::server::picker::deadline(state),
         crate::server::grid::deadline(state),
         state.notify.mute_deadline(),
+        crate::server::dispatch::agent_control::deadline(state),
     ]
     .into_iter()
     .chain(state.clients.iter().map(|(id, c)| {
@@ -335,6 +337,8 @@ pub(crate) fn tick(state: &mut State, now: Instant) {
     if switched {
         changed(state);
     }
+
+    crate::server::dispatch::agent_control::scan_pending(state, now);
 
     if state.notify.expire_mute(now) {
         for c in state.clients.values_mut() {

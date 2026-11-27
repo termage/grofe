@@ -1,11 +1,14 @@
 //! Agent status: the per-pane store and the report rules (spec §2).
 
+pub(crate) mod detect;
 pub(crate) mod headless;
 mod history;
 pub(crate) mod kinds;
 pub(crate) mod osc;
 mod rank;
+pub(crate) mod screen;
 mod text;
+pub(crate) mod waiters;
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
@@ -13,6 +16,7 @@ use std::time::Instant;
 use crate::server::resume::Binding;
 use crate::types::PaneId;
 
+pub(crate) use detect::Source;
 pub(crate) use rank::{Rank, rank};
 pub(crate) use text::{sanitize, valid_kind, valid_session_id};
 
@@ -83,6 +87,8 @@ pub(crate) struct Agent {
     pub binding: Option<Binding>,
     /// The messages reports carried, oldest first, up to `history::HISTORY_CAP`.
     pub history: VecDeque<String>,
+    /// What the state last came from; `None` for a record made by a scan.
+    pub source: Option<Source>,
 }
 
 impl Agent {
@@ -99,6 +105,7 @@ impl Agent {
             last_report: 0,
             binding,
             history: VecDeque::new(),
+            source: None,
         }
     }
 }
@@ -121,6 +128,13 @@ pub struct Agents {
     map: HashMap<PaneId, Agent>,
     /// The `system` jobs running that asked to show: not agents.
     pub(crate) jobs: Vec<headless::Job>,
+    /// Screen detection files by kind (see `detect::load`).
+    pub(crate) detect: HashMap<String, detect::DetectFile>,
+    /// `agent prompt --wait` calls still waiting.
+    pub(crate) waiters: Vec<waiters::Waiter>,
+    waiter_seq: u64,
+    /// Screen detection's pending reads (see `agent_control::note_output`).
+    pub(crate) scan: screen::Scan,
 }
 
 impl Agents {
@@ -131,6 +145,7 @@ impl Agents {
         {
             return None;
         }
+        self.scan.prompted.remove(&pane);
         let state = match r.state {
             ReportState::Clear => {
                 let a = self.map.remove(&pane)?;
@@ -222,8 +237,33 @@ impl Agents {
         }
         let mut a = Agent::new(AgentState::Idle, now, binding);
         a.kind = valid_kind(kind).then(|| kind.to_string());
+        self.scan.prompted.remove(&pane);
         self.map.insert(pane, a);
         true
+    }
+
+    /// The text of `agent prompt` was typed: the agent is `working` from now.
+    /// `None` when it already was. Not a report, so screen detection still
+    /// judges the record.
+    pub(crate) fn mark_working(&mut self, pane: PaneId, now: Instant) -> Option<Change> {
+        let a = self.map.get_mut(&pane)?;
+        a.source = Some(Source::Prompt);
+        a.since = now;
+        if a.state == AgentState::Working {
+            return None;
+        }
+        let old = a.state;
+        a.state = AgentState::Working;
+        a.unseen = false;
+        a.blocked = None;
+        a.msg = None;
+        Some(Change {
+            old: Some(old),
+            new: Some(AgentState::Working),
+            kind: a.kind.clone(),
+            session_changed: false,
+            msg: None,
+        })
     }
 
     /// Clear `unseen`. True when it was set.
@@ -245,10 +285,21 @@ impl Agents {
         if msg.is_some() {
             a.msg = msg;
         }
+        // A bell is no state: it names the source only when nothing does.
+        if changed && a.source.is_none() {
+            a.source = Some(Source::Bell);
+        }
         changed
     }
 
+    pub(crate) fn set_source(&mut self, pane: PaneId, source: Source) {
+        if let Some(a) = self.map.get_mut(&pane) {
+            a.source = Some(source);
+        }
+    }
+
     pub(crate) fn remove(&mut self, pane: PaneId) -> Option<Agent> {
+        self.scan.prompted.remove(&pane);
         self.map.remove(&pane)
     }
 
@@ -420,12 +471,27 @@ mod tests {
         assert!(a.unseen);
         assert_eq!(a.msg.as_deref(), Some("hi"));
         assert!(!ag.attention(P, Some("hi".into())));
+        assert_eq!(ag.get(P).unwrap().source, Some(Source::Bell));
         assert!(ag.mark_seen(P));
         assert!(!ag.mark_seen(P));
 
         let (mut ag, _) = with(AgentState::Working, 1);
         assert!(!ag.attention(P, Some("hi".into())));
         assert!(!ag.get(P).unwrap().unseen);
+    }
+
+    #[test]
+    fn a_bell_does_not_overwrite_the_source() {
+        let now = Instant::now();
+        let mut ag = Agents::default();
+        ag.ensure(P, "claude", None, now);
+        let src = Source::Screen {
+            file: "f".into(),
+            rule: "r".into(),
+        };
+        ag.set_source(P, src.clone());
+        assert!(ag.attention(P, Some("hi".into())));
+        assert_eq!(ag.get(P).unwrap().source, Some(src));
     }
 
     #[test]

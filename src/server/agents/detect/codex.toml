@@ -1,0 +1,4 @@
+# Built-in screen detection for Codex CLI.
+lines = 20
+working = ["esc to interrupt"]
+blocked = ["Would you like to run the following command", "Allow Codex to"]

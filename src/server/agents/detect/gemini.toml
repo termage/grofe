@@ -1,0 +1,4 @@
+# Built-in screen detection for Gemini CLI.
+lines = 20
+working = ["esc to cancel"]
+blocked = ["Allow execution of", "Apply this change\\?", "Waiting for user confirmation"]

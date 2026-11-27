@@ -24,10 +24,44 @@ pub trait Host {
     fn system(&mut self, job: SystemJob, id: u32) -> Result<(), String>;
     /// The last `n` messages of `pane`'s agent, oldest first.
     fn agent_history(&mut self, pane: &str, n: usize) -> Result<Vec<String>, String>;
+    /// The last `n` lines of `pane`, joined by newlines.
+    fn agent_read(&mut self, pane: &str, n: usize) -> Result<String, String>;
+    /// Types `text` and Enter into `pane`'s agent; callback `id` gets the
+    /// state it reached (one of `until`, else the default ones) or nothing.
+    fn agent_prompt(&mut self, req: PromptJob, id: u32) -> Result<(), String>;
     fn cancel(&mut self, id: u32);
     /// Posts a tray entry for `pane` (the active pane when `None`).
     fn notify(&mut self, text: &str, pane: Option<&str>, level: &str) -> Result<(), String>;
     fn log(&mut self, msg: &str);
+}
+
+/// What `grofe.agent.prompt` asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptJob {
+    pub pane: String,
+    pub text: String,
+    pub until: Vec<String>,
+    pub timeout_ms: Option<u64>,
+}
+
+impl PromptJob {
+    fn to_table(&self, lua: &Lua) -> mlua::Result<Table> {
+        let t = lua.create_table()?;
+        t.set("pane", self.pane.as_str())?;
+        t.set("text", self.text.as_str())?;
+        t.set("until", self.until.clone())?;
+        t.set("timeout_ms", self.timeout_ms)?;
+        Ok(t)
+    }
+
+    fn from_table(t: &Table) -> mlua::Result<PromptJob> {
+        Ok(PromptJob {
+            pane: t.get("pane")?,
+            text: t.get("text")?,
+            until: t.get("until")?,
+            timeout_ms: t.get("timeout_ms")?,
+        })
+    }
 }
 
 const SLOT: &str = "grofe_host";
@@ -173,6 +207,45 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
             host_fn(lua, "agent_history")?.call::<Vec<String>>((pane, n))
         })?,
     )?;
+    agent.set(
+        "read",
+        lua.create_function(|lua, (pane, n): (String, Option<f64>)| {
+            let n = n.map_or(50, |n| n.max(0.0) as usize);
+            host_fn(lua, "agent_read")?.call::<String>((pane, n))
+        })?,
+    )?;
+    agent.set(
+        "prompt",
+        lua.create_function(
+            |lua, (pane, text, opts, f): (String, String, Option<Table>, Function)| {
+                let host = host_fn(lua, "agent_prompt")?;
+                let (mut until, mut timeout_ms) = (Vec::new(), None);
+                if let Some(o) = opts {
+                    // `until` is a Luau keyword: it is written ['until'].
+                    until = match o.get::<Value>("until")? {
+                        Value::Nil => Vec::new(),
+                        Value::String(s) => s
+                            .to_str()?
+                            .split(',')
+                            .map(|n| n.trim().to_string())
+                            .collect(),
+                        Value::Table(t) => strings(t)?,
+                        _ => {
+                            return Err(err("grofe.agent.prompt: until is a state name or a list"));
+                        }
+                    };
+                    timeout_ms = o.get::<Option<u64>>("timeout_ms")?;
+                }
+                let job = PromptJob {
+                    pane,
+                    text,
+                    until,
+                    timeout_ms,
+                };
+                add_callback(lua, f, |id| host.call((job.to_table(lua)?, id)))
+            },
+        )?,
+    )?;
     g.set("agent", agent)?;
     g.set(
         "cancel",
@@ -290,6 +363,19 @@ pub fn enter<R>(
                 "agent_history",
                 scope.create_function_mut(|_, (pane, n): (String, usize)| {
                     host.borrow_mut().agent_history(&pane, n).map_err(err)
+                })?,
+            )?;
+            t.set(
+                "agent_read",
+                scope.create_function_mut(|_, (pane, n): (String, usize)| {
+                    host.borrow_mut().agent_read(&pane, n).map_err(err)
+                })?,
+            )?;
+            t.set(
+                "agent_prompt",
+                scope.create_function_mut(|_, (job, id): (Table, u32)| {
+                    let job = PromptJob::from_table(&job)?;
+                    host.borrow_mut().agent_prompt(job, id).map_err(err)
                 })?,
             )?;
             t.set(

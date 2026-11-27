@@ -8,12 +8,16 @@ pub(super) fn rows(state: &State) -> impl Iterator<Item = Row> + '_ {
     state.agents.jobs.iter().map(|j| Row {
         pane: None,
         label: format!("{} · {}", j.kind, j.label),
+        header: None,
     })
 }
 
 /// What an entry shows: its state, its name line (after the glyph) and its
 /// detail line. `agent` is the row's agent, `None` for a job.
 pub(super) fn entry(agent: Option<&Agent>, row: &Row) -> (Rank, String, String) {
+    if let Some(h) = &row.header {
+        return super::headers::entry(h, row);
+    }
     match agent {
         Some(a) => (
             rank(a),
