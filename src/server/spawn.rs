@@ -354,6 +354,25 @@ mod tests {
         let child = spawn(&mut cmd).expect("spawn");
         let pid = child.id().expect("pid");
         drop(child);
+        // Reaped by its reaper on macOS. Elsewhere tokio reaps a dropped
+        // child from its orphan queue only on a later SIGCHLD, so a zombie
+        // counts as killed there.
+        #[cfg(target_os = "macos")]
+        until("reaped", || exited(pid).is_none()).await;
+        #[cfg(not(target_os = "macos"))]
         until("killed", || exited(pid) != Some(false)).await;
+    }
+
+    /// A child that exited and is dropped unwaited is reaped by the drop.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_dropped_exited_child_is_reaped() {
+        let child = spawn(&mut sh("exit 0", None)).expect("spawn");
+        let pid = child.id().expect("pid");
+        until("exited", || exited(pid) == Some(true)).await;
+        // Time for the reaper to see the exit, so the drop is what reaps.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        drop(child);
+        assert_eq!(exited(pid), None);
     }
 }
