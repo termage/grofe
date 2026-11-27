@@ -2511,9 +2511,9 @@ mod tests {
             ("search-backward", "line 5 of", Some("1")),
             ("search-backward", "line [0-9]+5 of", Some("9999")),
         ] {
-            let t = crate::thread_cpu_time();
+            let t = crate::lua::runtime::thread_cpu_time();
             x(&mut m, &[cmd, pat]);
-            let took = crate::thread_cpu_time() - t;
+            let took = crate::lua::runtime::thread_cpu_time() - t;
             eprintln!("{cmd} {pat}: {took:?}");
             assert!(took < limit, "{cmd} {pat} took {took:?}");
             if let Some(count) = count {
@@ -2544,9 +2544,9 @@ mod tests {
             top - start <= SEARCH_MAX_LINE.div_ceil(80) + 1,
             "{start} {top}"
         );
-        let t = crate::thread_cpu_time();
+        let t = crate::lua::runtime::thread_cpu_time();
         let first = view_marks(&m).unwrap();
-        let took = crate::thread_cpu_time() - t;
+        let took = crate::lua::runtime::thread_cpu_time() - t;
         let limit = if cfg!(debug_assertions) { 500 } else { 10 };
         assert!(took < Duration::from_millis(limit), "{took:?}");
         let again = view_marks(&m).unwrap();

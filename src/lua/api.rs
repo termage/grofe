@@ -1,10 +1,10 @@
 use super::callbacks::{CALLBACKS, LINES, NEXT_ID, add_callback, free_line};
 pub use super::callbacks::{Payload, call, in_pack, release};
 use super::pack;
-use super::runtime::{LuaError, Runtime, off_budget};
+use super::runtime::{LuaError, Runtime, host_function};
 use super::system;
 pub use super::system::SystemJob;
-use mlua::{Function, Lua, MultiValue, Table, Value};
+use mlua::{Function, Lua, Table, Value};
 use std::cell::RefCell;
 
 pub trait Host {
@@ -109,7 +109,7 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     g.set("api", crate::pack::PLUGIN_API)?;
     g.set(
         "cmd",
-        lua.create_function(|lua, arg: Value| {
+        host_function(lua, |lua, arg: Value| {
             let run = host_fn(lua, "cmd")?;
             let commands = match arg {
                 Value::String(s) => {
@@ -127,13 +127,14 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     )?;
     g.set(
         "fmt",
-        lua.create_function(|lua, (format, target): (String, Option<String>)| {
+        host_function(lua, |lua, (format, target): (String, Option<String>)| {
             host_fn(lua, "fmt")?.call::<String>((format, target))
         })?,
     )?;
     g.set(
         "bind",
-        lua.create_function(
+        host_function(
+            lua,
             |lua, (table, key, f, opts): (String, String, Function, Option<Table>)| {
                 let host = host_fn(lua, "bind")?;
                 let (desc, repeat) = match opts {
@@ -149,31 +150,34 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     )?;
     g.set(
         "on",
-        lua.create_function(|lua, (event, f, opts): (String, Function, Option<Table>)| {
-            let host = host_fn(lua, "on")?;
-            let pane = match opts {
-                Some(o) => {
-                    for pair in o.pairs::<Value, Value>() {
-                        match pair?.0 {
-                            Value::String(s) if &*s.to_str()? == "pane" => {}
-                            other => {
-                                return Err(err(format!(
-                                    "grofe.on: unknown option {}; options are pane",
-                                    other.to_string()?
-                                )));
+        host_function(
+            lua,
+            |lua, (event, f, opts): (String, Function, Option<Table>)| {
+                let host = host_fn(lua, "on")?;
+                let pane = match opts {
+                    Some(o) => {
+                        for pair in o.pairs::<Value, Value>() {
+                            match pair?.0 {
+                                Value::String(s) if &*s.to_str()? == "pane" => {}
+                                other => {
+                                    return Err(err(format!(
+                                        "grofe.on: unknown option {}; options are pane",
+                                        other.to_string()?
+                                    )));
+                                }
                             }
                         }
+                        o.get::<Option<String>>("pane")?
                     }
-                    o.get::<Option<String>>("pane")?
-                }
-                None => None,
-            };
-            add_callback(lua, f, |id| host.call((event, id, pane)))
-        })?,
+                    None => None,
+                };
+                add_callback(lua, f, |id| host.call((event, id, pane)))
+            },
+        )?,
     )?;
     g.set(
         "every",
-        lua.create_function(|lua, (ms, f): (f64, Function)| {
+        host_function(lua, |lua, (ms, f): (f64, Function)| {
             let host = host_fn(lua, "every")?;
             let ms = (ms.max(0.0) as u64).max(MIN_EVERY_MS);
             add_callback(lua, f, |id| host.call((ms, id)))
@@ -181,42 +185,48 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     )?;
     g.set(
         "system",
-        lua.create_function(|lua, (argv, f, opts): (Table, Function, Option<Table>)| {
-            let host = host_fn(lua, "system")?;
-            let (mut job, on_line) = system::read(strings(argv)?, opts)?;
-            let line_id = on_line
-                .map(|line| add_callback(lua, line, |_| Ok(())))
-                .transpose()?;
-            job.on_line = line_id;
-            let id = add_callback(lua, f, |id| host.call((job.to_table(lua)?, id)));
-            match (&id, line_id) {
-                (Ok(id), Some(line)) => lua.named_registry_value::<Table>(LINES)?.set(*id, line)?,
-                (Err(_), Some(line)) => lua
-                    .named_registry_value::<Table>(CALLBACKS)?
-                    .set(line, Value::Nil)?,
-                _ => {}
-            }
-            id
-        })?,
+        host_function(
+            lua,
+            |lua, (argv, f, opts): (Table, Function, Option<Table>)| {
+                let host = host_fn(lua, "system")?;
+                let (mut job, on_line) = system::read(strings(argv)?, opts)?;
+                let line_id = on_line
+                    .map(|line| add_callback(lua, line, |_| Ok(())))
+                    .transpose()?;
+                job.on_line = line_id;
+                let id = add_callback(lua, f, |id| host.call((job.to_table(lua)?, id)));
+                match (&id, line_id) {
+                    (Ok(id), Some(line)) => {
+                        lua.named_registry_value::<Table>(LINES)?.set(*id, line)?
+                    }
+                    (Err(_), Some(line)) => lua
+                        .named_registry_value::<Table>(CALLBACKS)?
+                        .set(line, Value::Nil)?,
+                    _ => {}
+                }
+                id
+            },
+        )?,
     )?;
     let agent = lua.create_table()?;
     agent.set(
         "history",
-        lua.create_function(|lua, (pane, n): (String, f64)| {
+        host_function(lua, |lua, (pane, n): (String, f64)| {
             let n = n.max(0.0) as usize;
             host_fn(lua, "agent_history")?.call::<Vec<String>>((pane, n))
         })?,
     )?;
     agent.set(
         "read",
-        lua.create_function(|lua, (pane, n): (String, Option<f64>)| {
+        host_function(lua, |lua, (pane, n): (String, Option<f64>)| {
             let n = n.map_or(50, |n| n.max(0.0) as usize);
             host_fn(lua, "agent_read")?.call::<String>((pane, n))
         })?,
     )?;
     agent.set(
         "prompt",
-        lua.create_function(
+        host_function(
+            lua,
             |lua, (pane, text, opts, f): (String, String, Option<Table>, Function)| {
                 let host = host_fn(lua, "agent_prompt")?;
                 let (mut until, mut timeout_ms) = (Vec::new(), None);
@@ -249,7 +259,7 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     g.set("agent", agent)?;
     g.set(
         "cancel",
-        lua.create_function(|lua, id: u32| {
+        host_function(lua, |lua, id: u32| {
             host_fn(lua, "cancel")?.call::<()>(id)?;
             free_line(lua, id)?;
             lua.named_registry_value::<Table>(CALLBACKS)?
@@ -258,11 +268,11 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     )?;
     g.set(
         "log",
-        lua.create_function(|lua, msg: String| host_fn(lua, "log")?.call::<()>(msg))?,
+        host_function(lua, |lua, msg: String| host_fn(lua, "log")?.call::<()>(msg))?,
     )?;
     g.set(
         "notify",
-        lua.create_function(|lua, (text, opts): (Value, Option<Table>)| {
+        host_function(lua, |lua, (text, opts): (Value, Option<Table>)| {
             let Value::String(text) = text else {
                 return Err(err("grofe.notify takes the text as a string"));
             };
@@ -284,7 +294,7 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     )?;
     g.set(
         "plugin",
-        lua.create_function(|lua, name: String| {
+        host_function(lua, |lua, name: String| {
             lua.named_registry_value::<Table>(PLUGINS)?
                 .get::<Value>(name)
         })?,
@@ -292,29 +302,7 @@ fn install_in(lua: &Lua) -> mlua::Result<()> {
     super::json::install(lua, &g)?;
     super::config::install(lua, &g)?;
     pack::install(lua, &g)?;
-    host_calls_off_budget(lua, &g)?;
     lua.globals().set("grofe", g)
-}
-
-/// The host-call boundary: every function in `t` (all Rust) and in its
-/// tables runs [`off_budget`], so the budget measures running Lua, not the
-/// host work (a reload, an fsync, a spawn) a call asks for. None of them
-/// runs Lua: a nested entry is refused.
-fn host_calls_off_budget(lua: &Lua, t: &Table) -> mlua::Result<()> {
-    let entries: Vec<(Value, Value)> = t.pairs().collect::<mlua::Result<_>>()?;
-    for (key, value) in entries {
-        match value {
-            Value::Function(f) => {
-                let paused = lua.create_function(move |lua, args: MultiValue| {
-                    off_budget(lua, || f.call::<MultiValue>(args))
-                })?;
-                t.set(key, paused)?;
-            }
-            Value::Table(sub) => host_calls_off_budget(lua, &sub)?,
-            _ => {}
-        }
-    }
-    Ok(())
 }
 
 pub fn enter<R>(

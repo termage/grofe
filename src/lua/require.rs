@@ -13,9 +13,10 @@ const DIR: &str = "grofe_require_dir";
 const CACHE: &str = "grofe_require_cache";
 /// Modules whose chunk is running, to catch cycles.
 const LOADING: &str = "grofe_require_loading";
-/// Module key to its source and what compiling that gave (`f` or `err`), for
-/// the runtime's life: compiling is off the budget, so a module required again
-/// (after it raised, say) must not be compiled again.
+/// Module key, then environment (`false` for none), to its source and what
+/// compiling that gave (`f` or `err`), for the runtime's life: compiling is
+/// off the budget, so a module required again (after it raised, say) must
+/// not be compiled again.
 const COMPILED: &str = "grofe_require_compiled";
 fn err(e: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(e.to_string())
@@ -146,7 +147,18 @@ fn compiled(
             t
         }
     };
-    let entry = match all.get::<Option<Table>>(key)? {
+    // One file reached from the config folder and from a pack's runs in
+    // two environments, and a function is compiled for one: one entry each.
+    let per_env = match all.get::<Option<Table>>(key)? {
+        Some(t) => t,
+        None => {
+            let t = lua.create_table()?;
+            all.set(key, &t)?;
+            t
+        }
+    };
+    let env_key = env.clone().map_or(Value::Boolean(false), Value::Table);
+    let entry = match per_env.get::<Option<Table>>(&env_key)? {
         Some(e) if *e.get::<mlua::LuaString>("src")?.as_bytes() == *src => e,
         _ => {
             let e = lua.create_table()?;
@@ -156,7 +168,7 @@ fn compiled(
                 Ok(f) => e.set("f", f)?,
                 Err(error) => e.set("err", Value::Error(Box::new(error.clone())))?,
             }
-            all.set(key, &e)?;
+            per_env.set(env_key, &e)?;
             return compiled;
         }
     };

@@ -19,8 +19,8 @@ struct FakeHost {
 impl Host for FakeHost {
     fn run(&mut self, argv: Vec<String>) -> Result<String, String> {
         self.runs.push(argv);
-        let start = crate::thread_cpu_time();
-        while crate::thread_cpu_time() - start < self.delay {}
+        let start = crate::lua::runtime::thread_cpu_time();
+        while crate::lua::runtime::thread_cpu_time() - start < self.delay {}
         match &self.fail {
             Some(e) => Err(e.clone()),
             None => Ok(self.reply.clone()),
@@ -105,6 +105,54 @@ fn host_calls_are_off_the_budget_and_lua_is_not() {
     )
     .unwrap_err();
     assert!(e.message.contains("50 ms budget"), "{e}");
+}
+
+/// Runs `src`, which must hit the budget, and the CPU time that took.
+fn spends_the_budget(src: &str) -> Duration {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let t = crate::lua::runtime::thread_cpu_time();
+    let e = eval::<()>(&rt, &mut h, src).unwrap_err();
+    assert!(e.message.contains("50 ms budget"), "{e}");
+    crate::lua::runtime::thread_cpu_time() - t
+}
+
+#[test]
+fn lua_inside_a_host_call_cannot_buy_back_the_budget() {
+    // The metamethod runs inside grofe.notify, which reads the options table.
+    let took = spends_the_budget(
+        "local o = setmetatable({}, {__index = function() while true do end end}) \
+         while true do pcall(grofe.notify, 'x', o) end",
+    );
+    assert!(took < Duration::from_millis(100), "{took:?}");
+}
+
+#[test]
+fn lua_a_host_call_runs_counts() {
+    // Each metamethod run stays under the budget; together they do not.
+    let took = spends_the_budget(
+        "local o = setmetatable({}, {__index = function() for _ = 1, 20000 do end end}) \
+         while true do grofe.notify('x', o) end",
+    );
+    assert!(took < Duration::from_millis(100), "{took:?}");
+}
+
+#[test]
+fn a_host_call_error_names_it_first() {
+    let rt = rt();
+    let mut h = FakeHost::default();
+    let out: String = eval(
+        &rt,
+        &mut h,
+        "local _, e = pcall(grofe.notify, {}) return tostring(e)",
+    )
+    .unwrap();
+    let first = out
+        .lines()
+        .skip_while(|l| !l.starts_with("stack traceback"))
+        .nth(1)
+        .unwrap_or_default();
+    assert!(first.contains("grofe.notify"), "{out}");
 }
 
 #[test]
@@ -284,13 +332,13 @@ fn test_callback_over_budget_errors() {
     )
     .unwrap();
     // The budget is CPU time: a loaded runner stretches the wall time.
-    let t = crate::thread_cpu_time();
+    let t = crate::lua::runtime::thread_cpu_time();
     let e = call(&rt, &mut h, 1, Payload::None).unwrap_err();
     assert!(
         e.who.contains("callback 1") && e.message.contains("budget"),
         "{e}"
     );
-    assert!(crate::thread_cpu_time() - t < Duration::from_millis(150));
+    assert!(crate::lua::runtime::thread_cpu_time() - t < Duration::from_millis(150));
 }
 
 #[test]

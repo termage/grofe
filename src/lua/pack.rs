@@ -23,14 +23,14 @@ pub fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     lua.set_named_registry_value(OWNERS, lua.create_table()?)?;
     g.set(
         "pack_dir",
-        lua.create_function(|lua, ()| {
+        super::runtime::host_function(lua, |lua, ()| {
             let dir = current_dir(lua)?.ok_or_else(|| err("grofe.pack_dir outside a pack"))?;
             Ok(dir.to_string_lossy().into_owned())
         })?,
     )?;
     g.set(
         "options",
-        lua.create_function(|lua, ()| {
+        super::runtime::host_function(lua, |lua, ()| {
             let name = current(lua)?.ok_or_else(|| err("grofe.options outside a pack"))?;
             lua.named_registry_value::<Table>(INFO)?
                 .get::<Table>(name)?
@@ -145,14 +145,14 @@ fn store_table(lua: &Lua) -> mlua::Result<Table> {
     let t = lua.create_table()?;
     t.set(
         "get",
-        lua.create_function(|lua, key: String| {
+        super::runtime::host_function(lua, |lua, key: String| {
             let value = read_store(&store_path(lua)?)?.remove(&key);
             value.map_or(Ok(Value::Nil), |v| from_json(lua, &v))
         })?,
     )?;
     t.set(
         "set",
-        lua.create_function(|lua, (key, value): (String, Value)| {
+        super::runtime::host_function(lua, |lua, (key, value): (String, Value)| {
             let value = to_json(&value)?;
             update_store(&store_path(lua)?, |map| {
                 match value {
@@ -164,7 +164,7 @@ fn store_table(lua: &Lua) -> mlua::Result<Table> {
     )?;
     t.set(
         "delete",
-        lua.create_function(|lua, key: String| {
+        super::runtime::host_function(lua, |lua, key: String| {
             update_store(&store_path(lua)?, |map| {
                 map.remove(&key);
             })

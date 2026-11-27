@@ -62,7 +62,8 @@ command) is one call with its own limits:
 
 - 50 ms of CPU time running Lua. After that every step raises an error, so even a `pcall` loop
   ends within twice the budget. Time spent inside a `grofe.*` call (a command, a `grofe.store`
-  write, a spawn), compiling the code, and waiting on a busy machine do not count.
+  write, a spawn), compiling the code, and waiting on a busy machine do not count. A `grofe.*`
+  call that runs Lua of yours (a metamethod on a table you pass it) counts in full.
 - 5 s in all, `grofe.*` calls included, so a loop of them still ends.
 - 64 MiB of memory.
 - No `io`, no `os.execute`, no `loadstring`, no native modules. `require` loads modules from

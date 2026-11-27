@@ -35,10 +35,10 @@ fn nested_lua_verb_is_an_error() {
 fn a_spin_returns_a_budget_error_fast() {
     let mut state = test_state();
     // The budget is CPU time: a loaded runner stretches the wall time.
-    let t = crate::thread_cpu_time();
+    let t = crate::lua::runtime::thread_cpu_time();
     let e = run_chunk(&mut state, &test_ctx(), "while true do end").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    let took = crate::thread_cpu_time() - t;
+    let took = crate::lua::runtime::thread_cpu_time() - t;
     assert!(took < Duration::from_millis(200), "{took:?}");
 }
 
@@ -285,10 +285,10 @@ fn a_required_module_that_spins_hits_the_budget() {
     let mut state = test_state();
     load_init(&mut state, dir.path());
     // The budget is CPU time: a loaded runner stretches the wall time.
-    let t = crate::thread_cpu_time();
+    let t = crate::lua::runtime::thread_cpu_time();
     let e = require(&mut state, "spin").unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    let took = crate::thread_cpu_time() - t;
+    let took = crate::lua::runtime::thread_cpu_time() - t;
     assert!(took < Duration::from_millis(500), "{took:?}");
 }
 
@@ -556,7 +556,9 @@ fn requiring_a_raising_module_in_a_loop_still_ends() {
     let dir = folder("", &[("bad.luau", &module)]);
     let mut state = test_state();
     load_init(&mut state, dir.path());
-    let t = Instant::now();
+    // Compiled anew each time (64 KiB, ~30 ms in a debug build, off the
+    // budget), the loop would run to the 5 s wall limit.
+    let t = crate::lua::runtime::thread_cpu_time();
     let e = run_chunk(
         &mut state,
         &test_ctx(),
@@ -564,7 +566,34 @@ fn requiring_a_raising_module_in_a_loop_still_ends() {
     )
     .unwrap_err();
     assert!(e.contains("budget"), "{e}");
-    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+    let took = crate::lua::runtime::thread_cpu_time() - t;
+    assert!(took < Duration::from_millis(500), "{took:?}");
+}
+
+#[test]
+fn a_module_compiles_for_each_environment_it_runs_in() {
+    // It raises, so no value is kept and each require runs it again.
+    // A pack's `grofe` is a proxy with a metatable; the global one has none.
+    let probe = "error(getmetatable(grofe) and 'pack' or 'config')";
+    let dir = folder(
+        "return { probe = function() return select(2, pcall(require, 'm')) end }",
+        &[("m.luau", probe)],
+    );
+    let mut state = test_state();
+    reset_at(&mut state, dir.path());
+    // The config folder is the pack's folder too: one file, two environments.
+    load_pack(&mut state, "p", dir.path(), &serde_json::json!({})).unwrap();
+    let ctx = test_ctx();
+    let config = run_chunk(&mut state, &ctx, "return select(2, pcall(require, 'm'))");
+    assert!(
+        config.as_deref().is_ok_and(|e| e.contains("config")),
+        "{config:?}"
+    );
+    let pack = run_chunk(&mut state, &ctx, "return grofe.plugin('p').probe()");
+    assert!(
+        pack.as_deref().is_ok_and(|e| e.contains("pack")),
+        "{pack:?}"
+    );
 }
 
 #[test]
