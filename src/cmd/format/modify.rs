@@ -618,8 +618,8 @@ impl FormatVars for Overlay<'_> {
         self.inner.pane_search(term, regex, ignore)
     }
 
-    fn reexpand(&self, text: &str) -> String {
-        self.inner.reexpand(text)
+    fn reexpand(&self, name: &str, text: &str) -> String {
+        self.inner.reexpand(name, text)
     }
 }
 
@@ -976,10 +976,10 @@ impl Expander<'_> {
 
         // Expand again.
         if f.expand {
-            value = self.expand_owned(&self.vars.reexpand(&value));
+            value = self.expand_owned(&self.vars.reexpand(copy, &value));
         } else if f.expand_time {
             let before = self.shared.expand_time.replace(true);
-            value = self.expand_owned(&self.vars.reexpand(&value));
+            value = self.expand_owned(&self.vars.reexpand(copy, &value));
             self.shared.expand_time.set(before);
         }
 

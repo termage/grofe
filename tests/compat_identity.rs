@@ -211,21 +211,78 @@ fn compat_identity_in_config_overrides_a_grofe_start() {
     assert_eq!(var(&env, "TERM_PROGRAM_VERSION"), "3.7b");
 }
 
-/// A tmux client's user option is read back by `#{E:@x}` in tmux's language:
-/// the short forms expand, and `show` prints the text as sent.
-#[test]
-fn a_tmux_set_user_option_expands_in_tmux_s_language() {
+/// A server with a session `seg`, started as grofe.
+fn seg_server() -> TestServer {
     let srv = TestServer::unstarted();
     grofe(&srv, &["start-server"]).expect("start-server");
     grofe(&srv, &["new-session", "-d", "-s", "seg"]).expect("session");
+    srv
+}
+
+/// `format` expanded by `display -p` in session `seg`, without its newline.
+fn display(srv: &TestServer, format: &str) -> String {
+    let got = grofe(srv, &["display", "-p", "-t", "seg", format]).expect("display");
+    got.strip_suffix('\n').unwrap_or(&got).to_string()
+}
+
+/// `tmux set -g @name value` and what `#{E:@name}` reads back in grofe's
+/// dialect, where tmux's `#{E:}` would expand `value` in its own language.
+fn set_and_expand(srv: &TestServer, set: &[&str], name: &str) -> String {
+    let out = tmux(srv, set);
+    assert!(out.status.success(), "{set:?}: {}", out.stderr);
+    display(srv, &format!("#{{E:@{name}}}"))
+}
+
+/// A tmux client's user option is stored as sent: a plain read and `show`
+/// print it in both dialects, while `#{E:@x}` expands it as tmux's does.
+#[test]
+fn a_tmux_set_user_option_expands_in_tmux_s_language() {
+    let srv = seg_server();
     let raw = "#[fg=red]L#[bold] #h #S ";
-    let out = tmux(&srv, &["set", "-g", "@seg", raw]);
-    assert!(out.status.success(), "set: {}", out.stderr);
+    let got = set_and_expand(&srv, &["set", "-g", "@seg", raw], "seg");
+    let host = display(&srv, "#{host_short}");
+    assert_eq!(got, format!("#[fg=red]L#[bold] {host} seg "));
+    assert_eq!(display(&srv, "#{@seg}"), raw);
     let shown = tmux(&srv, &["show", "-gv", "@seg"]);
     assert_eq!(shown.stdout.trim_end_matches('\n'), raw);
-    let got = grofe(&srv, &["display", "-p", "-t", "seg", "#{E:@seg}"]).expect("display");
-    assert!(got.contains("seg"), "{got}");
-    assert!(!got.contains("#S") && !got.contains("#h"), "{got}");
+    assert_eq!(
+        grofe(&srv, &["show", "-gv", "@seg"])
+            .unwrap()
+            .trim_end_matches('\n'),
+        raw
+    );
+}
+
+/// A short form expands whatever else the value holds, a colour is plain
+/// text to a plain read, and an append is judged as the joined text.
+#[test]
+fn a_tmux_set_user_option_is_judged_as_text_at_expansion() {
+    let srv = seg_server();
+    assert_eq!(
+        set_and_expand(&srv, &["set", "-g", "@b", "#S only"], "b"),
+        "seg only"
+    );
+    let colour = tmux(&srv, &["set", "-g", "@col", "#F5F5F5"]);
+    assert!(colour.status.success(), "{}", colour.stderr);
+    assert_eq!(display(&srv, "#{@col}"), "#F5F5F5");
+    tmux(&srv, &["set", "-g", "@c", "#[fg=red]"]);
+    let joined = set_and_expand(&srv, &["set", "-ga", "@c", "#S"], "c");
+    assert_eq!(joined, "#[fg=red]seg");
+    assert_eq!(display(&srv, "#{@c}"), "#[fg=red]#S");
+    assert_eq!(
+        set_and_expand(&srv, &["set", "-gF", "@h", "#[x]#S"], "h"),
+        "#[x]seg"
+    );
+}
+
+/// A `#(cmd)` in a tmux-set user option runs as a status source while the
+/// option holds it, and `#{E:@x}` reads its output.
+#[test]
+fn a_tmux_set_user_option_runs_its_job() {
+    let srv = seg_server();
+    let out = tmux(&srv, &["set", "-g", "@g", "#(echo yo)!"]);
+    assert!(out.status.success(), "{}", out.stderr);
+    try_wait_until(|| display(&srv, "#{E:@g}") == "yo!", CMD_TIMEOUT).expect("the job's output");
 }
 
 /// What a pane of a new session `name` reads back, as `od -c` prints it

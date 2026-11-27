@@ -43,17 +43,24 @@
 //! and a copy-mode pipe's (`send-keys -X copy-pipe` and the rest); prompt,
 //! popup and menu texts; `select-pane -T`; `rename-window`/`rename-session`; and
 //! the value of `set` for the options tmux reads as formats, or for any
-//! option with `-F`, and for a user option (`@name`) whose value holds a
-//! `#{` or `#[`, which `#{E:@name}` expands in tmux's language. `set` keeps the value as sent (`SetOption::shown`),
+//! option with `-F`. `set` keeps the value as sent (`SetOption::shown`),
 //! which a tmux-dialect `show` prints; with no option name, `show` names
 //! tmux's table (session, window or server), listed from
 //! `fe_3/tmux-tables.golden`.
+//!
+//! **User options.** A user option (`@name`) is text: tmux never expands
+//! it when a format reads it, so `set` stores it as sent, and records that
+//! a tmux client sent it. `#{E:@name}` then runs [`to_native`] on it as it
+//! expands it (`FormatVars::reexpand`), as tmux's `E:` reads a value in
+//! its own language: the text is judged whole, so an append and a lone
+//! `#S` expand as tmux's would. Its `#(cmd)`s are registered when it is set
+//! and stop with the last option that holds them.
 
 use std::fmt::Write as _;
 
 use super::{Arg, GrofeTarget, Invocation, Rewrite, Rewritten, Row, TmuxError, row};
 use crate::cmd::format::SHORT_FORMS;
-use crate::cmd::format::modify::skip1;
+use crate::cmd::format::skip1;
 use crate::cmd::{Command, RegisterSource};
 
 // ---- Format rewriting ------------------------------------------------------
@@ -115,7 +122,8 @@ impl Rewriter {
                 break;
             };
             // `#[`, and `##[` with any number of `#`, start a style.
-            let p = i + s[i..].bytes().take_while(|&b| b == b'#').count();
+            let run = s[i..].bytes().take_while(|&b| b == b'#').count();
+            let p = i + run;
             if s[p..].starts_with('[') {
                 style_end = skip1(&s[i..], b"]").map(|e| i + e);
                 out.push_str(&s[i..=p]);
@@ -124,8 +132,10 @@ impl Rewriter {
             }
             match next {
                 '#' => {
-                    out.push_str("##");
-                    i += 2;
+                    // The pairs of the run, which is scanned only once.
+                    let pairs = run / 2 * 2;
+                    out.push_str(&s[i..i + pairs]);
+                    i += pairs;
                 }
                 ',' => {
                     out.push_str(if in_body { COMMA } else { "," });
@@ -163,15 +173,12 @@ impl Rewriter {
                     i += 2 + len + 1;
                 }
                 c => {
-                    let short = SHORT_FORMS
-                        .iter()
-                        .find(|(f, _)| *f == c)
-                        .filter(|_| style_end.is_none_or(|e| i + 1 + c.len_utf8() > e));
-                    match short {
-                        Some((_, name)) => {
+                    let outside_style = style_end.is_none_or(|e| i + 1 + c.len_utf8() > e);
+                    match SHORT_FORMS.iter().find(|(f, _)| *f == c) {
+                        Some((_, name)) if outside_style => {
                             let _ = write!(out, "#{{{name}}}");
                         }
-                        None => {
+                        _ => {
                             out.push('#');
                             out.push(c);
                         }
@@ -400,9 +407,7 @@ fn format_arg(_: &Invocation<'_>, value: &str) -> Result<Rewritten, TmuxError> {
 
 /// `set`'s value: rewritten for an option tmux reads as a format, for a
 /// style that holds a format (tmux expands a style only then, so a
-/// `#F5F5F5` colour stays a colour), for a user option whose value holds a
-/// `#{` or `#[` (`#{E:@x}` expands it in tmux's language, where grofe's
-/// expander would leave `#h` literal), and for any option with `-F`, which
+/// `#F5F5F5` colour stays a colour), and for any option with `-F`, which
 /// expands it now.
 fn option_value(inv: &Invocation<'_>, value: &str) -> Result<Rewritten, TmuxError> {
     if inv.getopt().has('F') {
@@ -413,8 +418,7 @@ fn option_value(inv: &Invocation<'_>, value: &str) -> Result<Rewritten, TmuxErro
     };
     let base = name.split('[').next().unwrap_or(name);
     let style = base.ends_with("-style") && value.contains("#{");
-    let user = base.starts_with('@') && (value.contains("#{") || value.contains("#["));
-    if FORMAT_OPTIONS.contains(&base) || style || user {
+    if FORMAT_OPTIONS.contains(&base) || style {
         Ok(to_native(value, Jobs::Sources))
     } else {
         Ok(Rewritten::value(value))
@@ -557,14 +561,24 @@ pub(crate) fn rewrites() -> Vec<Rewrite> {
 
 /// `set`/`setw`: the option command with its value rewritten
 /// ([`option_value`]), the sources that needs registered first, and the
-/// value as sent kept for a tmux-dialect `show` (`SetOption::shown`).
+/// value as sent kept for a tmux-dialect `show` (`SetOption::shown`). A
+/// user option (without `-F`) keeps its text, and its jobs' sources are
+/// registered; the text as sent is kept for `#{E:}` as well as `show`.
 fn set_value(inv: &Invocation<'_>, window: bool) -> Result<Vec<Command>, TmuxError> {
     let verb = "set-option";
     let at = inv.getopt().rest.min(inv.args.len()) + 1;
     let Some(sent) = inv.args.get(at) else {
         return super::option_command(inv, verb, window);
     };
-    let got = option_value(inv, sent)?;
+    let user = inv.option_name().is_some_and(|n| n.starts_with('@')) && !inv.getopt().has('F');
+    let got = if user {
+        Rewritten {
+            value: sent.clone(),
+            before: to_native(sent, Jobs::Sources).before,
+        }
+    } else {
+        option_value(inv, sent)?
+    };
     let mut args = inv.args.to_vec();
     args[at] = got.value.clone();
     let rewritten = Invocation {
@@ -577,7 +591,7 @@ fn set_value(inv: &Invocation<'_>, window: bool) -> Result<Vec<Command>, TmuxErr
     for mut c in super::option_command(&rewritten, verb, window)? {
         // With `-F` the value is expanded, and shows as expanded.
         if let Command::SetOption(set) = &mut c
-            && got.value != *sent
+            && (user || got.value != *sent)
             && !set.expand
         {
             set.shown = Some(sent.clone());
@@ -999,36 +1013,71 @@ mod tests {
             native("#[fg=#{?1,#F,#S}]#S"),
             "#[fg=#{?1,#{window_flags},#{session_name}}]#{session_name}"
         );
+        assert_eq!(native("#[fg=#DDDDDD]"), "#[fg=#DDDDDD]");
+        assert_eq!(native("#[fg=#hh]"), "#[fg=#hh]");
+        assert_eq!(
+            native("#[b]#S#[c]#h"),
+            "#[b]#{session_name}#[c]#{host_short}"
+        );
+        assert_eq!(native("#[a]#[fg=#F00]#S"), "#[a]#[fg=#F00]#{session_name}");
+        // `##[` is a style too, kept as it is.
+        assert_eq!(native("##[fg=#FFD700]#S"), "##[fg=#FFD700]#{session_name}");
+        // A style that never ends hides nothing, as in tmux.
+        assert_eq!(
+            native("#[fg=#FFD700#S"),
+            "#[fg=#{window_flags}FD700#{session_name}"
+        );
     }
 
-    /// `set -g @x <value>`: the stored value and what `show` prints.
-    fn set_user(value: &str) -> (Option<String>, Option<String>) {
+    /// A long run of `#` is scanned once, not at every `#` of it.
+    #[test]
+    fn a_long_run_of_hashes_is_linear() {
+        let start = crate::thread_cpu_time();
+        let run = format!("{}S", "#".repeat(200_000));
+        assert_eq!(native(&run).len(), run.len());
+        let took = crate::thread_cpu_time() - start;
+        assert!(took < std::time::Duration::from_millis(500), "{took:?}");
+    }
+
+    /// `set -g @x <value>`: the commands it runs, the stored value and
+    /// what `show` prints.
+    fn set_user(value: &str) -> (Vec<Command>, Option<String>, Option<String>) {
         let argv: Vec<String> = ["set", "-g", "@x", value]
             .iter()
             .map(|w| w.to_string())
             .collect();
-        let (commands, _) = spell(&argv).expect("translates");
-        match &commands[..] {
-            [Command::SetOption(set)] => (set.value.clone(), set.shown.clone()),
+        let (mut commands, _) = spell(&argv).expect("translates");
+        match commands.pop() {
+            Some(Command::SetOption(set)) => (commands, set.value, set.shown),
             other => panic!("{other:?}"),
         }
     }
 
+    /// A user option is text: stored and shown as sent, whatever it holds,
+    /// for `#{E:@x}` to expand in tmux's language when it is read.
     #[test]
-    fn a_user_option_with_a_format_is_rewritten() {
-        let raw = "#[fg=red]L#[bold] #h #{session_name}";
-        let (value, shown) = set_user(raw);
-        assert_eq!(
-            value.as_deref(),
-            Some("#[fg=red]L#[bold] #{host_short} #{session_name}")
-        );
-        assert_eq!(shown.as_deref(), Some(raw));
+    fn a_user_option_is_stored_as_sent() {
+        for raw in ["#[fg=red]L#[bold] #h #{session_name}", "#S only", "#F5F5F5"] {
+            let (before, value, shown) = set_user(raw);
+            assert!(before.is_empty());
+            assert_eq!(value.as_deref(), Some(raw));
+            assert_eq!(shown.as_deref(), Some(raw));
+        }
     }
 
+    /// The jobs a user option holds are registered when it is set.
     #[test]
-    fn a_user_option_colour_stays_raw() {
-        assert_eq!(set_user("#F5F5F5"), (Some("#F5F5F5".into()), None));
-        assert_eq!(set_user("#a89984"), (Some("#a89984".into()), None));
+    fn a_user_option_registers_its_jobs() {
+        let (before, value, _) = set_user("a#(echo yo)#{?1,#(date),}");
+        assert_eq!(value.as_deref(), Some("a#(echo yo)#{?1,#(date),}"));
+        let commands: Vec<_> = before
+            .iter()
+            .map(|c| match c {
+                Command::RegisterSource(r) => r.command.as_str(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(commands, ["echo yo", "date"]);
     }
 
     #[test]
@@ -1110,19 +1159,21 @@ mod tests {
         );
     }
 
+    /// Runs a tmux-dialect command on `state`.
+    fn run(state: &mut crate::server::State, words: &[&str]) {
+        use crate::protocol::{ClientCtx, Dialect};
+        let ctx = ClientCtx {
+            dialect: Dialect::Tmux,
+            ..crate::server::test_ctx()
+        };
+        let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        crate::server::dispatch::run(state, &ctx, &argv).expect("runs");
+    }
+
     /// A `#(cmd)` source stops once no option reads it: a `set` that
     /// overwrites, `-u`, and `-a` that keeps the old one.
     #[test]
     fn old_job_sources_stop_once_no_option_reads_them() {
-        use crate::protocol::{ClientCtx, Dialect};
-        fn run(state: &mut crate::server::State, words: &[&str]) {
-            let ctx = ClientCtx {
-                dialect: Dialect::Tmux,
-                ..crate::server::test_ctx()
-            };
-            let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
-            crate::server::dispatch::run(state, &ctx, &argv).expect("runs");
-        }
         let mut state = crate::server::test_state();
         for i in 0..25 {
             run(
@@ -1136,6 +1187,20 @@ mod tests {
         let running = crate::server::sources::running(&state);
         assert_eq!(running, 2, "the last and the append");
         run(&mut state, &["set", "-g", "status-right", "plain"]);
+        assert_eq!(crate::server::sources::running(&state), 0);
+    }
+
+    /// A user option holds its `#(cmd)` as sent, and keeps the source
+    /// running for as long as it does.
+    #[test]
+    fn a_user_option_keeps_its_job_running() {
+        let mut state = crate::server::test_state();
+        run(&mut state, &["set", "-g", "@seg", "#[bold]#(echo yo)"]);
+        assert_eq!(crate::server::sources::running(&state), 1);
+        run(&mut state, &["set", "-g", "@seg", "plain"]);
+        assert_eq!(crate::server::sources::running(&state), 0);
+        run(&mut state, &["set", "-g", "@seg", "#(echo yo)"]);
+        run(&mut state, &["set", "-gu", "@seg"]);
         assert_eq!(crate::server::sources::running(&state), 0);
     }
 

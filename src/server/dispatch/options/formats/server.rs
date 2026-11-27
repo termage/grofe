@@ -227,8 +227,8 @@ impl FormatVars for ServerVars<'_> {
         self.inner.vars().pane_search(term, regex, ignore)
     }
 
-    fn reexpand(&self, text: &str) -> String {
-        self.inner.vars().reexpand(text)
+    fn reexpand(&self, name: &str, text: &str) -> String {
+        self.inner.vars().reexpand(name, text)
     }
 }
 

@@ -7,10 +7,12 @@
 
 use std::cell::{Cell, RefCell};
 
-pub(crate) mod modify;
+mod modify;
 mod names;
 pub(crate) mod time;
 mod x11;
+
+pub(crate) use modify::skip1;
 
 /// A [`FormatVars`] that names nothing, for formats expanded with no context.
 pub struct NoVars;
@@ -47,10 +49,11 @@ pub trait FormatVars {
         None
     }
 
-    /// `text`, a format that something read back out of a variable and is
-    /// about to be expanded again (`#{E:}`, `#{T:}`), in the language the
-    /// expander reads: a tmux server stores formats as tmux wrote them.
-    fn reexpand(&self, text: &str) -> String {
+    /// `text`, a format that something read back out of the variable `name`
+    /// and is about to be expanded again (`#{E:}`, `#{T:}`), in the language
+    /// the expander reads: a tmux server stores formats as tmux wrote them,
+    /// and a user option as the tmux client that set it did.
+    fn reexpand(&self, _name: &str, text: &str) -> String {
         text.to_string()
     }
 

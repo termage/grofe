@@ -393,18 +393,18 @@ impl FormatVars for FormatCtx<'_> {
         ))
     }
 
-    fn reexpand(&self, text: &str) -> String {
+    fn reexpand(&self, name: &str, text: &str) -> String {
         use crate::compat::Identity;
-        match self.model.identity {
-            Identity::Tmux => {
-                crate::compat::tmux::formats::to_native(
-                    text,
-                    crate::compat::tmux::formats::Jobs::Empty,
-                )
-                .value
-            }
-            Identity::Grofe => text.to_string(),
-        }
+        use crate::compat::tmux::formats::{Jobs, to_native};
+        // The jobs of a user option a tmux client set are registered.
+        let jobs = if self.model.options.sent_by_tmux(name, &self.option_chain()) {
+            Jobs::Sources
+        } else if self.model.identity == Identity::Tmux {
+            Jobs::Empty
+        } else {
+            return text.to_string();
+        };
+        to_native(text, jobs).value
     }
 }
 

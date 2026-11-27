@@ -45,7 +45,9 @@ pub struct Options {
     /// grofe's format spelling (FE.3), by owner and name (`status-format[1]`
     /// for an element): the stored value it stands for, and the text as
     /// sent. A tmux-dialect `show` prints the text while the value is
-    /// still that one (continuum and canopy read values back).
+    /// still that one (continuum and canopy read values back). A user
+    /// option's is kept too, though it is stored as sent: it marks text
+    /// that `#{E:}` reads in tmux's language ([`Options::sent_by_tmux`]).
     pub(super) shown: BTreeMap<(Owner, String), (String, String)>,
 }
 
@@ -162,11 +164,12 @@ impl Options {
     }
 
     /// Records the text a tmux-dialect request sent for `name`'s value
-    /// at `owner` (see `shown`); `None`, or the value itself, forgets it.
+    /// at `owner` (see `shown`); `None`, or the value itself unless `name`
+    /// is a user option, forgets it.
     pub fn set_shown(&mut self, owner: Owner, name: &str, value: &str, sent: Option<String>) {
         let key = (owner, name.to_string());
         match sent {
-            Some(sent) if sent != value => {
+            Some(sent) if sent != value || name.starts_with('@') => {
                 self.shown.insert(key, (value.to_string(), sent));
             }
             _ => {
@@ -299,11 +302,24 @@ impl Options {
 
     /// The first value found walking `chain`, then global.
     pub(crate) fn lookup(&self, name: &str, chain: &[Owner]) -> Option<&str> {
+        self.lookup_at(name, chain).map(|(_, e)| e.value.as_str())
+    }
+
+    /// [`Self::lookup`]'s entry, and the owner that has it.
+    fn lookup_at(&self, name: &str, chain: &[Owner]) -> Option<(Owner, &Entry)> {
         chain
             .iter()
             .chain([&Owner::GlobalWindow, &Owner::Global, &Owner::Server])
-            .find_map(|o| self.get(*o, name))
-            .map(|e| e.value.as_str())
+            .find_map(|o| Some((*o, self.get(*o, name)?)))
+    }
+
+    /// Whether the value of user option `name` that [`Self::lookup`] finds
+    /// is text a tmux-dialect `set` sent.
+    pub(crate) fn sent_by_tmux(&self, name: &str, chain: &[Owner]) -> bool {
+        name.starts_with('@')
+            && self
+                .lookup_at(name, chain)
+                .is_some_and(|(owner, e)| self.shown(owner, name, &e.value).is_some())
     }
 
     /// Drops values set on sessions, windows or panes that no longer exist.
