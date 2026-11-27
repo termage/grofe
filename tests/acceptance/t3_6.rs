@@ -404,7 +404,13 @@ impl Drop for NestedTmux {
 // tmux; set GROFE_TEST_TMUX on such a machine.
 fn real_tmux() -> Option<PathBuf> {
     if let Some(tmux) = std::env::var_os("GROFE_TEST_TMUX") {
-        return Some(PathBuf::from(tmux)).filter(|t| t.is_file());
+        let tmux = PathBuf::from(tmux);
+        assert!(
+            tmux.is_file(),
+            "GROFE_TEST_TMUX is {}, which is not a file",
+            tmux.display()
+        );
+        return Some(tmux);
     }
     let grofe = fs::canonicalize(env!("CARGO_BIN_EXE_grofe")).ok();
     std::env::split_paths(&std::env::var_os("PATH")?)

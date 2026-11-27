@@ -834,6 +834,9 @@ pub fn wait_child(mut child: Child, timeout: Duration) -> Result<ExitStatus, Str
 
 /// `git` in the test's own repo `dir`, apart from the user's git setup: no
 /// global or system config file, no template hooks, and a fixed author.
+/// Config passed in the environment (`GIT_CONFIG_COUNT`,
+/// `GIT_CONFIG_PARAMETERS`) still applies, and with it any hook it sets, so
+/// a test commit uses a Conventional Commits subject or `--no-verify`.
 pub fn git(dir: &Path) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(dir)
