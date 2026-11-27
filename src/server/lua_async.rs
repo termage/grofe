@@ -218,7 +218,12 @@ async fn run_system(
     let mut cause = None;
     let mut timed_out = false;
     let (code, stdout, stderr) = match ran {
-        Ok((out, err)) => (code.unwrap_or(-1), out, err),
+        Ok((out, err)) => {
+            if let Some(n) = signal {
+                cause = Some(format!("killed by signal {n}"));
+            }
+            (code.unwrap_or(-1), out, err)
+        }
         Err(_) => {
             group.kill();
             let _ = child.wait().await;

@@ -64,6 +64,21 @@ fn a_timed_out_job_says_so_in_its_entry() {
 }
 
 #[test]
+fn a_job_killed_by_a_signal_names_it_in_its_entry() {
+    let srv = server();
+    lua_ok(
+        &srv,
+        "grofe.system({'sh','-c','kill -9 $$'}, function() end, \
+         {agent = {kind = 'triage', label = 'shot'}})",
+    );
+    srv.wait_for(
+        || notes(&srv).contains(" - triage error shot killed by signal 9"),
+        crate::support::WAIT,
+    )
+    .unwrap_or_else(|e| panic!("{e}: notifications {:?}", notes(&srv)));
+}
+
+#[test]
 fn a_job_that_cannot_start_gives_the_spawn_error_in_its_entry() {
     let srv = server();
     lua_ok(
