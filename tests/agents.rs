@@ -6,7 +6,6 @@ mod common;
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -95,14 +94,12 @@ impl Fixture {
         let bin = self.dir.path().join("bin");
         fs::create_dir_all(&bin).expect("bin dir");
         let script = bin.join("claude");
-        fs::write(
+        crate::common::exec::write_script(
             &script,
-            format!(
+            &format!(
                 "#!/bin/bash\nexec -a claude /bin/sh -c 'i=0; while [ $i -lt {secs} ]; do echo tick; sleep 1; i=$((i+1)); done'\n"
             ),
-        )
-        .expect("write claude");
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+        );
         bin
     }
 }

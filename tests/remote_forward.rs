@@ -243,14 +243,11 @@ fn a_remote_port_is_forwarded_until_it_goes() {
 
 /// A script standing in for `open`/`xdg-open`: writes its argument to `out`.
 fn fake_opener(dir: &Path, out: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = dir.join("opener");
-    std::fs::write(
+    crate::common::exec::write_script(
         &path,
-        format!("#!/bin/sh\nprintf '%s' \"$1\" > '{}'\n", out.display()),
-    )
-    .unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("#!/bin/sh\nprintf '%s' \"$1\" > '{}'\n", out.display()),
+    );
     path
 }
 
@@ -477,13 +474,10 @@ fn open_url_falls_back_once_the_client_a_subscription_follows_has_gone() {
         .expect("subscribe -c");
     let out = srv.home.join("opened-here");
     let opener = srv.home.join("opener");
-    std::fs::write(
+    crate::common::exec::write_script(
         &opener,
-        format!("#!/bin/sh\nprintf '%s' \"$1\" > '{}'\n", out.display()),
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("#!/bin/sh\nprintf '%s' \"$1\" > '{}'\n", out.display()),
+    );
     let open = |url: &str| {
         let command = format!(
             "GROFE_OPENER={} {} open '{url}'",

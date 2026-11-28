@@ -82,7 +82,7 @@ fn rig(real: Option<&Path>, xre: &Path) -> Rig {
     );
     let bin = rig.store().join("plugins/tmux-fzf-url/bin");
     fs::create_dir_all(&bin).unwrap();
-    fs::copy(xre, bin.join("xre")).unwrap();
+    crate::common::exec::copy_program(xre, &bin.join("xre"));
     let root = rig.root.display().to_string();
     for name in ["xdg-open", "open"] {
         rig.install(name, &OPEN_STUB.replace("<root>", &root));

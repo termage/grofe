@@ -5,9 +5,6 @@
 
 mod common;
 
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
-
 use common::TestServer;
 use grofe::remote::connect::{
     ConnectError, ConnectOpts, Link, NO_ANSWER, TEST_HELLO_ENV, Transport,
@@ -30,8 +27,7 @@ fn only_a_batch_connect_gives_up_on_a_slow_hello() {
         grofe = env!("CARGO_BIN_EXE_grofe"),
     );
     let ssh = dir.path().join("ssh");
-    fs::write(&ssh, script).unwrap();
-    fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::common::exec::write_script(&ssh, &script);
     // SAFETY: this binary's only test; nothing else reads the environment
     // concurrently.
     unsafe {

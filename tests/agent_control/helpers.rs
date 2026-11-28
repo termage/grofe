@@ -2,7 +2,6 @@
 //! reads a cue, a detection file that matches those lines, and small readers.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -70,8 +69,7 @@ pub(crate) fn start(detection: Option<&str>) -> Fx {
 
 pub(crate) fn write_script(srv: &TestServer) -> PathBuf {
     let script = srv.home.join("fake-agent");
-    fs::write(&script, FAKE_AGENT).expect("write script");
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::common::exec::write_script(&script, FAKE_AGENT);
     script
 }
 
@@ -119,8 +117,7 @@ impl Fx {
             "#!/bin/sh\n{paste}stty raw -echo\necho 'READY>'\ncat > '{}'\n",
             out.display()
         );
-        fs::write(&script, text).expect("write raw script");
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+        crate::common::exec::write_script(&script, &text);
         let id = self
             .srv
             .cmd(&[

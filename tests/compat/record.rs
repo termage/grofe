@@ -80,10 +80,9 @@ pub fn check_version(tmux: &Path) -> Result<(), String> {
             tmux.display()
         ));
     }
-    let out = Command::new(tmux)
-        .env_clear()
-        .arg("-V")
-        .output()
+    let mut cmd = Command::new(tmux);
+    cmd.env_clear().arg("-V");
+    let out = crate::exec::retry_busy(|| cmd.output())
         .map_err(|e| format!("running {} -V: {e}", tmux.display()))?;
     let printed = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if printed == TMUX_VERSION {

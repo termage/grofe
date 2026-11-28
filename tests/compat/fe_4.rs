@@ -13,7 +13,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -37,7 +36,7 @@ fn check(name: &str, diverges: &[(&str, &str)]) {
     let parsed = parse_scenario(&fs::read_to_string(&scenario).unwrap()).unwrap();
     let golden = fs::read_to_string(scenario.with_extension("golden")).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cli = with_client_ttys(grofe_cli(dir.path()), dir.path());
+    let cli = grofe_cli(dir.path());
     let got = replay(&cli, &parsed).normalized(&Normalizer::load());
     let (want, got) = (steps(&golden), steps(&got));
     assert_eq!(
@@ -72,36 +71,6 @@ fn check(name: &str, diverges: &[(&str, &str)]) {
         stale.is_empty(),
         "fe_4/{name}: listed steps now match: {stale:#?}"
     );
-}
-
-/// `cli` behind a wrapper that answers the replayer's attach check,
-/// `list-clients -F '#{client_tty}'`, with the ttys of this run's attach
-/// clients once the server lists a client, since grofe's `client_tty` is
-/// still empty (FE.2's). Every other command reaches grofe as it is.
-// ponytail: harness only, the same shim as FE.3's; drop it once FE.2 fills
-// client_tty.
-pub fn with_client_ttys(mut cli: Cli, dir: &Path) -> Cli {
-    let wrap = dir.join("wrap");
-    fs::create_dir_all(&wrap).unwrap();
-    let script = wrap.join("tmux");
-    let grofe = cli.program.display().to_string();
-    fs::write(
-        &script,
-        format!(
-            "#!/bin/sh\n\
-             case \"$*\" in\n\
-             *'list-clients -F #{{client_tty}}')\n\
-             \x20 [ \"$('{grofe}' \"$@\" | wc -l)\" -gt 0 ] || exit 0\n\
-             \x20 ps -A -o tty= -o args= | awk -v g='{grofe}' 'index($0, g \" \") && / attach/ {{ print \"/dev/\" $1 }}'\n\
-             \x20 exit 0 ;;\n\
-             esac\n\
-             exec '{grofe}' \"$@\"\n"
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-    cli.program = script;
-    cli
 }
 
 /// Case 1: vim-tmux-navigator's `if -F` C-h test from the CLI (the
@@ -208,7 +177,7 @@ fn popup_env_is_tmux_s() {
     let scenario = fixtures_dir().join("golden/fe_4/popup-env.scenario");
     let parsed = parse_scenario(&fs::read_to_string(&scenario).unwrap()).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cli = with_client_ttys(grofe_cli(dir.path()), dir.path());
+    let cli = grofe_cli(dir.path());
     let mut run = replay(&cli, &parsed);
     // The server's pid exactly, from `TMUX` (`<socket>,<pid>,<session>`),
     // in place of the replayer's pid window, which a busy machine can
@@ -392,7 +361,7 @@ impl Attached {
                 Ok(())
             });
         }
-        let child = cmd.spawn().expect("spawn attach");
+        let child = crate::exec::retry_busy(|| cmd.spawn()).expect("spawn attach");
         drop(pty.slave);
         let master = File::from(pty.master);
         let mut reader = master.try_clone().expect("dup pty master");
@@ -462,7 +431,7 @@ fn a_pressed_c_h_binding_behaves_as_in_tmux() {
     // symlink would not do (macOS names the process after its target), nor
     // a copy of a system binary (macOS kills it).
     let nvim = dir.path().join("home/nvim");
-    fs::copy(env!("CARGO_BIN_EXE_grofe"), &nvim).unwrap();
+    crate::exec::copy_program(Path::new(env!("CARGO_BIN_EXE_grofe")), &nvim);
     out(
         &cli,
         &[
@@ -1244,9 +1213,9 @@ fn fzf_tmux_selection_reaches_the_caller() {
     let cli = grofe_cli(dir.path());
     let picked = dir.path().join("picked");
     let script = dir.path().join("pick.sh");
-    fs::write(
+    crate::exec::write_script(
         &script,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf 'apple\\nbanana\\ncherry\\n' | '{}' --tmux center,50%,50% > '{}.tmp'\n\
              echo $? >> '{}.tmp'\nmv '{}.tmp' '{}'\nexec cat\n",
             fzf.display(),
@@ -1255,9 +1224,7 @@ fn fzf_tmux_selection_reaches_the_caller() {
             picked.display(),
             picked.display(),
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     out(
         &cli,
         &[

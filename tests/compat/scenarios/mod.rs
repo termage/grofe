@@ -48,7 +48,7 @@ mod live;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -276,8 +276,7 @@ pub fn tc13_cli(dir: &Path, co: &Checkouts) -> Cli {
     let bin = dir.join("bin");
     for stub in ["curl", "wget", "git", "sudo", "doas", "open", "osascript"] {
         let path = bin.join(stub);
-        fs::write(&path, "#!/bin/sh\nexit 1\n").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::exec::write_script(&path, "#!/bin/sh\nexit 1\n");
     }
     cli
 }
@@ -585,8 +584,7 @@ fn a_script_s_path_and_the_tripwire_are_checked() {
     let other = dir.path().join("other");
     fs::create_dir_all(&other).unwrap();
     let fake = other.join("tmux");
-    fs::write(&fake, "#!/bin/sh\n").unwrap();
-    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::exec::write_script(&fake, "#!/bin/sh\n");
 
     let plain = dir.path().join("plain");
     fs::write(&plain, "#!/bin/sh\ntmux ls\n").unwrap();

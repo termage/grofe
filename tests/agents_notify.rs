@@ -8,7 +8,6 @@ mod common;
 mod harness;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -48,12 +47,10 @@ fn notify_list(srv: &TestServer) -> String {
 fn recorder(dir: &TempDir) -> (PathBuf, PathBuf) {
     let out = dir.path().join("argv.txt");
     let script = dir.path().join("record.sh");
-    fs::write(
+    crate::common::exec::write_script(
         &script,
-        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\n", out.display()),
-    )
-    .expect("write script");
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\n", out.display()),
+    );
     (script, out)
 }
 
@@ -192,12 +189,10 @@ fn a_test_server_never_notifies_the_desktop() {
     let marker = dir.path().join("notified");
     for tool in ["osascript", "terminal-notifier", "notify-send"] {
         let path = shims.join(tool);
-        fs::write(
+        crate::common::exec::write_script(
             &path,
-            format!("#!/bin/sh\necho {tool} >> '{}'\n", marker.display()),
-        )
-        .expect("write shim");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+            &format!("#!/bin/sh\necho {tool} >> '{}'\n", marker.display()),
+        );
     }
     let path = format!(
         "{}:{}",

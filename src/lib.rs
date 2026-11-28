@@ -18,6 +18,9 @@ pub mod protocol;
 pub mod remote;
 pub mod server;
 pub mod term;
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) mod test_exec;
 pub mod types;
 pub mod util;
 

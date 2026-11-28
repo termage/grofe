@@ -14,7 +14,6 @@ mod harness;
 
 use std::fs;
 use std::net::UdpSocket;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -69,8 +68,7 @@ exec /bin/sh -c "exec $*"
             cfg = srv.config_home.display(),
         );
         let ssh = root.join("ssh");
-        fs::write(&ssh, script).unwrap();
-        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::common::exec::write_script(&ssh, &script);
         Remote { srv, dir }
     }
 
